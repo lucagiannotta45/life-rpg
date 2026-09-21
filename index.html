@@ -665,6 +665,37 @@
     .emblem-num { font-size: 40px; }
     .class-name { font-size: 32px; }
   }
+
+  /* ---------- ritocchi grafici ---------- */
+  /* calendario: mese e pulsante "Oggi" insieme, in colonna tra le due frecce */
+  .cal-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .cal-mid .cal-title { flex: none; }
+  .cal-nav .cal-today { min-width: 0; min-height: 32px; padding: 2px 12px; font-size: 20px; }
+  /* giorno scelto: anello chiaro, distinto dal bordo dorato di oggi */
+  .cal-day[aria-pressed="true"] { box-shadow: inset 0 0 0 3px var(--ink-strong); }
+  /* interruttori */
+  .btn.toggle { display: inline-flex; align-items: center; gap: 10px; }
+  .btn.toggle::before {
+    content: ""; flex: none; width: 36px; height: 20px; border-radius: 10px; box-sizing: border-box;
+    border: 2px solid var(--ink-soft); background-color: var(--track);
+    background-image: radial-gradient(circle at 10px 50%, var(--ink-soft) 0 5px, transparent 5.5px);
+  }
+  .btn.toggle[aria-pressed="true"]::before {
+    border-color: var(--good); background-color: color-mix(in srgb, var(--good) 30%, var(--track));
+    background-image: radial-gradient(circle at calc(100% - 10px) 50%, var(--good) 0 5px, transparent 5.5px);
+  }
+  /* etichette e titoli di gruppo in oro, come i titoli delle finestre */
+  .modal-win .field .label { color: var(--gold); }
+  h4.sub { color: var(--gold); }
+  /* etichetta unica quando tutte le statistiche hanno lo stesso valore; testo dei chip sempre leggibile */
+  .chip { color: var(--ct, var(--c)); }
+  .chip.all { --c: var(--gold); }
+  /* schede di missioni e routine: spazi uguali tra le righe, anche dentro le finestre */
+  .mission .m-desc, .mission .m-pen, .mission .m-routine, .mission .m-lock { margin: 8px 0 0; }
+  /* finestre: sfondo dietro più scuro; le Impostazioni restano ancorate in alto tra una scheda e l'altra */
+  .modal { background: rgba(0, 0, 0, .72); }
+  #settings[data-tab="look"] { background: rgba(0, 0, 0, .28); }
+  #settings .modal-win { margin-block: 0 auto; }
 </style>
 </head>
 <body>
@@ -737,10 +768,12 @@
   <section class="screen two" id="view-cal" role="tabpanel" aria-labelledby="vt-cal" hidden>
     <section class="win col-a" aria-labelledby="t-cal">
       <h2 class="win-title" id="t-cal" data-i18n="view.cal">Calendario</h2>
-      <button type="button" class="win-tab" id="cal-today" data-i18n="cal.today">Oggi</button>
       <div class="cal-nav">
         <button type="button" class="btn small" id="cal-prev" aria-label="Mese precedente" data-i18n-aria="cal.prev"></button>
-        <h3 class="cal-title" id="cal-title" aria-live="polite"></h3>
+        <div class="cal-mid">
+          <h3 class="cal-title" id="cal-title" aria-live="polite"></h3>
+          <button type="button" class="btn small cal-today" id="cal-today">Oggi</button>
+        </div>
         <button type="button" class="btn small" id="cal-next" aria-label="Mese successivo" data-i18n-aria="cal.next"></button>
       </div>
       <div class="cal-grid" id="cal-grid"></div>
@@ -795,9 +828,9 @@
         <label class="label" for="in-title" data-i18n="look.title">Titolo in alto</label>
         <input class="text-in" id="in-title" type="text" maxlength="24" autocomplete="off" placeholder="Life RPG">
         <div class="img-actions">
-          <button type="button" class="btn small" id="btn-title-show" aria-pressed="true">Titolo mostrato</button>
+          <button type="button" class="btn small toggle" id="btn-title-show" aria-pressed="true">Titolo mostrato</button>
         </div>
-        <p class="tip" data-i18n="look.title.tip">Se lasci il campo vuoto resta "Life RPG". Puoi anche nasconderlo del tutto.</p>
+        <p class="tip" data-i18n="look.title.tip">Se lasci il campo vuoto resta «Life RPG». Puoi anche nasconderlo del tutto.</p>
       </div>
 
       <div class="field">
@@ -905,13 +938,13 @@
     <div role="tabpanel" id="pane-sound" aria-labelledby="tab-sound" hidden>
       <div class="field">
         <p class="label" data-i18n="sound.label">Effetti sonori</p>
-        <p data-i18n="sound.desc">Brevi suoni quando completi o annulli una missione, sali di livello o perdi XP. Vale solo per questo dispositivo.</p>
-        <button type="button" class="btn small" id="btn-sound" aria-pressed="true">Suono acceso</button>
+        <p data-i18n="sound.desc">Brevi suoni quando completi o riapri una missione, sali di livello o perdi XP. Vale solo per questo dispositivo.</p>
+        <button type="button" class="btn small toggle" id="btn-sound" aria-pressed="true">Suono acceso</button>
       </div>
       <div class="field">
         <p class="label" data-i18n="sound.menu.label">Suoni dei menu</p>
-        <p data-i18n="sound.menu.desc">Suoni leggeri quando cambi schermata, cambi mese, apri o chiudi una finestra, salvi o elimini. Seguono l'interruttore qui sopra: se spegni tutto il suono, restano spenti. Vale solo per questo dispositivo.</p>
-        <button type="button" class="btn small" id="btn-menu-sound" aria-pressed="true">Suoni dei menu accesi</button>
+        <p data-i18n="sound.menu.desc">Suoni leggeri quando cambi schermata, apri o chiudi una finestra, salvi o elimini. Seguono l'interruttore qui sopra: se spegni tutto il suono, restano spenti. Vale solo per questo dispositivo.</p>
+        <button type="button" class="btn small toggle" id="btn-menu-sound" aria-pressed="true">Suoni dei menu accesi</button>
       </div>
     </div>
 
@@ -935,7 +968,7 @@
       </div>
       <div class="field">
         <p class="label" data-i18n="data.label">Salvataggio</p>
-        <p data-i18n="data.desc">Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. "Azzera tutto" cancella i progressi e le missioni, ma non l'aspetto.</p>
+        <p data-i18n="data.desc">Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. «Azzera tutto» cancella i progressi e le missioni, ma non l'aspetto.</p>
         <div class="data-actions">
           <button type="button" class="btn" id="btn-export" data-i18n="data.export">Esporta salvataggio</button>
           <button type="button" class="btn" id="btn-import" data-i18n="data.import">Importa salvataggio</button>
@@ -980,7 +1013,7 @@
     <div class="field" id="mf-rep-field">
       <div id="mf-rep-toggle">
         <p class="label" data-i18n="mf.rep.label">Ripetizione</p>
-        <button type="button" class="btn small" id="mf-rep" aria-pressed="false">Non si ripete</button>
+        <button type="button" class="btn small toggle" id="mf-rep" aria-pressed="false">Non si ripete</button>
       </div>
       <div id="mf-rep-box" hidden>
         <div class="inline">
@@ -1178,7 +1211,13 @@
       "lvl.need_one": "manca {n} XP",
       "lvl.need_other": "mancano {n} XP",
       "lu.big": "Level up!",
-      "lu.overall": "Livello complessivo: {from} → {to}",
+      "lu.overall": "Livello complessivo: da {from} a {to}",
+      "lu.line": "sale al Lv {to}",
+      "pen.line": "scende al Lv {to}",
+      "xp.all": "a tutte le statistiche",
+      "cal.today.btn": "Oggi {date}",
+      "cal.today.aria": "Vai a oggi ({date})",
+      "drive.off.confirm": "Conferma: scollega",
 
       "mis.todo": "Da fare",
       "mis.new": "Nuova missione",
@@ -1188,7 +1227,7 @@
       "mis.more.aria_one": "Mostra un'altra missione",
       "mis.more.aria_other": "Mostra altre {n} missioni",
       "mis.more.grp": " del gruppo {group}",
-      "mis.empty.todo": "Nessuna missione da fare. Crea la prima con \"Nuova missione\".",
+      "mis.empty.todo": "Nessuna missione da fare. Crea la prima con «Nuova missione».",
       "mis.empty.done": "Le missioni completate compariranno qui.",
       "grp.late": "Scadute",
       "grp.today": "Oggi",
@@ -1225,15 +1264,15 @@
       "xp.none.lower": "nessun XP",
       "xp.none.remove": "Nessun XP da togliere",
       "btn.complete": "Completa",
-      "btn.undo": "Annulla",
+      "btn.undo": "Riapri",
       "btn.edit": "Modifica",
       "btn.undopen": "Annulla penalità",
-      "aria.undo": "Annulla la missione",
+      "aria.undo": "Riapri la missione",
       "aria.late": "Completa in ritardo la missione",
       "aria.undopen": "Annulla la penalità della missione",
       "aria.complete": "Completa la missione",
       "aria.edit": "Modifica la missione",
-      "btn.gcal": "+ Google Calendar",
+      "btn.gcal": "Aggiungi a Google Calendar",
       "aria.gcal": "Aggiungi a Google Calendar la missione",
       "aria.gcal.routine": "Aggiungi a Google Calendar la routine",
       "ntf.today_one": "Oggi scade 1 missione",
@@ -1242,7 +1281,7 @@
       "ntf.late_other": "{n} missioni scadute",
 
       "msg.completed": "Missione completata: {title}. {gain}.",
-      "msg.undone": "Missione annullata: {title}. {loss}.",
+      "msg.undone": "Missione riaperta: {title}. {loss}.",
       "msg.penrev": "Penalità annullata: {title}. {gain}. La missione è tornata tra quelle da fare, senza data: puoi sceglierne una nuova.",
       "msg.penrev.form": "Penalità annullata. Scegli una nuova data (e, se vuoi, un'ora), oppure chiudi la finestra per lasciare la missione senza data.",
       "msg.created": "Missione creata: {title}.",
@@ -1295,7 +1334,7 @@
       "r.best": "Record: {n}",
       "r.bonus": "Bonus: +{xp} XP ogni {n} giorni di fila",
       "r.paused": "In pausa fino al {when}",
-      "info.mis.p6": "Una routine è una missione che compare da sola nei giorni che scegli (pulsante \"Routine\"). La serie conta i giorni di fila in cui la completi in tempo. Dal pulsante \"+ Google Calendar\" della routine crei un evento che si ripete negli stessi giorni.",
+      "info.mis.p6": "Una routine è una missione che compare da sola nei giorni che scegli (pulsante «Routine»). La serie conta i giorni di fila in cui la completi in tempo. Dal pulsante «+ Google Calendar» della routine crei un evento che si ripete negli stessi giorni.",
       "mf.title": "Titolo",
       "mf.title.ph": "Per esempio: Correre 30 minuti",
       "mf.desc": "Descrizione",
@@ -1344,7 +1383,7 @@
       "look.title": "Titolo in alto",
       "look.title.shown": "Titolo mostrato",
       "look.title.hidden": "Titolo nascosto",
-      "look.title.tip": "Se lasci il campo vuoto resta \"Life RPG\". Puoi anche nasconderlo del tutto.",
+      "look.title.tip": "Se lasci il campo vuoto resta «Life RPG». Puoi anche nasconderlo del tutto.",
       "look.textcolor": "Colore dei testi",
       "look.c.ink": "Testo principale",
       "look.c.soft": "Testo secondario",
@@ -1381,16 +1420,16 @@
       "lang.tip": "Cambia la lingua di tutta la pagina.",
 
       "sound.label": "Effetti sonori",
-      "sound.desc": "Brevi suoni quando completi o annulli una missione, sali di livello o perdi XP. Vale solo per questo dispositivo.",
+      "sound.desc": "Brevi suoni quando completi o riapri una missione, sali di livello o perdi XP. Vale solo per questo dispositivo.",
       "sound.on": "Suono acceso",
       "sound.off": "Suono spento",
       "sound.menu.label": "Suoni dei menu",
-      "sound.menu.desc": "Suoni leggeri quando cambi schermata, cambi mese, apri o chiudi una finestra, salvi o elimini. Seguono l'interruttore qui sopra: se spegni tutto il suono, restano spenti. Vale solo per questo dispositivo.",
+      "sound.menu.desc": "Suoni leggeri quando cambi schermata, apri o chiudi una finestra, salvi o elimini. Seguono l'interruttore qui sopra: se spegni tutto il suono, restano spenti. Vale solo per questo dispositivo.",
       "sound.menu.on": "Suoni dei menu accesi",
       "sound.menu.off": "Suoni dei menu spenti",
 
       "data.label": "Salvataggio",
-      "data.desc": "Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. \"Azzera tutto\" cancella i progressi e le missioni, ma non l'aspetto.",
+      "data.desc": "Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. «Azzera tutto» cancella i progressi e le missioni, ma non l'aspetto.",
       "data.export": "Esporta salvataggio",
       "data.import": "Importa salvataggio",
       "data.reset": "Azzera tutto",
@@ -1430,7 +1469,7 @@
 
       "info.play.h": "Come si gioca",
       "info.play.p1": "Crea una missione e scegli quanti XP dà e a quali statistiche.",
-      "info.play.p2": "Quando la finisci, premi \"Completa\": ricevi gli XP e le statistiche crescono.",
+      "info.play.p2": "Quando la finisci, premi «Completa»: ricevi gli XP e le statistiche crescono.",
 
       "info.lvl.h": "Livelli e XP",
       "info.lvl.p1": "XP vuol dire punti esperienza. Ogni statistica ha un livello da 0 a 100: i primi livelli arrivano presto, gli ultimi molto più tardi.",
@@ -1455,9 +1494,9 @@
       "info.mis.h": "Missioni",
       "info.mis.p1": "Ogni missione si fa una volta sola. La data è facoltativa.",
       "info.mis.p2": "Puoi aggiungere una penalità: sono gli XP che perdi se non completi la missione entro la data.",
-      "info.mis.p3": "Una missione scaduta con penalità va tra le \"Fallite\". Puoi completarla in ritardo (la penalità resta) oppure premere \"Annulla penalità\": riprendi gli XP e scegli una nuova data.",
-      "info.mis.p4": "Completata per sbaglio? \"Annulla\" toglie gli XP e la rimette tra le missioni \"Da fare\".",
-      "info.mis.p5": "Il pulsante \"+ Google Calendar\" aggiunge la missione al tuo calendario: l'avviso lo scegli tu lì.",
+      "info.mis.p3": "Una missione scaduta con penalità va tra le «Fallite». Puoi completarla in ritardo (la penalità resta) oppure premere «Annulla penalità»: riprendi gli XP e scegli una nuova data.",
+      "info.mis.p4": "Completata per sbaglio? «Riapri» toglie gli XP e la rimette tra le missioni «Da fare».",
+      "info.mis.p5": "Il pulsante «Aggiungi a Google Calendar» aggiunge la missione al tuo calendario: l'avviso lo scegli tu lì.",
 
       "info.data.h": "I tuoi dati",
       "info.data.cloud": "I tuoi progressi sono salvati nel tuo account e li ritrovi su ogni dispositivo.",
@@ -1473,7 +1512,7 @@
       "drive.st.ok": "Collegato a {who}. Ultimo salvataggio: {when}.",
       "drive.st.ok0": "Collegato a {who}.",
       "drive.st.busy": "Sincronizzazione in corso…",
-      "drive.st.auth": "Collegato. Tocca \"Sincronizza ora\" per salvare le ultime modifiche.",
+      "drive.st.auth": "Collegato. Tocca «Sincronizza ora» per salvare le ultime modifiche.",
       "drive.st.err": "Non sono riuscito a sincronizzare. Riprova tra poco.",
       "drive.unavail": "Il salvataggio su Google Drive funziona solo se apri l'app da un indirizzo web (https).",
       "drive.conflict": "Su Google Drive ci sono dati diversi da quelli di questo dispositivo. Drive: {drive}. Questo dispositivo: {here}. Quali vuoi tenere?",
@@ -1582,7 +1621,13 @@
       "lvl.need_one": "{n} XP to go",
       "lvl.need_other": "{n} XP to go",
       "lu.big": "Level up!",
-      "lu.overall": "Overall level: {from} → {to}",
+      "lu.overall": "Overall level: from {from} to {to}",
+      "lu.line": "reaches Lv {to}",
+      "pen.line": "drops to Lv {to}",
+      "xp.all": "to all stats",
+      "cal.today.btn": "Today {date}",
+      "cal.today.aria": "Go to today ({date})",
+      "drive.off.confirm": "Confirm: disconnect",
 
       "mis.todo": "To do",
       "mis.new": "New mission",
@@ -1592,7 +1637,7 @@
       "mis.more.aria_one": "Show 1 more mission",
       "mis.more.aria_other": "Show {n} more missions",
       "mis.more.grp": " in the {group} group",
-      "mis.empty.todo": "No missions to do. Create your first one with \"New mission\".",
+      "mis.empty.todo": "No missions to do. Create your first one with “New mission”.",
       "mis.empty.done": "Completed missions will appear here.",
       "grp.late": "Overdue",
       "grp.today": "Today",
@@ -1629,15 +1674,15 @@
       "xp.none.lower": "no XP",
       "xp.none.remove": "No XP to remove",
       "btn.complete": "Complete",
-      "btn.undo": "Undo",
+      "btn.undo": "Reopen",
       "btn.edit": "Edit",
       "btn.undopen": "Undo penalty",
-      "aria.undo": "Undo mission",
+      "aria.undo": "Reopen mission",
       "aria.late": "Complete late mission",
       "aria.undopen": "Undo the penalty of mission",
       "aria.complete": "Complete mission",
       "aria.edit": "Edit mission",
-      "btn.gcal": "+ Google Calendar",
+      "btn.gcal": "Add to Google Calendar",
       "aria.gcal": "Add to Google Calendar:",
       "aria.gcal.routine": "Add to Google Calendar the routine:",
       "ntf.today_one": "1 mission due today",
@@ -1646,7 +1691,7 @@
       "ntf.late_other": "{n} missions overdue",
 
       "msg.completed": "Mission completed: {title}. {gain}.",
-      "msg.undone": "Mission undone: {title}. {loss}.",
+      "msg.undone": "Mission reopened: {title}. {loss}.",
       "msg.penrev": "Penalty undone: {title}. {gain}. The mission is back in your to-do list, with no date: you can pick a new one.",
       "msg.penrev.form": "Penalty undone. Pick a new date (and a time, if you like), or close the window to leave the mission with no date.",
       "msg.created": "Mission created: {title}.",
@@ -1699,7 +1744,7 @@
       "r.best": "Best: {n}",
       "r.bonus": "Bonus: +{xp} XP every {n} days in a row",
       "r.paused": "Paused until {when}",
-      "info.mis.p6": "A routine is a mission that shows up by itself on the days you choose (\"Routines\" button). The streak counts the days in a row you complete it on time. The \"+ Google Calendar\" button on a routine creates an event that repeats on the same days.",
+      "info.mis.p6": "A routine is a mission that shows up by itself on the days you choose (“Routines” button). The streak counts the days in a row you complete it on time. The “+ Google Calendar” button on a routine creates an event that repeats on the same days.",
       "mf.title": "Title",
       "mf.title.ph": "For example: Run for 30 minutes",
       "mf.desc": "Description",
@@ -1748,7 +1793,7 @@
       "look.title": "Title at the top",
       "look.title.shown": "Title shown",
       "look.title.hidden": "Title hidden",
-      "look.title.tip": "If you leave the field empty, \"Life RPG\" stays. You can also hide it completely.",
+      "look.title.tip": "If you leave the field empty, “Life RPG” stays. You can also hide it completely.",
       "look.textcolor": "Text colors",
       "look.c.ink": "Main text",
       "look.c.soft": "Secondary text",
@@ -1785,16 +1830,16 @@
       "lang.tip": "Changes the language of the whole page.",
 
       "sound.label": "Sound effects",
-      "sound.desc": "Short sounds when you complete or undo a mission, level up or lose XP. This only applies to this device.",
+      "sound.desc": "Short sounds when you complete or reopen a mission, level up or lose XP. This only applies to this device.",
       "sound.on": "Sound on",
       "sound.off": "Sound off",
       "sound.menu.label": "Menu sounds",
-      "sound.menu.desc": "Light sounds when you switch screens, change month, open or close a window, save or delete. They follow the switch above: if all sound is off, they stay off. This only applies to this device.",
+      "sound.menu.desc": "Light sounds when you switch screens, open or close a window, save or delete. They follow the switch above: if all sound is off, they stay off. This only applies to this device.",
       "sound.menu.on": "Menu sounds on",
       "sound.menu.off": "Menu sounds off",
 
       "data.label": "Save data",
-      "data.desc": "The backup contains progress, missions, appearance, language and images (not sound). Importing it replaces your current data. \"Reset everything\" deletes your progress and missions, but not your appearance.",
+      "data.desc": "The backup contains progress, missions, appearance, language and images (not sound). Importing it replaces your current data. “Reset everything” deletes your progress and missions, but not your appearance.",
       "data.export": "Export save",
       "data.import": "Import save",
       "data.reset": "Reset everything",
@@ -1834,7 +1879,7 @@
 
       "info.play.h": "How to play",
       "info.play.p1": "Create a mission and choose how much XP it gives and to which stats.",
-      "info.play.p2": "When you finish it, press \"Complete\": you get the XP and your stats grow.",
+      "info.play.p2": "When you finish it, press “Complete”: you get the XP and your stats grow.",
 
       "info.lvl.h": "Levels and XP",
       "info.lvl.p1": "XP means experience points. Each stat has a level from 0 to 100: the first levels come quickly, the last ones much later.",
@@ -1859,9 +1904,9 @@
       "info.mis.h": "Missions",
       "info.mis.p1": "Each mission can be done only once. The due date is optional.",
       "info.mis.p2": "You can add a penalty: the XP you lose if you don't complete the mission by the due date.",
-      "info.mis.p3": "An overdue mission with a penalty goes to \"Failed\". You can complete it late (the penalty stays) or press \"Undo penalty\": you get the XP back and choose a new date.",
-      "info.mis.p4": "Completed by mistake? \"Undo\" takes the XP away and puts the mission back in \"To do\".",
-      "info.mis.p5": "The \"+ Google Calendar\" button adds the mission to your calendar, where you choose the reminder.",
+      "info.mis.p3": "An overdue mission with a penalty goes to “Failed”. You can complete it late (the penalty stays) or press “Undo penalty”: you get the XP back and choose a new date.",
+      "info.mis.p4": "Completed by mistake? “Reopen” takes the XP away and puts the mission back in “To do”.",
+      "info.mis.p5": "The “Add to Google Calendar” button adds the mission to your calendar, where you choose the reminder.",
 
       "info.data.h": "Your data",
       "info.data.cloud": "Your progress is saved in your account, so you find it on every device.",
@@ -1877,7 +1922,7 @@
       "drive.st.ok": "Connected to {who}. Last saved: {when}.",
       "drive.st.ok0": "Connected to {who}.",
       "drive.st.busy": "Syncing…",
-      "drive.st.auth": "Connected. Tap \"Sync now\" to save your latest changes.",
+      "drive.st.auth": "Connected. Tap “Sync now” to save your latest changes.",
       "drive.st.err": "I couldn't sync. Try again in a moment.",
       "drive.unavail": "Saving to Google Drive only works if you open the app from a web address (https).",
       "drive.conflict": "Google Drive has different data from this device. Drive: {drive}. This device: {here}. Which do you want to keep?",
@@ -1986,7 +2031,13 @@
       "lvl.need_one": "falta {n} XP",
       "lvl.need_other": "faltam {n} XP",
       "lu.big": "Level up!",
-      "lu.overall": "Nível geral: {from} → {to}",
+      "lu.overall": "Nível geral: de {from} para {to}",
+      "lu.line": "sobe para o Lv {to}",
+      "pen.line": "cai para o Lv {to}",
+      "xp.all": "a todas as estatísticas",
+      "cal.today.btn": "Hoje {date}",
+      "cal.today.aria": "Ir para hoje ({date})",
+      "drive.off.confirm": "Confirmar: desconectar",
 
       "mis.todo": "A fazer",
       "mis.new": "Nova missão",
@@ -1996,7 +2047,7 @@
       "mis.more.aria_one": "Mostrar mais 1 missão",
       "mis.more.aria_other": "Mostrar mais {n} missões",
       "mis.more.grp": " no grupo {group}",
-      "mis.empty.todo": "Nenhuma missão a fazer. Crie a primeira com \"Nova missão\".",
+      "mis.empty.todo": "Nenhuma missão a fazer. Crie a primeira com “Nova missão”.",
       "mis.empty.done": "As missões concluídas aparecerão aqui.",
       "grp.late": "Vencidas",
       "grp.today": "Hoje",
@@ -2033,15 +2084,15 @@
       "xp.none.lower": "nenhum XP",
       "xp.none.remove": "Nenhum XP para remover",
       "btn.complete": "Concluir",
-      "btn.undo": "Desfazer",
+      "btn.undo": "Reabrir",
       "btn.edit": "Editar",
       "btn.undopen": "Desfazer penalidade",
-      "aria.undo": "Desfazer a missão",
+      "aria.undo": "Reabrir a missão",
       "aria.late": "Concluir com atraso a missão",
       "aria.undopen": "Desfazer a penalidade da missão",
       "aria.complete": "Concluir a missão",
       "aria.edit": "Editar a missão",
-      "btn.gcal": "+ Google Agenda",
+      "btn.gcal": "Adicionar ao Google Agenda",
       "aria.gcal": "Adicionar ao Google Agenda a missão",
       "aria.gcal.routine": "Adicionar ao Google Agenda a rotina",
       "ntf.today_one": "1 missão vence hoje",
@@ -2050,7 +2101,7 @@
       "ntf.late_other": "{n} missões vencidas",
 
       "msg.completed": "Missão concluída: {title}. {gain}.",
-      "msg.undone": "Missão desfeita: {title}. {loss}.",
+      "msg.undone": "Missão reaberta: {title}. {loss}.",
       "msg.penrev": "Penalidade desfeita: {title}. {gain}. A missão voltou para a lista de missões a fazer, sem data: você pode escolher uma nova.",
       "msg.penrev.form": "Penalidade desfeita. Escolha uma nova data (e, se quiser, um horário), ou feche a janela para deixar a missão sem data.",
       "msg.created": "Missão criada: {title}.",
@@ -2103,7 +2154,7 @@
       "r.best": "Recorde: {n}",
       "r.bonus": "Bônus: +{xp} XP a cada {n} dias seguidos",
       "r.paused": "Em pausa até {when}",
-      "info.mis.p6": "Uma rotina é uma missão que aparece sozinha nos dias que você escolher (botão \"Rotinas\"). A sequência conta os dias seguidos em que você a conclui no prazo. O botão \"+ Google Agenda\" da rotina cria um evento que se repete nos mesmos dias.",
+      "info.mis.p6": "Uma rotina é uma missão que aparece sozinha nos dias que você escolher (botão “Rotinas”). A sequência conta os dias seguidos em que você a conclui no prazo. O botão “+ Google Agenda” da rotina cria um evento que se repete nos mesmos dias.",
       "mf.title": "Título",
       "mf.title.ph": "Por exemplo: Correr 30 minutos",
       "mf.desc": "Descrição",
@@ -2152,7 +2203,7 @@
       "look.title": "Título no topo",
       "look.title.shown": "Título visível",
       "look.title.hidden": "Título oculto",
-      "look.title.tip": "Se você deixar o campo vazio, fica \"Life RPG\". Você também pode ocultá-lo por completo.",
+      "look.title.tip": "Se você deixar o campo vazio, fica “Life RPG”. Você também pode ocultá-lo por completo.",
       "look.textcolor": "Cor dos textos",
       "look.c.ink": "Texto principal",
       "look.c.soft": "Texto secundário",
@@ -2189,16 +2240,16 @@
       "lang.tip": "Muda o idioma de toda a página.",
 
       "sound.label": "Efeitos sonoros",
-      "sound.desc": "Sons curtos quando você conclui ou desfaz uma missão, sobe de nível ou perde XP. Vale apenas para este dispositivo.",
+      "sound.desc": "Sons curtos quando você conclui ou reabre uma missão, sobe de nível ou perde XP. Vale apenas para este dispositivo.",
       "sound.on": "Som ligado",
       "sound.off": "Som desligado",
       "sound.menu.label": "Sons dos menus",
-      "sound.menu.desc": "Sons leves ao trocar de tela, mudar de mês, abrir ou fechar uma janela, salvar ou excluir. Seguem a chave acima: se todo o som estiver desligado, eles ficam desligados. Vale apenas para este dispositivo.",
+      "sound.menu.desc": "Sons leves ao trocar de tela, abrir ou fechar uma janela, salvar ou excluir. Seguem a chave acima: se todo o som estiver desligado, eles ficam desligados. Vale apenas para este dispositivo.",
       "sound.menu.on": "Sons dos menus ligados",
       "sound.menu.off": "Sons dos menus desligados",
 
       "data.label": "Salvamento",
-      "data.desc": "O backup contém progresso, missões, aparência, idioma e imagens (não o som). Ao importá-lo, você substitui os dados atuais. \"Zerar tudo\" apaga o progresso e as missões, mas não a aparência.",
+      "data.desc": "O backup contém progresso, missões, aparência, idioma e imagens (não o som). Ao importá-lo, você substitui os dados atuais. “Zerar tudo” apaga o progresso e as missões, mas não a aparência.",
       "data.export": "Exportar salvamento",
       "data.import": "Importar salvamento",
       "data.reset": "Zerar tudo",
@@ -2238,7 +2289,7 @@
 
       "info.play.h": "Como jogar",
       "info.play.p1": "Crie uma missão e escolha quantos XP ela dá e para quais estatísticas.",
-      "info.play.p2": "Quando terminar, aperte \"Concluir\": você recebe os XP e suas estatísticas crescem.",
+      "info.play.p2": "Quando terminar, aperte “Concluir”: você recebe os XP e suas estatísticas crescem.",
 
       "info.lvl.h": "Níveis e XP",
       "info.lvl.p1": "XP quer dizer pontos de experiência. Cada estatística tem um nível de 0 a 100: os primeiros níveis vêm rápido, os últimos demoram bem mais.",
@@ -2263,9 +2314,9 @@
       "info.mis.h": "Missões",
       "info.mis.p1": "Cada missão é feita uma única vez. A data é opcional.",
       "info.mis.p2": "Você pode adicionar uma penalidade: são os XP que você perde se não concluir a missão até a data.",
-      "info.mis.p3": "Uma missão vencida com penalidade vai para \"Falhadas\". Você pode concluí-la com atraso (a penalidade continua) ou apertar \"Desfazer penalidade\": você recupera os XP e escolhe uma nova data.",
-      "info.mis.p4": "Concluiu sem querer? \"Desfazer\" tira os XP e coloca a missão de volta em \"A fazer\".",
-      "info.mis.p5": "O botão \"+ Google Agenda\" adiciona a missão ao seu calendário, onde você escolhe o lembrete.",
+      "info.mis.p3": "Uma missão vencida com penalidade vai para “Falhadas”. Você pode concluí-la com atraso (a penalidade continua) ou apertar “Desfazer penalidade”: você recupera os XP e escolhe uma nova data.",
+      "info.mis.p4": "Concluiu sem querer? “Reabrir” tira os XP e coloca a missão de volta em “A fazer”.",
+      "info.mis.p5": "O botão “Adicionar ao Google Agenda” adiciona a missão ao seu calendário, onde você escolhe o lembrete.",
 
       "info.data.h": "Seus dados",
       "info.data.cloud": "Seu progresso é salvo na sua conta e você o encontra em qualquer dispositivo.",
@@ -2281,7 +2332,7 @@
       "drive.st.ok": "Conectado a {who}. Último salvamento: {when}.",
       "drive.st.ok0": "Conectado a {who}.",
       "drive.st.busy": "Sincronizando…",
-      "drive.st.auth": "Conectado. Toque em \"Sincronizar agora\" para salvar as últimas alterações.",
+      "drive.st.auth": "Conectado. Toque em “Sincronizar agora” para salvar as últimas alterações.",
       "drive.st.err": "Não consegui sincronizar. Tente de novo em instantes.",
       "drive.unavail": "Salvar no Google Drive só funciona se você abrir o app a partir de um endereço web (https).",
       "drive.conflict": "O Google Drive tem dados diferentes deste dispositivo. Drive: {drive}. Este dispositivo: {here}. Quais você quer manter?",
@@ -3041,11 +3092,11 @@
       line.className = 'lu-line';
       const name = document.createElement('span');
       name.className = 'lu-name';
-      name.style.color = statColor(u.s.key);
+      name.style.color = readable(statColor(u.s.key));
       name.textContent = u.s.name;
       const lv = document.createElement('span');
       lv.className = 'lu-to';
-      lv.textContent = T('lv') + ' ' + u.from + ' → ' + u.to;
+      lv.textContent = T('lu.line', { to: u.to });
       line.append(name, ' ', lv);
       listEl.appendChild(line);
     });
@@ -3090,6 +3141,7 @@
     resetArm(false);
     custResetArm(false);
     mfDelArm(false);
+    driveOffArm(false);
     pasteSlot = null;
     if (lastFocus && lastFocus.focus) lastFocus.focus();
     checkPenalties();
@@ -3431,7 +3483,17 @@
     driveSync(true);
   });
   $('drive-sync').addEventListener('click', () => driveSync(true));
-  $('drive-off').addEventListener('click', () => {
+  const offBtn = $('drive-off');
+  let offTimer = 0;
+  function driveOffArm(on) {
+    clearTimeout(offTimer);
+    offBtn.dataset.armed = on ? '1' : '';
+    offBtn.textContent = on ? T('drive.off.confirm') : T('drive.off');
+    if (on) offTimer = setTimeout(() => driveOffArm(false), 4000);
+  }
+  offBtn.addEventListener('click', () => {
+    if (!offBtn.dataset.armed) { driveOffArm(true); return; }     // primo tocco: chiede conferma
+    driveOffArm(false);
     clearTimeout(drv.timer);
     drv.on = false; drv.conflict = null; drv.dirty = false; drv.changedAt = 0; drv.synced = 0; drv.fileId = ''; drv.token = ''; drv.exp = 0; drv.state = 'off';
     driveKeep(); paintDrive(); dataMsg(T('drive.msg.off'));
@@ -3576,6 +3638,12 @@
     document.title = settings.titleShow ? text : 'Life RPG';
   }
   function statColor(key) { return settings.colors[key] || STATS.find(s => s.key === key).color; }
+  // colore del testo leggibile su fondo scuro: se quello scelto è troppo scuro lo si schiarisce (il bordo resta del colore scelto)
+  function readable(hex) {
+    let c = HEX.test(hex) ? hex : '#ffffff';
+    for (let k = 0; k < 20 && luminance(c) < 0.18; k++) c = mixHex(c, '#ffffff', 0.12);
+    return c;
+  }
   function statIconId(key) { return STATS.find(s => s.key === key).icon; }
   // mostra l'icona pixel oppure l'immagine caricata
   function paintIcon(el, key) {
@@ -3659,7 +3727,7 @@
     document.querySelectorAll('#settings input[type="color"]').forEach(c => {
       if (c._hex) c._hex.setAttribute('aria-label', T('hex.aria'));
     });
-    paintSound(); resetArm(false); custResetArm(false); mfDelArm(false);
+    paintSound(); resetArm(false); custResetArm(false); mfDelArm(false); driveOffArm(false);
     setSaveState(saveKind);
     if (cs.Vigore) paintCustom();
     render(false);
@@ -4098,6 +4166,7 @@
     ['mis-msg', 'cal-msg'].forEach(id => { const e = $(id); e.textContent = text; e.className = 'msg' + (kind ? ' ' + kind : ''); });
   }
   const gainText = map => {
+    if (allSame(map)) return '+' + fmt(allSame(map)) + ' ' + T('xp.all');
     const parts = STATS.filter(s => map[s.key] > 0).map(s => '+' + fmt(map[s.key]) + ' ' + s.name);
     return parts.length ? parts.join(', ') : T('xp.none.lower');
   };
@@ -4216,7 +4285,7 @@
       if (after[i] >= before[i]) return;
       const line = mk('p', 'pen-line');
       const name = nameSpan(s.key);
-      line.append(name, ' ', mk('span', 'to', T('lv') + ' ' + before[i] + ' → ' + after[i]));
+      line.append(name, ' ', mk('span', 'to', T('pen.line', { to: after[i] })));
       drops.appendChild(line);
     });
     if (ovAfter < ovBefore) drops.appendChild(mk('p', 'pen-line', T('lu.overall', { from: ovBefore, to: ovAfter })));
@@ -4332,14 +4401,24 @@
   }, 60000);
 
   // schede delle missioni
+  // valore uguale per tutte e sei le statistiche (0 se non lo è)
+  const allSame = map => {
+    const v = STATS.map(s => Number(map && map[s.key]) || 0);
+    return v[0] > 0 && v.every(x => x === v[0]) ? v[0] : 0;
+  };
   function chips(map) {
     const box = mk('div', 'chips');
     let any = false;
-    STATS.forEach(s => {
+    const same = allSame(map);
+    if (same) {
+      any = true;
+      box.appendChild(mk('span', 'chip all', '+' + fmt(same) + ' ' + T('xp.all')));
+    } else STATS.forEach(s => {
       if (!(map[s.key] > 0)) return;
       any = true;
       const c = mk('span', 'chip', '+' + fmt(map[s.key]) + ' ' + s.name);
       c.style.setProperty('--c', statColor(s.key));
+      c.style.setProperty('--ct', readable(statColor(s.key)));
       box.appendChild(c);
     });
     if (!any) box.appendChild(mk('span', 'chip none', T('xp.none')));
@@ -4347,13 +4426,17 @@
   }
   const hasAny = map => STATS.some(s => map && map[s.key] > 0);
   const lossText = map => {
+    if (allSame(map)) return '-' + fmt(allSame(map)) + ' ' + T('xp.all');
     const parts = STATS.filter(s => map[s.key] > 0).map(s => '-' + fmt(map[s.key]) + ' ' + s.name);
     return parts.length ? parts.join(', ') : T('xp.none.lower');
   };
   function lossChips(map) {
     const box = mk('div', 'chips');
     let any = false;
-    STATS.forEach(s => {
+    if (allSame(map)) {
+      any = true;
+      box.appendChild(mk('span', 'chip loss', '-' + fmt(allSame(map)) + ' ' + T('xp.all')));
+    } else STATS.forEach(s => {
       if (!(map[s.key] > 0)) return;
       any = true;
       box.appendChild(mk('span', 'chip loss', '-' + fmt(map[s.key]) + ' ' + s.name));
@@ -4594,6 +4677,9 @@
       grid.appendChild(b);
     }
     $('cal-title').textContent = cap1(new Date(calY, calM, 1).toLocaleDateString(locale(), { month: 'long', year: 'numeric' }));
+    const todayLbl = new Date().toLocaleDateString(locale(), { day: 'numeric', month: 'short' });
+    $('cal-today').textContent = T('cal.today.btn', { date: todayLbl });
+    $('cal-today').setAttribute('aria-label', T('cal.today.aria', { date: todayLbl }));
     renderDay();
     if (focusDate) { const b = grid.querySelector('[data-date="' + focusDate + '"]'); if (b) b.focus(); }
   }
@@ -5057,7 +5143,7 @@
   const nameSpan = key => {
     const s = STATS.find(x => x.key === key);
     const e = mk('span', null, s.name);
-    e.style.color = statColor(key);
+    e.style.color = readable(statColor(key));
     return e;
   };
   function renderInfo() {
