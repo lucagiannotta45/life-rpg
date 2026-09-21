@@ -547,6 +547,10 @@
   .pen-line { margin: 8px 0 0; font-size: 32px; line-height: 1.1; }
   .pen-line .to { color: var(--ink-strong); }
   #t-pen { color: var(--bad); }
+  .m-routine { margin: 6px 0 0; font-size: 24px; color: var(--gold); }
+  #mf-days { margin: 0 0 14px; }
+  #mf-rep-box .inline label { min-width: 0; flex: 1 1 200px; }
+  #mf-rep-box > .label:not(:first-child) { margin-top: 22px; }
   .m-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
   .cal-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 12px; }
@@ -576,7 +580,7 @@
   #day-new { margin: 0 0 12px; }
 
   .text-in.area { min-height: 110px; font: 24px/1.3 var(--font); resize: vertical; }
-  .text-in.date { width: auto; min-width: 220px; font-size: 24px; }
+  .text-in.date { width: auto; min-width: 220px; font-size: 24px; height: 48px; min-height: 48px; padding-top: 0; padding-bottom: 0; }
   .text-in { color-scheme: dark; }
   .xp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; }
   .xp-row { display: flex; align-items: center; gap: 10px; }
@@ -674,7 +678,10 @@
   <section class="screen two" id="view-missions" role="tabpanel" aria-labelledby="vt-missions" hidden>
     <section class="win col-a" aria-labelledby="t-todo">
       <h2 class="win-title" id="t-todo" data-i18n="mis.todo">Da fare</h2>
-      <div class="m-toolbar"><button type="button" class="btn small add" id="m-new" data-i18n="mis.new">Nuova missione</button></div>
+      <div class="m-toolbar">
+        <button type="button" class="btn small add" id="m-new" data-i18n="mis.new">Nuova missione</button>
+        <button type="button" class="btn small" id="m-routines" data-i18n="btn.routines">Routine</button>
+      </div>
       <p class="msg" id="mis-msg" role="status" aria-live="polite"></p>
       <div class="mlist" id="m-todo"></div>
     </section>
@@ -927,7 +934,34 @@
       <div class="xp-grid" id="mf-xp"></div>
     </div>
 
-    <div class="field">
+    <div class="field" id="mf-rep-field">
+      <div id="mf-rep-toggle">
+        <p class="label" data-i18n="mf.rep.label">Ripetizione</p>
+        <button type="button" class="btn small" id="mf-rep" aria-pressed="false">Non si ripete</button>
+      </div>
+      <div id="mf-rep-box" hidden>
+        <p class="label" data-i18n="mf.days">Giorni in cui compare</p>
+        <div class="seg" id="mf-days" role="group"></div>
+        <p class="label" data-i18n="mf.bonus.h">Bonus per la serie (facoltativo)</p>
+        <div class="inline">
+          <label for="mf-bonus-every" data-i18n="mf.bonus.every">Ogni quanti giorni di fila</label>
+          <input class="xp-in" id="mf-bonus-every" type="number" min="2" max="365" step="1" inputmode="numeric" placeholder="7" autocomplete="off">
+        </div>
+        <div class="inline">
+          <label for="mf-bonus-xp" data-i18n="mf.bonus.xp">XP in più per ogni statistica</label>
+          <input class="xp-in" id="mf-bonus-xp" type="number" min="1" step="1" inputmode="numeric" placeholder="50" autocomplete="off">
+        </div>
+        <p class="tip" data-i18n="mf.bonus.tip">Se completi la routine in tempo per tanti giorni di fila, ricevi il bonus. Lascia vuoto per non averlo.</p>
+        <p class="label" data-i18n="mf.pause.h">Pausa (per esempio le vacanze)</p>
+        <div class="inline">
+          <input class="text-in date" id="mf-pause-until" type="date" aria-label="In pausa fino al" data-i18n-aria="mf.pause.until">
+          <button type="button" class="btn small" id="mf-pause-clear" data-i18n="mf.pause.clear">Togli pausa</button>
+        </div>
+        <p class="tip" data-i18n="mf.pause.tip">Nei giorni di pausa la routine non compare e la serie non si interrompe.</p>
+      </div>
+    </div>
+
+    <div class="field" id="mf-date-field">
       <label class="label" for="mf-date" data-i18n="mf.date">Data (facoltativa)</label>
       <div class="inline">
         <input class="text-in date" id="mf-date" type="date">
@@ -947,7 +981,7 @@
     <div class="field">
       <p class="label" data-i18n="mf.pen">Penalità (facoltativa)</p>
       <div class="xp-grid" id="mf-pen"></div>
-      <p class="tip" data-i18n="mf.pen.tip">XP che perdi se non la completi entro la data. Serve una data. Si perdono una sola volta, quando apri la pagina (o ci torni) dopo la scadenza.</p>
+      <p class="tip" id="mf-pen-tip">XP che perdi se non la completi entro la data. Serve una data. Si perdono una sola volta, quando apri la pagina (o ci torni) dopo la scadenza.</p>
     </div>
 
     <p class="data-msg" id="mf-msg" role="status" aria-live="polite"></p>
@@ -956,6 +990,18 @@
       <button type="button" class="btn add" id="mf-save" data-i18n="btn.save">Salva</button>
       <button type="button" class="btn ghost" id="mf-cancel" data-i18n="btn.cancel">Annulla</button>
       <button type="button" class="btn sub" id="mf-del" hidden>Elimina</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="rmodal" hidden>
+  <div class="win modal-win wide" role="dialog" aria-modal="true" aria-labelledby="t-rmodal">
+    <h2 class="win-title" id="t-rmodal" data-i18n="r.h">Routine</h2>
+    <p class="tip" id="r-empty" data-i18n="r.empty">Non hai ancora routine.</p>
+    <div class="mlist" id="r-list"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn add" id="r-new" data-i18n="r.new">Nuova routine</button>
+      <button type="button" class="btn ghost" id="r-close" data-i18n="btn.close">Chiudi</button>
     </div>
   </div>
 </div>
@@ -1115,6 +1161,42 @@
 
       "mf.new": "Nuova missione",
       "mf.edit": "Modifica missione",
+      "btn.routines": "Routine",
+      "grp.routine": "Routine di oggi",
+      "m.routine": "Routine",
+      "m.routine.streak": "Routine, serie {n}",
+      "msg.completed.bonus": "Missione completata: {title}. Serie di {n}, bonus incluso: {gain}.",
+      "mf.rep.label": "Ripetizione",
+      "mf.rep.off": "Non si ripete",
+      "mf.rep.on": "Si ripete",
+      "mf.new.routine": "Nuova routine",
+      "mf.edit.routine": "Modifica routine",
+      "mf.days": "Giorni in cui compare",
+      "mf.bonus.h": "Bonus per la serie (facoltativo)",
+      "mf.bonus.every": "Ogni quanti giorni di fila",
+      "mf.bonus.xp": "XP in più per ogni statistica",
+      "mf.bonus.tip": "Se completi la routine in tempo per tanti giorni di fila, ricevi il bonus. Lascia vuoto per non averlo.",
+      "mf.pause.h": "Pausa (per esempio le vacanze)",
+      "mf.pause.until": "In pausa fino al",
+      "mf.pause.clear": "Togli pausa",
+      "mf.pause.tip": "Nei giorni di pausa la routine non compare e la serie non si interrompe.",
+      "mf.pen.tip.r": "XP che perdi se non la completi nel giorno previsto. Vale al massimo per gli ultimi 2 giorni saltati.",
+      "mf.err.days": "Scegli almeno un giorno.",
+      "mf.err.bonus": "Bonus: giorni tra 2 e 365 e XP tra 1 e {max}, tutti e due.",
+      "mf.err.routines": "Puoi avere al massimo {max} routine.",
+      "msg.routine.created": "Routine creata: {title}.",
+      "msg.routine.edited": "Routine modificata: {title}.",
+      "msg.routine.deleted": "Routine eliminata: {title}.",
+      "r.h": "Routine",
+      "r.empty": "Non hai ancora routine. Una routine è una missione che compare da sola nei giorni che scegli.",
+      "r.new": "Nuova routine",
+      "r.everyday": "Ogni giorno",
+      "r.at": "alle {time}",
+      "r.streak": "Serie: {n}",
+      "r.best": "Record: {n}",
+      "r.bonus": "Bonus: +{xp} XP ogni {n} giorni di fila",
+      "r.paused": "In pausa fino al {when}",
+      "info.mis.p6": "Una routine è una missione che compare da sola nei giorni che scegli (pulsante «Routine»). La serie conta i giorni di fila in cui la completi in tempo.",
       "mf.title": "Titolo",
       "mf.title.ph": "Per esempio: Correre 30 minuti",
       "mf.desc": "Descrizione",
@@ -1420,6 +1502,42 @@
 
       "mf.new": "New mission",
       "mf.edit": "Edit mission",
+      "btn.routines": "Routines",
+      "grp.routine": "Today's routines",
+      "m.routine": "Routine",
+      "m.routine.streak": "Routine, streak {n}",
+      "msg.completed.bonus": "Mission completed: {title}. Streak of {n}, bonus included: {gain}.",
+      "mf.rep.label": "Repeat",
+      "mf.rep.off": "Doesn't repeat",
+      "mf.rep.on": "Repeats",
+      "mf.new.routine": "New routine",
+      "mf.edit.routine": "Edit routine",
+      "mf.days": "Days it shows up",
+      "mf.bonus.h": "Streak bonus (optional)",
+      "mf.bonus.every": "Every how many days in a row",
+      "mf.bonus.xp": "Extra XP for each stat",
+      "mf.bonus.tip": "If you complete the routine on time for that many days in a row, you get the bonus. Leave empty for none.",
+      "mf.pause.h": "Pause (for example on vacation)",
+      "mf.pause.until": "Paused until",
+      "mf.pause.clear": "Remove pause",
+      "mf.pause.tip": "On paused days the routine doesn't show up and your streak isn't broken.",
+      "mf.pen.tip.r": "XP you lose if you don't complete it on the scheduled day. It applies to the last 2 missed days at most.",
+      "mf.err.days": "Choose at least one day.",
+      "mf.err.bonus": "Bonus: days between 2 and 365 and XP between 1 and {max}, both filled in.",
+      "mf.err.routines": "You can have at most {max} routines.",
+      "msg.routine.created": "Routine created: {title}.",
+      "msg.routine.edited": "Routine edited: {title}.",
+      "msg.routine.deleted": "Routine deleted: {title}.",
+      "r.h": "Routines",
+      "r.empty": "You have no routines yet. A routine is a mission that shows up by itself on the days you choose.",
+      "r.new": "New routine",
+      "r.everyday": "Every day",
+      "r.at": "at {time}",
+      "r.streak": "Streak: {n}",
+      "r.best": "Best: {n}",
+      "r.bonus": "Bonus: +{xp} XP every {n} days in a row",
+      "r.paused": "Paused until {when}",
+      "info.mis.p6": "A routine is a mission that shows up by itself on the days you choose (“Routines” button). The streak counts the days in a row you complete it on time.",
       "mf.title": "Title",
       "mf.title.ph": "For example: Run for 30 minutes",
       "mf.desc": "Description",
@@ -1725,6 +1843,42 @@
 
       "mf.new": "Nova missão",
       "mf.edit": "Editar missão",
+      "btn.routines": "Rotinas",
+      "grp.routine": "Rotinas de hoje",
+      "m.routine": "Rotina",
+      "m.routine.streak": "Rotina, sequência {n}",
+      "msg.completed.bonus": "Missão concluída: {title}. Sequência de {n}, bônus incluído: {gain}.",
+      "mf.rep.label": "Repetição",
+      "mf.rep.off": "Não se repete",
+      "mf.rep.on": "Se repete",
+      "mf.new.routine": "Nova rotina",
+      "mf.edit.routine": "Editar rotina",
+      "mf.days": "Dias em que aparece",
+      "mf.bonus.h": "Bônus da sequência (opcional)",
+      "mf.bonus.every": "A cada quantos dias seguidos",
+      "mf.bonus.xp": "XP a mais para cada estatística",
+      "mf.bonus.tip": "Se você concluir a rotina no prazo por esses dias seguidos, recebe o bônus. Deixe vazio para não ter.",
+      "mf.pause.h": "Pausa (por exemplo, nas férias)",
+      "mf.pause.until": "Em pausa até",
+      "mf.pause.clear": "Tirar pausa",
+      "mf.pause.tip": "Nos dias de pausa a rotina não aparece e a sequência não é interrompida.",
+      "mf.pen.tip.r": "XP que você perde se não concluir no dia previsto. Vale no máximo para os últimos 2 dias perdidos.",
+      "mf.err.days": "Escolha pelo menos um dia.",
+      "mf.err.bonus": "Bônus: dias entre 2 e 365 e XP entre 1 e {max}, os dois preenchidos.",
+      "mf.err.routines": "Você pode ter no máximo {max} rotinas.",
+      "msg.routine.created": "Rotina criada: {title}.",
+      "msg.routine.edited": "Rotina editada: {title}.",
+      "msg.routine.deleted": "Rotina excluída: {title}.",
+      "r.h": "Rotinas",
+      "r.empty": "Você ainda não tem rotinas. Uma rotina é uma missão que aparece sozinha nos dias que você escolher.",
+      "r.new": "Nova rotina",
+      "r.everyday": "Todo dia",
+      "r.at": "às {time}",
+      "r.streak": "Sequência: {n}",
+      "r.best": "Recorde: {n}",
+      "r.bonus": "Bônus: +{xp} XP a cada {n} dias seguidos",
+      "r.paused": "Em pausa até {when}",
+      "info.mis.p6": "Uma rotina é uma missão que aparece sozinha nos dias que você escolher (botão “Rotinas”). A sequência conta os dias seguidos em que você a conclui no prazo.",
       "mf.title": "Título",
       "mf.title.ph": "Por exemplo: Correr 30 minutos",
       "mf.desc": "Descrição",
@@ -2174,6 +2328,7 @@
         dueTime: validDate(m.due) && validTime(m.dueTime) ? m.dueTime : null,
         created: m.created, done: null, failed: null,
       };
+      if (typeof m.rid === 'string' && /^\w{1,12}$/.test(m.rid)) it.rid = m.rid;
       if (m.failed && typeof m.failed === 'object' && validDate(m.failed.date)) {
         it.failed = {
           date: m.failed.date,
@@ -2187,6 +2342,10 @@
           t: Number.isFinite(Number(m.done.t)) ? Number(m.done.t) : 0,
           applied: normalizeRewards(m.done.applied),
         };
+        const rs = m.done.rs;
+        if (rs && Number.isInteger(rs.prev) && rs.prev >= 0 && Number.isInteger(rs.n) && rs.n > 0) {
+          it.done.rs = { prev: rs.prev, prevDate: validDate(rs.prevDate) ? rs.prevDate : '', n: rs.n };
+        }
       }
       seen.add(id);
       out.push(it);
@@ -2209,6 +2368,53 @@
   }
   let missions = loadMissionsLocal();
   const missionsTouched = new Set();   // mesi modificati in questa sessione
+
+  /* ----- routine: missioni che si ripetono nei giorni scelti ----- */
+  const LS_ROU = 'liferpg:routines:v1';
+  const MAX_ROUTINES = 30;
+  const GRACE_DAYS = 2;     // le volte saltate contano (con penalità) solo per gli ultimi giorni
+  const KEEP_DAYS = 60;     // le routine completate o fallite più vecchie si tolgono dalla cronologia
+  function normalizeRoutines(arr) {
+    if (!Array.isArray(arr)) return [];
+    const out = [], seen = new Set();
+    const nn = (v, max) => { const n = Number(v); return Number.isInteger(n) && n >= 0 ? Math.min(n, max) : 0; };
+    for (const r of arr) {
+      if (!r || typeof r !== 'object') continue;
+      const id = typeof r.id === 'string' && /^\w{1,12}$/.test(r.id) ? r.id : null;
+      const title = typeof r.title === 'string' ? r.title.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+      if (!id || seen.has(id) || !title || !validDate(r.start)) continue;
+      const rewards = normalizeRewards(r.rewards);
+      if (!Object.values(rewards).some(v => v > 0)) continue;
+      const days = [...new Set((Array.isArray(r.days) ? r.days : []).map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
+      if (!days.length) continue;
+      const b = r.bonus;
+      const bonus = b && Number.isInteger(b.every) && b.every >= 2 && b.every <= 365 && Number.isInteger(b.xp) && b.xp >= 1 && b.xp <= MAX_XP
+        ? { every: b.every, xp: b.xp } : null;
+      const pz = r.pause;
+      seen.add(id);
+      out.push({
+        id, title,
+        desc: typeof r.desc === 'string' ? r.desc.trim().slice(0, 500) : '',
+        rewards, penalty: normalizeRewards(r.penalty), days,
+        time: validTime(r.time) ? r.time : null,
+        start: r.start,
+        pause: pz && validDate(pz.from) && validDate(pz.until) && pz.from <= pz.until ? { from: pz.from, until: pz.until } : null,
+        streak: nn(r.streak, 100000), streakDate: validDate(r.streakDate) ? r.streakDate : '', best: nn(r.best, 100000),
+        bonus,
+      });
+      if (out.length >= MAX_ROUTINES) break;
+    }
+    return out;
+  }
+  function loadRoutinesLocal() {
+    try { const raw = localStorage.getItem(LS_ROU); if (raw) return normalizeRoutines(JSON.parse(raw)); } catch (e) { /* ignora */ }
+    return [];
+  }
+  function saveRoutinesLocal() {
+    try { localStorage.setItem(LS_ROU, JSON.stringify(routines)); } catch (e) { /* ignora */ }
+    driveMark();
+  }
+  let routines = loadRoutinesLocal();
 
   let xp = loadLocal();
   let touched = false;
@@ -2570,6 +2776,7 @@
     const out = { ...xp, _settings: settings };
     out._images = Object.fromEntries(IMG_NAMES.filter(n => imgs[n]).map(n => [n, imgs[n]]));
     out._missions = missions;
+    out._routines = routines;
     return out;
   }
   const isBackup = obj => !!obj && typeof obj === 'object' && Object.keys(obj).some(k => (ALIASES[k] || k) in blank());
@@ -2596,6 +2803,8 @@
       months.forEach(touchMonth);
       renderMissionViews();
     }
+    if (Array.isArray(obj._routines)) { routines = normalizeRoutines(obj._routines); saveRoutinesLocal(); }
+    if (syncRoutines()) renderMissionViews();
     persist();
     render(true);
   }
@@ -2864,6 +3073,7 @@
     xp = blank(); touched = true; persist(); render(true);
     const months = new Set(missions.map(monthOf));
     missions = [];
+    routines = []; saveRoutinesLocal();
     months.forEach(touchMonth);
     renderMissionViews();
     dataMsg(T('data.msg.wiped'));
@@ -3058,6 +3268,8 @@
     renderMissionViews();
     renderInfo();
     paintDrive();
+    paintFormRepeat();
+    if (!rmodal.hidden) renderRoutines();
   }
   function applyAll() { applyLang(); applyTheme(); applyFrame(); applyTextColors(); applyTransparency(); applyEmblem(); applyName(); applyTitle(); applyImages(); }
 
@@ -3499,13 +3711,27 @@
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
     const applied = {};
+    // routine: la serie cresce solo se la completi entro il giorno previsto
+    const rt = routineOf(m);
+    let rs = null;
+    const bonus = {};
+    if (rt && m.due && todayStr() <= m.due && m.due > (rt.streakDate || '')) {
+      const n = (rt.streak || 0) + 1;
+      rs = { prev: rt.streak || 0, prevDate: rt.streakDate || '', n };
+      if (rt.bonus && n % rt.bonus.every === 0) STATS.forEach(s => { if (m.rewards[s.key] > 0) bonus[s.key] = rt.bonus.xp; });
+    }
     STATS.forEach(s => {
       const b = xp[s.key];
-      xp[s.key] = Math.min(MAX_XP, b + (m.rewards[s.key] || 0));
+      xp[s.key] = Math.min(MAX_XP, b + (m.rewards[s.key] || 0) + (bonus[s.key] || 0));
       applied[s.key] = xp[s.key] - b;
     });
     const lastT = missions.reduce((mx, x) => x.done ? Math.max(mx, x.done.t) : mx, 0);
     m.done = { date: todayStr(), t: Math.max(Date.now(), lastT + 1), applied };   // t cresce sempre: ordina le completate
+    if (rs) {
+      m.done.rs = rs;
+      rt.streak = rs.n; rt.streakDate = m.due; rt.best = Math.max(rt.best || 0, rs.n);
+      saveRoutinesLocal();
+    }
     touched = true;
     persist();
     touchMonth(monthOf(m));
@@ -3513,7 +3739,7 @@
     const ups = STATS.map((s, i) => ({ s, from: before[i], to: after[i] })).filter(u => u.to > u.from);
     render(true);
     STATS.forEach(s => { if (applied[s.key] > 0) floatText(s.key, '+' + fmt(applied[s.key]), false); });
-    missionMsg(T('msg.completed', { title: m.title, gain: gainText(applied) }), 'good');
+    missionMsg(T(Object.keys(bonus).length ? 'msg.completed.bonus' : 'msg.completed', { title: m.title, gain: gainText(applied), n: rs ? rs.n : 0 }), 'good');
     renderMissionViews();
     if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after), m.title); sfx('up'); } else sfx('add');
   }
@@ -3527,7 +3753,13 @@
       xp[s.key] = Math.max(0, b - (m.done.applied[s.key] || 0));
       removed[s.key] = b - xp[s.key];
     });
+    const rsBack = m.done.rs, rtBack = routineOf(m);
     m.done = null;
+    if (rsBack && rtBack && rtBack.streakDate === m.due) {   // la serie torna com'era prima
+      rtBack.streak = rsBack.prev;
+      rtBack.streakDate = rsBack.prevDate || addDaysStr(m.due, -1);
+      saveRoutinesLocal();
+    }
     touched = true;
     persist();
     touchMonth(monthOf(m));
@@ -3542,7 +3774,7 @@
   // penalità: alla prima apertura dopo la scadenza, una sola volta per missione
   function revertPenalty(id) {
     const m = missions.find(x => x.id === id);
-    if (!m || !m.failed || m.done) return;
+    if (!m || !m.failed || m.done || m.rid) return;
     const restored = {};
     STATS.forEach(s => {
       const b = xp[s.key];
@@ -3622,10 +3854,67 @@
     showPenalties(list, before, after, overallOf(before), overallOf(after));
     return true;
   }
+  /* ----- routine: creazione delle volte e serie ----- */
+  const WD_ALL = [1, 2, 3, 4, 5, 6, 0];   // giorni nel modulo, lunedì per primo (numeri di Date.getDay)
+  const addDaysStr = (ds, n) => { const d = parseDate(ds); d.setDate(d.getDate() + n); return isoDate(d); };
+  const inPause = (r, d) => !!r.pause && r.pause.from <= d && d <= r.pause.until;
+  const dayCounts = (r, d) => d >= r.start && r.days.includes(parseDate(d).getDay()) && !inPause(r, d);
+  const occId = (r, d) => r.id + '-' + d.replace(/-/g, '');
+  const routineOf = m => (m && m.rid ? routines.find(r => r.id === m.rid) || null : null);
+  // crea le volte di oggi, aggiorna la serie e pulisce le volte saltate; true se qualcosa è cambiato
+  let routinesDay = '';
+  function syncRoutines() {
+    routinesDay = todayStr();
+    if (!routines.length && !missions.some(m => m.rid)) return false;
+    const today = todayStr();
+    const yesterday = addDaysStr(today, -1);
+    const months = new Set();
+    let changed = false, routinesChanged = false;
+    routines.forEach(r => {
+      // la serie si interrompe se un giorno previsto (già passato) non è stato completato in tempo
+      if ((r.streakDate || '') < yesterday) {
+        let d = r.streakDate ? addDaysStr(r.streakDate, 1) : r.start;
+        for (let guard = 0; d <= yesterday && guard < 800; guard++, d = addDaysStr(d, 1)) {
+          if (r.streak && dayCounts(r, d)) r.streak = 0;
+        }
+        r.streakDate = yesterday;
+        routinesChanged = true;
+      }
+      if (r.pause && r.pause.until < today) { r.pause = null; routinesChanged = true; }
+      // le volte di oggi; con una penalità anche quelle degli ultimi giorni che non hai aperto l'app
+      for (let k = GRACE_DAYS; k >= 0; k--) {
+        const d = addDaysStr(today, -k);
+        if (!dayCounts(r, d)) continue;
+        if (k > 0 && !hasAny(r.penalty)) continue;
+        const id = occId(r, d);
+        if (missions.some(m => m.id === id) || missions.length >= MAX_MISSIONS) continue;
+        missions.push({ id, title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
+          due: d, dueTime: r.time, created: d, done: null, failed: null, rid: r.id });
+        months.add(d.slice(0, 7));
+        changed = true;
+      }
+    });
+    // pulizia: volte saltate senza penalità, volte in pausa, cronologia vecchia
+    const keepFrom = addDaysStr(today, -KEEP_DAYS);
+    missions = missions.filter(m => {
+      if (!m.rid) return true;
+      const r = routineOf(m);
+      let drop = false;
+      if (!m.done && !m.failed) drop = !!r && ((m.due < today && !hasAny(m.penalty)) || inPause(r, m.due));
+      else drop = (m.done || m.failed).date < keepFrom;
+      if (drop) { months.add(monthOf(m)); changed = true; }
+      return !drop;
+    });
+    if (routinesChanged) saveRoutinesLocal();
+    if (changed) months.forEach(touchMonth);
+    return changed;
+  }
+
   // le penalità scattano quando apri la pagina o ci torni, non mentre la stai usando
   let penaltyReady = false, lastSig = '';
   function checkPenalties() {
     if (!penaltyReady || activeModal) return;   // prima si aspetta il caricamento; con una finestra aperta si riprova dopo
+    if (syncRoutines()) renderMissionViews();
     applyPenalties();
     const sig = todayStr() + ':' + missions.filter(m => !m.done && isLate(m)).length;
     if (sig !== lastSig) { lastSig = sig; renderMissionViews(); }
@@ -3634,6 +3923,11 @@
   $('pmodal').addEventListener('click', e => { if (e.target === $('pmodal')) closeModal(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkPenalties(); });
   window.addEventListener('focus', checkPenalties);
+  // se l'app resta aperta a cavallo della mezzanotte compaiono le routine del nuovo giorno (le penalità no: aspettano che riapri l'app)
+  setInterval(() => {
+    if (!penaltyReady || activeModal || todayStr() === routinesDay) return;
+    if (syncRoutines()) renderMissionViews();
+  }, 60000);
 
   // schede delle missioni
   function chips(map) {
@@ -3694,6 +3988,8 @@
     }
     card.appendChild(head);
     if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
+    const rtn = routineOf(m);
+    if (rtn) card.appendChild(mk('p', 'm-routine', !m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
     card.appendChild(chips(m.done ? m.done.applied : m.rewards));
     if (m.done && m.failed) {
       card.appendChild(mk('p', 'm-pen', T('m.pen.late', { loss: lossText(m.failed.applied) })));
@@ -3713,14 +4009,13 @@
     if (m.done) {
       act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
     } else if (failedNow) {
-      act.append(
-        btn(' add', T('btn.complete'), T('aria.late'), () => completeMission(m.id)),
-        btn('', T('btn.undopen'), T('aria.undopen'), () => revertPenalty(m.id)));
+      act.appendChild(btn(' add', T('btn.complete'), T('aria.late'), () => completeMission(m.id)));
+      if (!m.rid) act.appendChild(btn('', T('btn.undopen'), T('aria.undopen'), () => revertPenalty(m.id)));
     } else {
       act.append(
         btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id)),
         btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
-      if (m.due) {
+      if (m.due && !m.rid) {
         const a = mk('a', 'btn small gcal', T('btn.gcal'));
         a.href = gcalUrl(m);
         a.target = '_blank';
@@ -3806,15 +4101,16 @@
     const today = todayStr();
     const soon = parseDate(today); soon.setDate(soon.getDate() + 7);
     const soonEnd = isoDate(soon);
-    const groups = { late: [], today: [], soon: [], later: [], nodate: [] };
+    const groups = { late: [], routine: [], today: [], soon: [], later: [], nodate: [] };
     todo.forEach(m => {
       if (!m.due) groups.nodate.push(m);
       else if (isLate(m)) groups.late.push(m);
-      else if (m.due === today) groups.today.push(m);
+      else if (m.due === today) (m.rid ? groups.routine : groups.today).push(m);
       else if (m.due <= soonEnd) groups.soon.push(m);
       else groups.later.push(m);
     });
     groupBlock(tl, 'late', T('grp.late'), groups.late);
+    groupBlock(tl, 'routine', T('grp.routine'), groups.routine);
     groupBlock(tl, 'today', T('grp.today'), groups.today);
     groupBlock(tl, 'soon', T('grp.soon'), groups.soon);
     groupBlock(tl, 'later', T('grp.later'), groups.later);
@@ -3974,6 +4270,8 @@
   const mform = $('mform');
   const xpInputs = {}, penInputs = {};
   let editingId = null, mfArmTimer = 0;
+  let formRepeat = false, editingRid = null, routinesBack = false;
+  const dayBtns = [];
   const formLabels = [];   // etichette dei nomi delle statistiche, da aggiornare cambiando lingua
   STATS.forEach(s => {
     const row = mk('div', 'xp-row');
@@ -4009,15 +4307,39 @@
     if (on) mfArmTimer = setTimeout(() => mfDelArm(false), 4000);
   }
   function mfMsg(t) { $('mf-msg').textContent = t; }
-  // l'ora ha senso solo con una data
+  // giorni della settimana della routine (lunedì per primo)
+  WD_ALL.forEach(d => {
+    const b = mk('button');
+    b.type = 'button'; b.setAttribute('role', 'checkbox'); b.setAttribute('aria-checked', 'true'); b.dataset.d = String(d);
+    b.addEventListener('click', () => b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true')));
+    $('mf-days').appendChild(b);
+    dayBtns.push(b);
+  });
+  const setDays = list => dayBtns.forEach(b => b.setAttribute('aria-checked', String(list.includes(Number(b.dataset.d)))));
+  function paintDayChips() { const wd = T('cal.wd').split(','); dayBtns.forEach((b, i) => { b.textContent = wd[i] || ''; }); }
+  function paintFormRepeat() {
+    $('mf-rep').textContent = formRepeat ? T('mf.rep.on') : T('mf.rep.off');
+    $('mf-rep').setAttribute('aria-pressed', String(formRepeat));
+    $('mf-rep-box').hidden = !formRepeat;
+    $('mf-date-field').hidden = formRepeat;
+    $('mf-pen-tip').textContent = formRepeat ? T('mf.pen.tip.r') : T('mf.pen.tip');
+    paintDayChips();
+  }
+  function setFormRepeat(on) { formRepeat = on; paintFormRepeat(); syncTime(); }
+  // l'ora ha senso solo con una data (o in una routine)
   function syncTime() {
-    const has = !!$('mf-date').value;
+    const has = formRepeat || !!$('mf-date').value;
     $('mf-time').disabled = !has;
     $('mf-notime').disabled = !has;
     if (!has) $('mf-time').value = '';
   }
   function openMissionForm(id, dateStr) {
-    editingId = id;
+    const m0 = id ? missions.find(x => x.id === id) : null;
+    if (m0 && m0.rid && routineOf(m0)) { openRoutineForm(m0.rid); return; }   // le volte di una routine si modificano dalla routine
+    editingId = id; editingRid = null; routinesBack = false;
+    $('mf-rep-field').hidden = !!m0;          // una missione già creata non diventa routine
+    $('mf-rep-toggle').hidden = false;
+    setFormRepeat(false);
     const m = id ? missions.find(x => x.id === id) : null;
     $('t-mform').textContent = m ? T('mf.edit') : T('mf.new');
     $('mf-title').value = m ? m.title : '';
@@ -4033,6 +4355,97 @@
     mfDelArm(false);
     mfMsg('');
     openModal(mform, $('mf-title'));
+  }
+  function openRoutineForm(rid) {
+    const r = rid ? routines.find(x => x.id === rid) : null;
+    editingId = null; editingRid = r ? r.id : null;
+    $('mf-rep-field').hidden = false;
+    $('mf-rep-toggle').hidden = true;
+    setFormRepeat(true);
+    $('t-mform').textContent = r ? T('mf.edit.routine') : T('mf.new.routine');
+    $('mf-title').value = r ? r.title : '';
+    $('mf-desc').value = r ? r.desc : '';
+    STATS.forEach(s => {
+      xpInputs[s.key].value = r && r.rewards[s.key] ? String(r.rewards[s.key]) : '';
+      penInputs[s.key].value = r && r.penalty[s.key] ? String(r.penalty[s.key]) : '';
+    });
+    $('mf-date').value = '';
+    $('mf-time').value = r && r.time ? r.time : '';
+    setDays(r ? r.days : WD_ALL);
+    $('mf-bonus-every').value = r && r.bonus ? String(r.bonus.every) : '';
+    $('mf-bonus-xp').value = r && r.bonus ? String(r.bonus.xp) : '';
+    $('mf-pause-until').value = r && r.pause ? r.pause.until : '';
+    syncTime();
+    $('mf-del').hidden = !r;
+    mfDelArm(false);
+    mfMsg('');
+    openModal(mform, $('mf-title'));
+  }
+  function finishForm() {
+    closeModal();
+    if (routinesBack) { routinesBack = false; openRoutines(); }
+  }
+  function submitRoutine(title, rewards, penalty) {
+    const fail = (t, el) => { mfMsg(t); if (el) el.focus(); };
+    const days = WD_ALL.filter((d, i) => dayBtns[i].getAttribute('aria-checked') === 'true');
+    if (!days.length) return fail(T('mf.err.days'), dayBtns[0]);
+    const timeRaw = $('mf-time').value;
+    if (timeRaw && !validTime(timeRaw)) return fail(T('mf.err.time'), $('mf-time'));
+    const ev = $('mf-bonus-every').value.trim(), bx = $('mf-bonus-xp').value.trim();
+    let bonus = null;
+    if (ev || bx) {
+      const e = Number(ev), x = Number(bx);
+      if (!(Number.isInteger(e) && e >= 2 && e <= 365 && Number.isInteger(x) && x >= 1 && x <= MAX_XP)) {
+        return fail(T('mf.err.bonus', { max: fmt(MAX_XP) }), $('mf-bonus-every'));
+      }
+      bonus = { every: e, xp: x };
+    }
+    const today = todayStr();
+    const pu = $('mf-pause-until').value;
+    if (pu && !validDate(pu)) return fail(T('mf.err.date'), $('mf-pause-until'));
+    let r = editingRid ? routines.find(x => x.id === editingRid) : null;
+    const pause = pu && pu >= today ? { from: r && r.pause && r.pause.until >= today ? r.pause.from : today, until: pu } : null;
+    const desc = $('mf-desc').value.trim().slice(0, 500);
+    const time = timeRaw || null;
+    if (r) {
+      Object.assign(r, { title, desc, rewards, penalty, days, time, pause, bonus });
+    } else {
+      if (routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
+      r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty, days, time,
+        start: today, pause, streak: 0, streakDate: addDaysStr(today, -1), best: 0, bonus };
+      routines.push(r);
+    }
+    // le volte ancora da fare prendono i valori nuovi
+    const months = new Set();
+    missions.forEach(m => {
+      if (m.rid === r.id && !m.done && !m.failed) {
+        Object.assign(m, { title, desc, rewards: { ...rewards }, penalty: { ...penalty }, dueTime: time });
+        months.add(monthOf(m));
+      }
+    });
+    months.forEach(touchMonth);
+    saveRoutinesLocal();
+    const wasEdit = !!editingRid;
+    syncRoutines();
+    finishForm();
+    renderMissionViews();
+    missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }), 'good');
+  }
+  function deleteRoutine() {
+    const r = routines.find(x => x.id === editingRid);
+    if (!r) return;
+    if (!$('mf-del').dataset.armed) { mfDelArm(true); mfMsg(T('mf.del.confirm')); return; }
+    const months = new Set();
+    missions = missions.filter(m => {
+      if (m.rid === r.id && !m.done && !m.failed) { months.add(monthOf(m)); return false; }
+      return true;
+    });
+    routines = routines.filter(x => x !== r);
+    saveRoutinesLocal();
+    months.forEach(touchMonth);
+    finishForm();
+    renderMissionViews();
+    missionMsg(T('msg.routine.deleted', { title: r.title }), '');
   }
   function submitMission() {
     const fail = (t, el) => { mfMsg(t); if (el) el.focus(); };
@@ -4061,6 +4474,7 @@
       penalty[s.key] = n;
       if (n > 0) anyPen = true;
     }
+    if (formRepeat) return submitRoutine(title, rewards, penalty);
     const dueRaw = $('mf-date').value;
     if (dueRaw && !validDate(dueRaw)) return fail(T('mf.err.date'), $('mf-date'));
     if (anyPen && !dueRaw) return fail(T('mf.err.pendate'), $('mf-date'));
@@ -4092,6 +4506,7 @@
     if (m.due) { const d = parseDate(m.due); calY = d.getFullYear(); calM = d.getMonth(); selDate = m.due; renderCalendar(); }
   }
   function deleteMission() {
+    if (editingRid) { deleteRoutine(); return; }
     const m = editingId ? missions.find(x => x.id === editingId) : null;
     if (!m || m.done) return;
     if (!$('mf-del').dataset.armed) { mfDelArm(true); mfMsg(T('mf.del.confirm')); return; }
@@ -4102,7 +4517,48 @@
     missionMsg(T('msg.deleted', { title: m.title }), '');
   }
   $('mf-save').addEventListener('click', submitMission);
-  $('mf-cancel').addEventListener('click', closeModal);
+  $('mf-cancel').addEventListener('click', finishForm);
+  $('mf-rep').addEventListener('click', () => setFormRepeat(!formRepeat));
+  $('mf-pause-clear').addEventListener('click', () => { $('mf-pause-until').value = ''; });
+
+  // elenco delle routine
+  const rmodal = $('rmodal');
+  function daysText(r) {
+    if (r.days.length === 7) return T('r.everyday');
+    const wd = T('cal.wd').split(',');
+    return WD_ALL.map((d, i) => (r.days.includes(d) ? wd[i] : null)).filter(Boolean).join(', ');
+  }
+  function routineCard(r) {
+    const card = mk('article', 'mission');
+    const head = mk('div', 'm-head');
+    head.appendChild(mk('h3', 'm-title', r.title));
+    head.appendChild(mk('span', 'm-date', daysText(r) + (r.time ? ' ' + T('r.at', { time: r.time }) : '')));
+    card.appendChild(head);
+    if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
+    card.appendChild(chips(r.rewards));
+    card.appendChild(mk('p', 'm-desc', T('r.streak', { n: r.streak || 0 }) + ', ' + T('r.best', { n: r.best || 0 })));
+    if (r.bonus) card.appendChild(mk('p', 'm-desc', T('r.bonus', { xp: fmt(r.bonus.xp), n: r.bonus.every })));
+    if (r.pause && r.pause.until >= todayStr()) card.appendChild(mk('p', 'm-pen', T('r.paused', { when: fmtDay(r.pause.until) })));
+    const act = mk('div', 'm-actions');
+    const b = mk('button', 'btn small', T('btn.edit'));
+    b.type = 'button';
+    b.setAttribute('aria-label', T('aria.edit') + ' ' + r.title);
+    b.addEventListener('click', () => { closeModal(); routinesBack = true; openRoutineForm(r.id); });
+    act.appendChild(b);
+    card.appendChild(act);
+    return card;
+  }
+  function renderRoutines() {
+    const box = $('r-list');
+    box.textContent = '';
+    $('r-empty').hidden = routines.length > 0;
+    routines.forEach(r => box.appendChild(routineCard(r)));
+  }
+  function openRoutines() { renderRoutines(); openModal(rmodal, $('r-new')); }
+  $('m-routines').addEventListener('click', openRoutines);
+  $('r-new').addEventListener('click', () => { closeModal(); routinesBack = true; openRoutineForm(null); });
+  $('r-close').addEventListener('click', closeModal);
+  rmodal.addEventListener('click', e => { if (e.target === rmodal) closeModal(); });
   $('mf-del').addEventListener('click', deleteMission);
   $('mf-nodate').addEventListener('click', () => { $('mf-date').value = ''; syncTime(); });
   $('mf-notime').addEventListener('click', () => { $('mf-time').value = ''; });
@@ -4185,6 +4641,7 @@
     p(b, T('info.mis.p3'));
     p(b, T('info.mis.p4'));
     p(b, T('info.mis.p5'));
+    p(b, T('info.mis.p6'));
 
     // dati
     b = section('data', T('info.data.h'));
