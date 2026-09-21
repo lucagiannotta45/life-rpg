@@ -1470,6 +1470,9 @@
       "drive.conflict": "Su Google Drive ci sono dati diversi da quelli di questo dispositivo. Drive: {drive}. Questo dispositivo: {here}. Quali vuoi tenere?",
       "drive.sum_one": "livello {lv}, 1 missione",
       "drive.sum_other": "livello {lv}, {n} missioni",
+      "drive.sum.xp": "{xp} XP in tutto",
+      "drive.sum.remote": "salvata il {when}",
+      "drive.sum.local": "ultima modifica il {when}",
       "drive.keep.drive": "Usa i dati di Drive",
       "drive.keep.local": "Usa i dati di questo dispositivo",
       "drive.msg.loaded": "Dati di Google Drive caricati.",
@@ -1867,6 +1870,9 @@
       "drive.conflict": "Google Drive has different data from this device. Drive: {drive}. This device: {here}. Which do you want to keep?",
       "drive.sum_one": "level {lv}, 1 mission",
       "drive.sum_other": "level {lv}, {n} missions",
+      "drive.sum.xp": "{xp} XP in total",
+      "drive.sum.remote": "saved on {when}",
+      "drive.sum.local": "last changed on {when}",
       "drive.keep.drive": "Use the Drive data",
       "drive.keep.local": "Use this device's data",
       "drive.msg.loaded": "Google Drive data loaded.",
@@ -2264,6 +2270,9 @@
       "drive.conflict": "O Google Drive tem dados diferentes deste dispositivo. Drive: {drive}. Este dispositivo: {here}. Quais você quer manter?",
       "drive.sum_one": "nível {lv}, 1 missão",
       "drive.sum_other": "nível {lv}, {n} missões",
+      "drive.sum.xp": "{xp} XP no total",
+      "drive.sum.remote": "salva em {when}",
+      "drive.sum.local": "última alteração em {when}",
       "drive.keep.drive": "Usar os dados do Drive",
       "drive.keep.local": "Usar os dados deste dispositivo",
       "drive.msg.loaded": "Dados do Google Drive carregados.",
@@ -2721,16 +2730,16 @@
   const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';   // cartella nascosta, solo di questa app
   const DRIVE_FILE = 'life_rpg_save.json';
   const LS_DRIVE = 'liferpg:drive';
-  const drv = { on: false, email: '', fileId: '', synced: 0, dirty: false, lastAt: 0, token: '', exp: 0, busy: false,
+  const drv = { on: false, email: '', fileId: '', synced: 0, dirty: false, lastAt: 0, changedAt: 0, token: '', exp: 0, busy: false,
     state: 'off', conflict: null, timer: 0, rev: 0, applying: false, tapAt: 0, checked: false };
   try {
     const d = JSON.parse(localStorage.getItem(LS_DRIVE) || 'null');
-    if (d && d.on) Object.assign(drv, { on: true, email: String(d.email || ''), fileId: String(d.fileId || ''), synced: Number(d.synced) || 0, dirty: !!d.dirty, lastAt: Number(d.lastAt) || 0 });
+    if (d && d.on) Object.assign(drv, { on: true, email: String(d.email || ''), fileId: String(d.fileId || ''), synced: Number(d.synced) || 0, dirty: !!d.dirty, lastAt: Number(d.lastAt) || 0, changedAt: Number(d.changedAt) || 0 });
   } catch (e) { /* ignora */ }
   // ogni modifica ai dati locali segna che c'è qualcosa da salvare su Drive
   function driveMark() {
     if (!drv.on || drv.applying) return;
-    drv.dirty = true; drv.rev++;
+    drv.dirty = true; drv.rev++; drv.changedAt = Date.now();
     driveKeep();
     driveSchedule();
   }
@@ -3175,7 +3184,7 @@
     || JSON.stringify({ ...settings, lang: 'it' }) !== JSON.stringify(defaultSettings());
   function driveKeep() {
     try {
-      if (drv.on) localStorage.setItem(LS_DRIVE, JSON.stringify({ on: true, email: drv.email, fileId: drv.fileId, synced: drv.synced, dirty: drv.dirty, lastAt: drv.lastAt }));
+      if (drv.on) localStorage.setItem(LS_DRIVE, JSON.stringify({ on: true, email: drv.email, fileId: drv.fileId, synced: drv.synced, dirty: drv.dirty, lastAt: drv.lastAt, changedAt: drv.changedAt }));
       else localStorage.removeItem(LS_DRIVE);
     } catch (e) { /* ignora */ }
   }
@@ -3183,6 +3192,13 @@
     const x = normalize(obj);
     const n = Array.isArray(obj._missions) ? obj._missions.length : 0;
     return TN('drive.sum', n, { lv: overallOf(STATS.map(s => levelFromXp(x[s.key]))) });
+  };
+  // riepilogo di una copia: livello, missioni, XP totali e (se si sa) quando è stata salvata o modificata
+  const driveDetail = (obj, when, whenKey) => {
+    const xpTotal = Object.values(normalize(obj)).reduce((a, b) => a + b, 0);
+    const parts = [driveSummary(obj), T('drive.sum.xp', { xp: fmt(xpTotal) })];
+    if (when > 0) parts.push(T(whenKey, { when: new Date(when).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) }));
+    return parts.join(' · ');
   };
   function driveState(k) { drv.state = k; paintDrive(); }
   function paintDrive() {
@@ -3208,7 +3224,10 @@
       : T('drive.st.ok0', { who });
     st.textContent = t;
     st.hidden = !t;
-    if (conflict) $('drive-conflict-text').textContent = T('drive.conflict', { drive: driveSummary(drv.conflict), here: driveSummary(buildBackup()) });
+    if (conflict) $('drive-conflict-text').textContent = T('drive.conflict', {
+      drive: driveDetail(drv.conflict, Number(drv.conflict._savedAt) || 0, 'drive.sum.remote'),
+      here: driveDetail(buildBackup(), drv.changedAt, 'drive.sum.local'),
+    });
   }
 
   let gisPromise = null;
@@ -3346,14 +3365,14 @@
     } catch (e) { driveFail(e); }
   }
   $('drive-connect').addEventListener('click', () => {
-    drv.on = true; drv.synced = 0; drv.dirty = false; drv.conflict = null; drv.checked = false;
+    drv.on = true; drv.synced = 0; drv.dirty = false; drv.changedAt = 0; drv.conflict = null; drv.checked = false;
     driveKeep();
     driveSync(true);
   });
   $('drive-sync').addEventListener('click', () => driveSync(true));
   $('drive-off').addEventListener('click', () => {
     clearTimeout(drv.timer);
-    drv.on = false; drv.conflict = null; drv.dirty = false; drv.synced = 0; drv.fileId = ''; drv.token = ''; drv.exp = 0; drv.state = 'off';
+    drv.on = false; drv.conflict = null; drv.dirty = false; drv.changedAt = 0; drv.synced = 0; drv.fileId = ''; drv.token = ''; drv.exp = 0; drv.state = 'off';
     driveKeep(); paintDrive(); dataMsg(T('drive.msg.off'));
   });
   $('drive-keep-drive').addEventListener('click', () => {
