@@ -124,6 +124,7 @@
     transition: transform .06s, filter .12s;
   }
   .btn:hover { filter: brightness(1.12); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; filter: none; transform: none; }
   .btn:active { transform: translateY(2px); }
   .btn.add { background: #24a957; }
   .btn.sub { background: #d24848; }
@@ -558,6 +559,7 @@
   .pen-line .to { color: var(--ink-strong); }
   #t-pen { color: var(--bad); }
   .m-routine { margin: 6px 0 0; font-size: var(--fs-s); color: var(--gold); }
+  .m-lock { margin: 6px 0 0; font-size: var(--fs-s); color: var(--gold); }
   #mf-days { margin: 0 0 14px; }
   #mf-rep-box .inline label { min-width: 0; flex: 1 1 200px; }
   #mf-rep-box > .label:not(:first-child) { margin-top: 22px; }
@@ -964,6 +966,11 @@
         <button type="button" class="btn small" id="mf-rep" aria-pressed="false">Non si ripete</button>
       </div>
       <div id="mf-rep-box" hidden>
+        <div class="inline">
+          <label for="mf-start" data-i18n="mf.start">Inizia dal</label>
+          <input class="text-in date" id="mf-start" type="date">
+        </div>
+        <p class="tip" data-i18n="mf.start.tip">Con la data di oggi la routine parte subito. Scegli un giorno più avanti per farla iniziare dopo.</p>
         <p class="label" data-i18n="mf.days">Giorni in cui compare</p>
         <div class="seg" id="mf-days" role="group"></div>
         <p class="label" data-i18n="mf.bonus.h">Bonus per la serie (facoltativo)</p>
@@ -1196,6 +1203,7 @@
       "btn.routines": "Routine",
       "grp.routine": "Routine di oggi",
       "m.routine": "Routine",
+      "m.locked": "Si può completare dal {when}.",
       "m.routine.streak": "Routine, serie {n}",
       "msg.completed.bonus": "Missione completata: {title}. Serie di {n}, bonus incluso: {gain}.",
       "mf.rep.label": "Ripetizione",
@@ -1249,6 +1257,11 @@
       "mf.err.noxp": "Assegna XP ad almeno una statistica.",
       "mf.err.pen": "Le penalità devono essere numeri interi da 0 a {max}.",
       "mf.err.date": "La data non è valida.",
+      "mf.err.past": "La data non può essere nel passato.",
+      "mf.start": "Inizia dal",
+      "mf.start.tip": "Con la data di oggi la routine parte subito. Scegli un giorno più avanti per farla iniziare dopo.",
+      "mf.err.far": "La data di inizio può essere al massimo tra un anno.",
+      "r.starts": "Inizia il {when}",
       "mf.err.pendate": "La penalità vale solo se scegli anche una data.",
       "mf.err.time": "L'ora non è valida.",
       "mf.err.pastdue": "Con una penalità la scadenza non può essere già passata.",
@@ -1541,6 +1554,7 @@
       "btn.routines": "Routines",
       "grp.routine": "Today's routines",
       "m.routine": "Routine",
+      "m.locked": "Available from {when}.",
       "m.routine.streak": "Routine, streak {n}",
       "msg.completed.bonus": "Mission completed: {title}. Streak of {n}, bonus included: {gain}.",
       "mf.rep.label": "Repeat",
@@ -1594,6 +1608,11 @@
       "mf.err.noxp": "Give XP to at least one stat.",
       "mf.err.pen": "Penalties must be whole numbers from 0 to {max}.",
       "mf.err.date": "The date is not valid.",
+      "mf.err.past": "The date can't be in the past.",
+      "mf.start": "Starts on",
+      "mf.start.tip": "If the date is today, the routine starts right away. Pick a later day to start then.",
+      "mf.err.far": "The start date can be one year away at most.",
+      "r.starts": "Starts on {when}",
       "mf.err.pendate": "A penalty only works if you also pick a date.",
       "mf.err.time": "The time is not valid.",
       "mf.err.pastdue": "With a penalty, the deadline can't be in the past.",
@@ -1886,6 +1905,7 @@
       "btn.routines": "Rotinas",
       "grp.routine": "Rotinas de hoje",
       "m.routine": "Rotina",
+      "m.locked": "Disponível a partir de {when}.",
       "m.routine.streak": "Rotina, sequência {n}",
       "msg.completed.bonus": "Missão concluída: {title}. Sequência de {n}, bônus incluído: {gain}.",
       "mf.rep.label": "Repetição",
@@ -1939,6 +1959,11 @@
       "mf.err.noxp": "Atribua XP a pelo menos uma estatística.",
       "mf.err.pen": "As penalidades devem ser números inteiros de 0 a {max}.",
       "mf.err.date": "A data não é válida.",
+      "mf.err.past": "A data não pode estar no passado.",
+      "mf.start": "Começa em",
+      "mf.start.tip": "Com a data de hoje a rotina começa já. Escolha um dia mais adiante para ela começar depois.",
+      "mf.err.far": "A data de início pode ser, no máximo, daqui a um ano.",
+      "r.starts": "Começa em {when}",
       "mf.err.pendate": "A penalidade só vale se você também escolher uma data.",
       "mf.err.time": "O horário não é válido.",
       "mf.err.pastdue": "Com uma penalidade, o prazo não pode já ter passado.",
@@ -3758,9 +3783,12 @@
   };
 
   // completare e annullare
+  // ancora non completabile: la data è nel futuro
+  const notYet = m => !m.done && !m.failed && !!m.due && m.due > todayStr();
   function completeMission(id) {
     const m = missions.find(x => x.id === id);
     if (!m || m.done) return;
+    if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(m.due) }), 'bad'); return; }
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
     const applied = {};
@@ -3953,7 +3981,7 @@
       if (!m.rid) return true;
       const r = routineOf(m);
       let drop = false;
-      if (!m.done && !m.failed) drop = !!r && ((m.due < today && !hasAny(m.penalty)) || inPause(r, m.due));
+      if (!m.done && !m.failed) drop = !!r && ((m.due < today && !hasAny(m.penalty)) || inPause(r, m.due) || m.due < r.start);
       else drop = (m.done || m.failed).date < keepFrom;
       if (drop) { months.add(monthOf(m)); changed = true; }
       return !drop;
@@ -3979,7 +4007,8 @@
   // se l'app resta aperta a cavallo della mezzanotte compaiono le routine del nuovo giorno (le penalità no: aspettano che riapri l'app)
   setInterval(() => {
     if (!penaltyReady || activeModal || todayStr() === routinesDay) return;
-    if (syncRoutines()) renderMissionViews();
+    syncRoutines();
+    renderMissionViews();
   }, 60000);
 
   // schede delle missioni
@@ -4041,6 +4070,7 @@
     }
     card.appendChild(head);
     if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
+    if (!m.done && !m.failed && notYet(m)) card.appendChild(mk('p', 'm-lock', T('m.locked', { when: fmtDay(m.due) })));
     const rtn = routineOf(m);
     if (rtn) card.appendChild(mk('p', 'm-routine', !m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
     card.appendChild(chips(m.done ? m.done.applied : m.rewards));
@@ -4065,9 +4095,9 @@
       act.appendChild(btn(' add', T('btn.complete'), T('aria.late'), () => completeMission(m.id)));
       if (!m.rid) act.appendChild(btn('', T('btn.undopen'), T('aria.undopen'), () => revertPenalty(m.id)));
     } else {
-      act.append(
-        btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id)),
-        btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+      const cb = btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
+      if (notYet(m)) { cb.disabled = true; cb.classList.add('locked'); }   // una missione con la data nel futuro si completa dal giorno stesso
+      act.append(cb, btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
       if (m.rid ? !!rtn : !!m.due) {
         const a = mk('a', 'btn small gcal', T('btn.gcal'));
         a.href = m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m);   // per una routine: un evento che si ripete
@@ -4261,6 +4291,7 @@
   }
   function renderDay() {
     $('day-title').textContent = fmtDay(selDate, true) + (selDate === todayStr() ? T('day.today') : '');
+    $('day-new').disabled = selDate < todayStr();   // in un giorno passato non si crea una missione
     const box = $('day-list');
     box.textContent = '';
     const byTime = (a, b) => dueKey(a).localeCompare(dueKey(b)) || a.title.localeCompare(b.title);
@@ -4346,7 +4377,7 @@
   const mform = $('mform');
   const xpInputs = {}, penInputs = {};
   let editingId = null, mfArmTimer = 0;
-  let formRepeat = false, editingRid = null, routinesBack = false;
+  let formRepeat = false, editingRid = null, routinesBack = false, editingDue = null;
   const dayBtns = [];
   const formLabels = [];   // etichette dei nomi delle statistiche, da aggiornare cambiando lingua
   STATS.forEach(s => {
@@ -4413,6 +4444,7 @@
     const m0 = id ? missions.find(x => x.id === id) : null;
     if (m0 && m0.rid && routineOf(m0)) { openRoutineForm(m0.rid); return; }   // le volte di una routine si modificano dalla routine
     editingId = id; editingRid = null; routinesBack = false;
+    editingDue = m0 ? m0.due : null;
     $('mf-rep-field').hidden = !!m0;          // una missione già creata non diventa routine
     $('mf-rep-toggle').hidden = false;
     setFormRepeat(false);
@@ -4424,6 +4456,7 @@
       xpInputs[s.key].value = m && m.rewards[s.key] ? String(m.rewards[s.key]) : '';
       penInputs[s.key].value = m && m.penalty && m.penalty[s.key] ? String(m.penalty[s.key]) : '';
     });
+    $('mf-date').min = todayStr();
     $('mf-date').value = m ? (m.due || '') : (dateStr || '');
     $('mf-time').value = m && m.dueTime ? m.dueTime : '';
     syncTime();
@@ -4450,6 +4483,11 @@
     setDays(r ? r.days : WD_ALL);
     $('mf-bonus-every').value = r && r.bonus ? String(r.bonus.every) : '';
     $('mf-bonus-xp').value = r && r.bonus ? String(r.bonus.xp) : '';
+    $('mf-start').min = todayStr();
+    $('mf-start').max = addDaysStr(todayStr(), 365);
+    $('mf-start').value = r ? r.start : todayStr();
+    $('mf-start').disabled = !!r && r.start <= todayStr();     // una routine già iniziata non cambia data di inizio
+    $('mf-pause-from').min = todayStr();
     $('mf-pause-from').value = r && r.pause ? r.pause.from : '';
     $('mf-pause-until').value = r && r.pause ? r.pause.until : '';
     syncTime();
@@ -4481,17 +4519,25 @@
     const pu = $('mf-pause-until').value, pf = $('mf-pause-from').value;
     if ((pu && !validDate(pu)) || (pf && !validDate(pf))) return fail(T('mf.err.date'), $('mf-pause-until'));
     if (pf && !pu) return fail(T('mf.err.pause'), $('mf-pause-until'));
+    const cur = editingRid ? routines.find(x => x.id === editingRid) : null;
+    if (pf && pf < todayStr() && !(cur && cur.pause && cur.pause.from === pf)) return fail(T('mf.err.past'), $('mf-pause-from'));
     if (pu && pf && pu < pf) return fail(T('mf.err.pause'), $('mf-pause-until'));
     let r = editingRid ? routines.find(x => x.id === editingRid) : null;
+    const started = !!r && r.start <= today;
+    const start = started ? r.start : ($('mf-start').value || today);
+    if (!validDate(start)) return fail(T('mf.err.date'), $('mf-start'));
+    if (!started && start < today) return fail(T('mf.err.past'), $('mf-start'));
+    if (!started && start > addDaysStr(today, 365)) return fail(T('mf.err.far'), $('mf-start'));
     const pause = pu && pu >= today ? { from: pf || today, until: pu } : null;
     const desc = $('mf-desc').value.trim().slice(0, 500);
     const time = timeRaw || null;
     if (r) {
       Object.assign(r, { title, desc, rewards, penalty, days, time, pause, bonus });
+      if (!started && r.start !== start) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); }
     } else {
       if (routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
       r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty, days, time,
-        start: today, pause, streak: 0, streakDate: addDaysStr(today, -1), best: 0, bonus };
+        start, pause, streak: 0, streakDate: addDaysStr(start, -1), best: 0, bonus };
       routines.push(r);
     }
     // le volte ancora da fare prendono i valori nuovi
@@ -4556,6 +4602,7 @@
     if (formRepeat) return submitRoutine(title, rewards, penalty);
     const dueRaw = $('mf-date').value;
     if (dueRaw && !validDate(dueRaw)) return fail(T('mf.err.date'), $('mf-date'));
+    if (dueRaw && dueRaw < todayStr() && !(editingId && dueRaw === editingDue)) return fail(T('mf.err.past'), $('mf-date'));
     if (anyPen && !dueRaw) return fail(T('mf.err.pendate'), $('mf-date'));
     const timeRaw = dueRaw ? $('mf-time').value : '';
     if (timeRaw && !validTime(timeRaw)) return fail(T('mf.err.time'), $('mf-time'));
@@ -4639,6 +4686,7 @@
     card.appendChild(chips(r.rewards));
     card.appendChild(mk('p', 'm-desc', T('r.streak', { n: r.streak || 0 }) + ', ' + T('r.best', { n: r.best || 0 })));
     if (r.bonus) card.appendChild(mk('p', 'm-desc', T('r.bonus', { xp: fmt(r.bonus.xp), n: r.bonus.every })));
+    if (r.start > todayStr()) card.appendChild(mk('p', 'm-routine', T('r.starts', { when: fmtDay(r.start) })));
     if (r.pause && r.pause.until >= todayStr()) {
       card.appendChild(mk('p', 'm-pen', r.pause.from > todayStr()
         ? T('r.pause.plan', { from: fmtDay(r.pause.from), to: fmtDay(r.pause.until) })
