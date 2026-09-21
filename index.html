@@ -623,6 +623,16 @@
     display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 6px 18px;
   }
   .info-ul .dim { color: var(--ink-soft); }
+  .info-sub { margin: 8px 0; border-radius: 8px; background: rgba(255, 255, 255, .05); }
+  .info-sub > summary {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer;
+    font-size: var(--fs-s); line-height: 1.2; list-style: none; color: var(--gold);
+  }
+  .info-sub > summary::-webkit-details-marker { display: none; }
+  .info-sub > summary::before { content: "+"; }
+  .info-sub[open] > summary::before { content: "-"; }
+  .info-sub-body { padding: 4px 12px 12px; }
+  .info-sub-body .info-ul { margin: 0; grid-template-columns: minmax(0, 1fr); }
 
   /* ---------- misure del testo ----------
      16px per i testi (spiegazioni, etichette, messaggi), 24px per i controlli (pulsanti, campi, titoli delle sezioni) */
@@ -1092,8 +1102,47 @@
       "cls.Creativita": "Bardo",
       "cls.Animo": "Monaco",
       "cls.Legami": "Custode",
-      "cls.versatile": "Poliedrico",
-      "cls.achilles": "Achille",
+      "triple.general": "Generale",
+      "triple.explorer": "Esploratore",
+      "triple.paladin": "Paladino",
+      "triple.pillar": "Pilastro",
+      "triple.architect": "Architetto",
+      "triple.stoic": "Stoico",
+      "triple.warlord": "Condottiero",
+      "triple.wanderer": "Errante",
+      "triple.catalyst": "Trascinatore",
+      "triple.protector": "Protettore",
+      "triple.naturalist": "Naturalista",
+      "triple.apothecary": "Speziale",
+      "triple.surgeon": "Cerusico",
+      "triple.enchanter": "Incantatore",
+      "triple.entertainer": "Intrattenitore",
+      "triple.shepherd": "Pastore",
+      "triple.philosopher": "Filosofo",
+      "triple.orator": "Oratore",
+      "triple.counselor": "Consigliere",
+      "triple.inspirer": "Ispiratore",
+      "quad.pioneer": "Pioniere",
+      "quad.spartan": "Spartano",
+      "quad.sovereign": "Sovrano",
+      "quad.savage": "Selvaggio",
+      "quad.busker": "Saltimbanco",
+      "quad.sentinel": "Sentinella",
+      "quad.loner": "Solitario",
+      "quad.entrepreneur": "Imprenditore",
+      "quad.commander": "Comandante",
+      "quad.revolutionary": "Rivoluzionario",
+      "quad.hermit": "Eremita",
+      "quad.humanist": "Umanista",
+      "quad.priest": "Sacerdote",
+      "quad.jester": "Giullare",
+      "quad.visionary": "Visionario",
+      "quint.oracle": "Oracolo",
+      "quint.ascetic": "Asceta",
+      "quint.barbarian": "Barbaro",
+      "quint.templar": "Templare",
+      "quint.conqueror": "Conquistatore",
+      "quint.ronin": "Ronin",
       "pair.gladiator": "Gladiatore",
       "pair.strategist": "Stratega",
       "pair.acrobat": "Acrobata",
@@ -1380,9 +1429,15 @@
 
       "info.title.h": "Titolo del personaggio",
       "info.title.p1": "Sotto il tuo nome c'è un titolo che dipende dalle tue statistiche.",
-      "info.title.p2": "Le statistiche più alte decidono la classe: una sola dà la sua classe, due danno una classe doppia, tre o più un titolo speciale.",
+      "info.title.p2": "Le statistiche più alte decidono la classe: una sola dà la sua classe, da due a cinque danno un titolo che le unisce.",
+      "info.title.lead": "In testa sono la statistica più alta e quelle vicine (almeno l'80% del suo livello). Per avere una classe, la più alta deve essere almeno al livello {min} e valere almeno il doppio della più bassa.",
+      "info.title.g1": "Una statistica in testa",
+      "info.title.g2": "Due statistiche in testa",
+      "info.title.g3": "Tre statistiche in testa",
+      "info.title.g4": "Quattro statistiche in testa",
+      "info.title.g5": "Cinque statistiche in testa",
+      "info.title.except": "Tutte tranne",
       "info.title.p3": "Se le statistiche sono più o meno pari, o ancora basse, conta il livello del personaggio:",
-      "info.title.p4": "Le classi di base:",
       "info.title.grade.p": "Davanti alla classe può comparire un grado, secondo il livello: {list}.",
 
       "info.mis.h": "Missioni",
@@ -1443,8 +1498,47 @@
       "cls.Creativita": "Bard",
       "cls.Animo": "Monk",
       "cls.Legami": "Guardian",
-      "cls.versatile": "Versatile",
-      "cls.achilles": "Achilles",
+      "triple.general": "General",
+      "triple.explorer": "Explorer",
+      "triple.paladin": "Paladin",
+      "triple.pillar": "Pillar",
+      "triple.architect": "Architect",
+      "triple.stoic": "Stoic",
+      "triple.warlord": "Warlord",
+      "triple.wanderer": "Wanderer",
+      "triple.catalyst": "Catalyst",
+      "triple.protector": "Protector",
+      "triple.naturalist": "Naturalist",
+      "triple.apothecary": "Apothecary",
+      "triple.surgeon": "Surgeon",
+      "triple.enchanter": "Enchanter",
+      "triple.entertainer": "Entertainer",
+      "triple.shepherd": "Shepherd",
+      "triple.philosopher": "Philosopher",
+      "triple.orator": "Orator",
+      "triple.counselor": "Counselor",
+      "triple.inspirer": "Inspirer",
+      "quad.pioneer": "Pioneer",
+      "quad.spartan": "Spartan",
+      "quad.sovereign": "Sovereign",
+      "quad.savage": "Savage",
+      "quad.busker": "Busker",
+      "quad.sentinel": "Sentinel",
+      "quad.loner": "Loner",
+      "quad.entrepreneur": "Entrepreneur",
+      "quad.commander": "Commander",
+      "quad.revolutionary": "Revolutionary",
+      "quad.hermit": "Hermit",
+      "quad.humanist": "Humanist",
+      "quad.priest": "Priest",
+      "quad.jester": "Jester",
+      "quad.visionary": "Visionary",
+      "quint.oracle": "Oracle",
+      "quint.ascetic": "Ascetic",
+      "quint.barbarian": "Barbarian",
+      "quint.templar": "Templar",
+      "quint.conqueror": "Conqueror",
+      "quint.ronin": "Ronin",
       "pair.gladiator": "Gladiator",
       "pair.strategist": "Strategist",
       "pair.acrobat": "Acrobat",
@@ -1731,9 +1825,15 @@
 
       "info.title.h": "Character title",
       "info.title.p1": "Under your name there is a title that depends on your stats.",
-      "info.title.p2": "Your highest stats decide the class: one alone gives its class, two give a double class, three or more give a special title.",
+      "info.title.p2": "Your highest stats decide the class: one alone gives its class, from two to five give a title that combines them.",
+      "info.title.lead": "The stats in the lead are the highest one and those close to it (at least 80% of its level). To get a class, the highest must be at least level {min} and at least double the lowest.",
+      "info.title.g1": "One stat in the lead",
+      "info.title.g2": "Two stats in the lead",
+      "info.title.g3": "Three stats in the lead",
+      "info.title.g4": "Four stats in the lead",
+      "info.title.g5": "Five stats in the lead",
+      "info.title.except": "All except",
       "info.title.p3": "If your stats are about equal, or still low, your character level decides:",
-      "info.title.p4": "The basic classes:",
       "info.title.grade.p": "A rank can appear in front of the class, depending on the level: {list}.",
 
       "info.mis.h": "Missions",
@@ -1794,8 +1894,47 @@
       "cls.Creativita": "Bardo",
       "cls.Animo": "Monge",
       "cls.Legami": "Guardião",
-      "cls.versatile": "Versátil",
-      "cls.achilles": "Aquiles",
+      "triple.general": "General",
+      "triple.explorer": "Explorador",
+      "triple.paladin": "Paladino",
+      "triple.pillar": "Pilar",
+      "triple.architect": "Arquiteto",
+      "triple.stoic": "Estoico",
+      "triple.warlord": "Chefe de Guerra",
+      "triple.wanderer": "Andarilho",
+      "triple.catalyst": "Catalisador",
+      "triple.protector": "Protetor",
+      "triple.naturalist": "Naturalista",
+      "triple.apothecary": "Boticário",
+      "triple.surgeon": "Cirurgião",
+      "triple.enchanter": "Encantador",
+      "triple.entertainer": "Animador",
+      "triple.shepherd": "Pastor",
+      "triple.philosopher": "Filósofo",
+      "triple.orator": "Orador",
+      "triple.counselor": "Conselheiro",
+      "triple.inspirer": "Inspirador",
+      "quad.pioneer": "Pioneiro",
+      "quad.spartan": "Espartano",
+      "quad.sovereign": "Soberano",
+      "quad.savage": "Selvagem",
+      "quad.busker": "Artista de Rua",
+      "quad.sentinel": "Sentinela",
+      "quad.loner": "Solitário",
+      "quad.entrepreneur": "Empreendedor",
+      "quad.commander": "Comandante",
+      "quad.revolutionary": "Revolucionário",
+      "quad.hermit": "Ermitão",
+      "quad.humanist": "Humanista",
+      "quad.priest": "Sacerdote",
+      "quad.jester": "Bufão",
+      "quad.visionary": "Visionário",
+      "quint.oracle": "Oráculo",
+      "quint.ascetic": "Asceta",
+      "quint.barbarian": "Bárbaro",
+      "quint.templar": "Templário",
+      "quint.conqueror": "Conquistador",
+      "quint.ronin": "Ronin",
       "pair.gladiator": "Gladiador",
       "pair.strategist": "Estrategista",
       "pair.acrobat": "Acrobata",
@@ -2082,9 +2221,15 @@
 
       "info.title.h": "Título do personagem",
       "info.title.p1": "Embaixo do seu nome aparece um título que depende das suas estatísticas.",
-      "info.title.p2": "As estatísticas mais altas decidem a classe: uma sozinha dá a classe dela, duas dão uma classe dupla, três ou mais dão um título especial.",
+      "info.title.p2": "As estatísticas mais altas decidem a classe: uma sozinha dá a classe dela, de duas a cinco dão um título que as une.",
+      "info.title.lead": "Na frente ficam a estatística mais alta e as que estão perto dela (pelo menos 80% do nível dela). Para ter uma classe, a mais alta precisa estar pelo menos no nível {min} e valer pelo menos o dobro da mais baixa.",
+      "info.title.g1": "Uma estatística na frente",
+      "info.title.g2": "Duas estatísticas na frente",
+      "info.title.g3": "Três estatísticas na frente",
+      "info.title.g4": "Quatro estatísticas na frente",
+      "info.title.g5": "Cinco estatísticas na frente",
+      "info.title.except": "Todas menos",
       "info.title.p3": "Se as estatísticas forem mais ou menos iguais, ou ainda baixas, vale o nível do personagem:",
-      "info.title.p4": "As classes básicas:",
       "info.title.grade.p": "Um grau pode aparecer antes da classe, de acordo com o nível: {list}.",
 
       "info.mis.h": "Missões",
@@ -2195,6 +2340,28 @@
     'Creativita+Animo': 'poet',       'Creativita+Legami': 'storyteller',
     'Animo+Legami': 'peacemaker',
   };
+  // Tre, quattro e cinque statistiche in testa: un titolo per ogni combinazione (chiavi in ordine di elenco)
+  const TRIPLES = {
+    'Vigore+Vitalita+Intelletto': 'general',   'Vigore+Vitalita+Creativita': 'explorer',   'Vigore+Vitalita+Animo': 'paladin',
+    'Vigore+Vitalita+Legami': 'pillar',        'Vigore+Intelletto+Creativita': 'architect', 'Vigore+Intelletto+Animo': 'stoic',
+    'Vigore+Intelletto+Legami': 'warlord',     'Vigore+Creativita+Animo': 'wanderer',       'Vigore+Creativita+Legami': 'catalyst',
+    'Vigore+Animo+Legami': 'protector',        'Vitalita+Intelletto+Creativita': 'naturalist', 'Vitalita+Intelletto+Animo': 'apothecary',
+    'Vitalita+Intelletto+Legami': 'surgeon',   'Vitalita+Creativita+Animo': 'enchanter',   'Vitalita+Creativita+Legami': 'entertainer',
+    'Vitalita+Animo+Legami': 'shepherd',       'Intelletto+Creativita+Animo': 'philosopher', 'Intelletto+Creativita+Legami': 'orator',
+    'Intelletto+Animo+Legami': 'counselor',    'Creativita+Animo+Legami': 'inspirer',
+  };
+  const QUADS = {
+    'Vigore+Vitalita+Intelletto+Creativita': 'pioneer',      'Vigore+Vitalita+Intelletto+Animo': 'spartan',
+    'Vigore+Vitalita+Intelletto+Legami': 'sovereign',        'Vigore+Vitalita+Creativita+Animo': 'savage',
+    'Vigore+Vitalita+Creativita+Legami': 'busker',           'Vigore+Vitalita+Animo+Legami': 'sentinel',
+    'Vigore+Intelletto+Creativita+Animo': 'loner',           'Vigore+Intelletto+Creativita+Legami': 'entrepreneur',
+    'Vigore+Intelletto+Animo+Legami': 'commander',           'Vigore+Creativita+Animo+Legami': 'revolutionary',
+    'Vitalita+Intelletto+Creativita+Animo': 'hermit',        'Vitalita+Intelletto+Creativita+Legami': 'humanist',
+    'Vitalita+Intelletto+Animo+Legami': 'priest',            'Vitalita+Creativita+Animo+Legami': 'jester',
+    'Intelletto+Creativita+Animo+Legami': 'visionary',
+  };
+  // cinque in testa: il titolo dipende dalla statistica che manca
+  const QUINTS = { Vigore: 'oracle', Vitalita: 'ascetic', Intelletto: 'barbarian', Creativita: 'templar', Animo: 'conqueror', Legami: 'ronin' };
   // Titoli per chi è equilibrato, in base al livello complessivo
   const TIERS = [[75, 'demigod'], [50, 'legend'], [25, 'champion'], [10, 'hero'], [0, 'adventurer']];
   const tierOf = ov => T('tier.' + (TIERS.find(x => ov >= x[0]) || TIERS[TIERS.length - 1])[1]);
@@ -2206,7 +2373,7 @@
     return id ? T('grade.' + id) : '';
   };
   const withGrade = (name, lv) => (gradeOf(lv) ? gradeOf(lv) + ' ' : '') + name;
-  const SPEC_MIN_LEVEL = 10;   // sotto questo livello non si parla di specializzazione
+  const SPEC_MIN_LEVEL = 5;    // sotto questo livello non si parla di specializzazione
   const SPEC_RATIO = 2;        // specializzato se il livello massimo è almeno il doppio del minimo
   const NEAR_RATIO = 0.8;      // "vicine" alla massima: almeno l'80% del suo livello
 
@@ -2223,8 +2390,14 @@
       const [a, b] = [order[0], order[1]].sort((p, q) => p.i - q.i);
       return withGrade(T('pair.' + PAIRS[a.s.key + '+' + b.s.key]), Math.floor((a.lv + b.lv) / 2));
     }
-    if (near <= 4) return T('cls.versatile');                      // tre o quattro forti, le altre indietro
-    return T('cls.achilles');                                        // cinque forti e una sola lacuna
+    // tre, quattro o cinque in testa: un titolo per la combinazione, con il grado della media dei loro livelli
+    const lead = order.slice(0, near).sort((p, q) => p.i - q.i);
+    const avg = Math.floor(lead.reduce((t, o) => t + o.lv, 0) / lead.length);
+    const key = lead.map(o => o.s.key).join('+');
+    if (near === 3) return withGrade(T('triple.' + TRIPLES[key]), avg);
+    if (near === 4) return withGrade(T('quad.' + QUADS[key]), avg);
+    const missing = STATS.find(s => !lead.some(o => o.s.key === s.key));
+    return withGrade(T('quint.' + QUINTS[missing.key]), avg);           // cinque forti e una sola lacuna
   }
   const fmt = n => n.toLocaleString(locale());
 
@@ -4780,6 +4953,36 @@
     b = section('title', T('info.title.h'));
     p(b, T('info.title.p1'));
     p(b, T('info.title.p2'));
+    p(b, T('info.title.lead', { min: SPEC_MIN_LEVEL }));
+    // un gruppo apribile per ogni numero di statistiche in testa, con tutti i titoli
+    const titleBody = b;
+    const group = (id, heading, items) => {
+      const det = mk('details', 'info-sub');
+      det.dataset.id = id;
+      det.appendChild(mk('summary', null, heading + ' (' + items.length + ')'));
+      if (wasOpen.has(id)) det.open = true;
+      const ul = mk('ul', 'info-ul');
+      items.forEach(it => ul.appendChild(it));
+      const inner = mk('div', 'info-sub-body');
+      inner.appendChild(ul);
+      det.appendChild(inner);
+      titleBody.appendChild(det);
+    };
+    const combo = (keys, name) => {
+      const li = mk('li');
+      li.append(mk('span', null, name), mk('span', 'dim', ': '));
+      keys.forEach((k, i) => { if (i) li.append(mk('span', 'dim', ' + ')); li.append(nameSpan(k)); });
+      return li;
+    };
+    group('title-g1', T('info.title.g1'), STATS.map(s => combo([s.key], s.cls)));
+    group('title-g2', T('info.title.g2'), Object.entries(PAIRS).map(([k, id]) => combo(k.split('+'), T('pair.' + id))));
+    group('title-g3', T('info.title.g3'), Object.entries(TRIPLES).map(([k, id]) => combo(k.split('+'), T('triple.' + id))));
+    group('title-g4', T('info.title.g4'), Object.entries(QUADS).map(([k, id]) => combo(k.split('+'), T('quad.' + id))));
+    group('title-g5', T('info.title.g5'), STATS.map(s => {
+      const li = mk('li');
+      li.append(mk('span', null, T('quint.' + QUINTS[s.key])), mk('span', 'dim', ': ' + T('info.title.except') + ' '), nameSpan(s.key));
+      return li;
+    }));
     p(b, T('info.title.p3'));
     const tl = mk('ul', 'info-ul');
     for (let i = TIERS.length - 1; i >= 0; i--) {
@@ -4787,10 +4990,6 @@
       tl.appendChild(li);
     }
     b.appendChild(tl);
-    p(b, T('info.title.p4'));
-    const sl = mk('ul', 'info-ul');
-    STATS.forEach(s => { const li = mk('li'); li.append(nameSpan(s.key), mk('span', 'dim', ' → '), mk('span', null, s.cls)); sl.appendChild(li); });
-    b.appendChild(sl);
     p(b, T('info.title.grade.p', { list: GRADES.filter(g => g[1]).reverse().map(g => T('grade.' + g[1])).join(', ') }));
 
     // missioni
