@@ -588,7 +588,7 @@
   .dot.todo { background: var(--gold); }
   .dot.done { background: var(--good); }
   .dot.fail { background: var(--bad); }
-  .cal-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px 12px; flex-wrap: wrap; margin-top: 14px; font-size: var(--fs-s); color: var(--ink-soft); }
+  .cal-foot { display: flex; align-items: center; justify-content: center; gap: 10px 22px; flex-wrap: wrap; margin-top: 14px; font-size: var(--fs-s); color: var(--ink-soft); }
   .legend { display: inline-flex; align-items: center; gap: 6px; }
   .day-title { margin: 0 0 12px; font-size: 24px; font-weight: normal; line-height: 1.1; }
   #day-new { margin: 0 0 12px; }
@@ -699,6 +699,49 @@
   /* pulsante a icona (ingranaggio delle Impostazioni) */
   .btn.icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 48px; min-height: 48px; padding: 0; }
   .btn.icon-btn svg { display: block; }
+
+  /* ---------- Impostazioni: spazi più stretti, righe ordinate, meno andare a capo ---------- */
+  #settings.modal { padding: 12px 10px; }
+  #settings .modal-win { padding-left: 14px; padding-right: 14px; }
+  #settings .tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-bottom: 16px; }
+  #settings .tabs button { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 8px 0 6px; min-height: 0; font-size: 17px; line-height: 1; }
+  #settings .tabs button svg { display: block; }
+  #settings .tabs button[aria-selected="true"] svg { color: var(--gold); }
+  #settings .field { margin-bottom: 16px; }
+  #settings .modal-win p, #settings .modal-win .tip { font-size: 20px; line-height: 1.35; margin-bottom: 10px; }
+  #settings .modal-win .field .label { font-size: 24px; margin-bottom: 6px; }
+  /* righe dei colori: nome, campione, codice e freccia "predefinito" sulla stessa riga */
+  #settings .inline { flex-wrap: nowrap; gap: 8px; margin-top: 8px; }
+  #settings .inline label { flex: 1 1 0; min-width: 0; font-size: 20px; line-height: 1.1; }
+  #settings input[type="color"] { flex: none; width: 44px; height: 40px; }
+  #settings .hex { flex: none; width: 100px; min-height: 40px; padding: 4px 8px; font-size: 20px; }
+  #settings .btn.reset { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 40px; min-height: 40px; padding: 0; }
+  #settings .btn.reset svg { display: block; }
+  #settings .inline .btn.reset[hidden] { display: inline-flex !important; visibility: hidden; }   /* riserva lo spazio: le colonne restano allineate */
+  /* esagono del livello: anteprima piccola accanto al titolo */
+  .em-head { display: flex; align-items: center; justify-content: flex-start; gap: 12px; margin: 0 0 2px; }
+  #settings .em-head .label { margin: 0; }
+  #settings .em-head .emblem { width: 52px; height: 60px; }
+  #settings .em-head .emblem::before { inset: 4px; }
+  #settings .em-head .emblem-lv { font-size: 14px; margin-bottom: 0; }
+  #settings .em-head .emblem-num { font-size: 26px; }
+  /* sfondo: "Adattamento" con un po' d'aria sopra */
+  #fit-wrap { margin-top: 18px; }
+  /* bordi delle finestre: 2 x 2 invece di 3 + 1 */
+  #seg-frame { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  #settings .cs-item { margin-bottom: 8px; }
+  /* messaggi vuoti non occupano spazio; i pulsanti in fondo stanno sulla stessa riga */
+  #settings .data-msg:empty { min-height: 0; margin: 0; }
+  /* lingue: un pulsante per riga (tre su schermi larghi), invece di 2 + 1 */
+  #seg-lang { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  #settings .info-sec p:last-of-type { margin-bottom: 4px; }
+  #settings .modal-actions { gap: 8px; margin-top: 4px; }
+  #settings .modal-actions .btn { font-size: 20px; padding: 8px 10px; min-height: 40px; }
+  /* legenda del calendario: le regole per gli schermi stretti vanno DOPO la regola principale, altrimenti non valgono */
+  @media (max-width: 400px) { .cal-foot { column-gap: 14px; } }
+  @media (max-width: 350px) { .cal-foot { font-size: 16px; column-gap: 12px; } }
+  @media (max-width: 400px) { #settings .tabs { gap: 3px; } #settings .tabs button { font-size: 16px; } }
+  @media (max-width: 340px) { #settings .tabs button { letter-spacing: -0.6px; } }
 </style>
 </head>
 <body>
@@ -814,11 +857,11 @@
     <h2 class="win-title" id="t-settings" data-i18n="set.title">Impostazioni</h2>
 
     <div class="tabs" role="tablist" aria-label="Sezioni delle impostazioni" data-i18n-aria="set.aria">
-      <button type="button" role="tab" id="tab-look" aria-controls="pane-look" aria-selected="true" data-i18n="tab.look">Aspetto</button>
-      <button type="button" role="tab" id="tab-lang" aria-controls="pane-lang" aria-selected="false" tabindex="-1" data-i18n="tab.lang">Lingua</button>
-      <button type="button" role="tab" id="tab-sound" aria-controls="pane-sound" aria-selected="false" tabindex="-1" data-i18n="tab.sound">Suono</button>
-      <button type="button" role="tab" id="tab-data" aria-controls="pane-data" aria-selected="false" tabindex="-1" data-i18n="tab.data">Dati</button>
-      <button type="button" role="tab" id="tab-info" aria-controls="pane-info" aria-selected="false" tabindex="-1" data-i18n="tab.info">Info</button>
+      <button type="button" role="tab" id="tab-look" aria-controls="pane-look" aria-selected="true"><span class="tab-lbl" data-i18n="tab.look">Aspetto</span></button>
+      <button type="button" role="tab" id="tab-lang" aria-controls="pane-lang" aria-selected="false" tabindex="-1"><span class="tab-lbl" data-i18n="tab.lang">Lingua</span></button>
+      <button type="button" role="tab" id="tab-sound" aria-controls="pane-sound" aria-selected="false" tabindex="-1"><span class="tab-lbl" data-i18n="tab.sound">Suono</span></button>
+      <button type="button" role="tab" id="tab-data" aria-controls="pane-data" aria-selected="false" tabindex="-1"><span class="tab-lbl" data-i18n="tab.data">Dati</span></button>
+      <button type="button" role="tab" id="tab-info" aria-controls="pane-info" aria-selected="false" tabindex="-1"><span class="tab-lbl" data-i18n="tab.info">Info</span></button>
     </div>
 
     <div role="tabpanel" id="pane-look" aria-labelledby="tab-look">
@@ -841,27 +884,27 @@
         <div class="inline">
           <label for="in-ink" data-i18n="look.c.ink">Testo principale</label>
           <input type="color" id="in-ink" value="#f5f7ff">
-          <button type="button" class="btn small" id="ink-reset" hidden data-i18n="btn.default">Predefinito</button>
+          <button type="button" class="btn small reset" id="ink-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
         </div>
         <div class="inline">
           <label for="in-soft" data-i18n="look.c.soft">Testo secondario</label>
           <input type="color" id="in-soft" value="#b9c4ff">
-          <button type="button" class="btn small" id="soft-reset" hidden data-i18n="btn.default">Predefinito</button>
+          <button type="button" class="btn small reset" id="soft-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
         </div>
         <div class="inline">
           <label for="in-accent" data-i18n="look.c.accent">Titoli e numeri</label>
           <input type="color" id="in-accent" value="#ffd54a">
-          <button type="button" class="btn small" id="accent-reset" hidden data-i18n="btn.default">Predefinito</button>
+          <button type="button" class="btn small reset" id="accent-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
         </div>
         <div class="inline">
           <label for="in-name-color" data-i18n="look.name">Il tuo nome</label>
           <input type="color" id="in-name-color" value="#ffd54a">
-          <button type="button" class="btn small" id="name-color-reset" hidden data-i18n="btn.default">Predefinito</button>
+          <button type="button" class="btn small reset" id="name-color-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
         </div>
         <div class="inline">
           <label for="in-title-color" data-i18n="look.title">Titolo in alto</label>
           <input type="color" id="in-title-color" value="#ffd54a">
-          <button type="button" class="btn small" id="title-color-reset" hidden data-i18n="btn.default">Predefinito</button>
+          <button type="button" class="btn small reset" id="title-color-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
         </div>
         <p class="tip" data-i18n="look.c.tip">Il nome e il titolo Life RPG usano di base il colore dei titoli e dei numeri.</p>
       </div>
@@ -870,7 +913,7 @@
         <label class="label" for="in-win" data-i18n="look.win">Colore delle finestre</label>
         <div class="inline">
           <input type="color" id="in-win" value="#3049cf">
-          <button type="button" class="btn small" id="win-reset" hidden data-i18n="btn.default">Predefinito</button>
+          <button type="button" class="btn small reset" id="win-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
         </div>
         <p class="tip" data-i18n="look.win.tip">Puoi scrivere il codice esadecimale a mano. I colori molto chiari vengono scuriti da soli per lasciare il testo leggibile.</p>
       </div>
@@ -886,21 +929,23 @@
       </div>
 
       <div class="field">
-        <p class="label" id="l-em" data-i18n="look.em">Esagono del livello</p>
+        <div class="em-head">
+          <p class="label" id="l-em" data-i18n="look.em">Esagono del livello</p>
+          <div class="emblem" aria-hidden="true"><div class="emblem-inner"><span class="emblem-lv" data-i18n="lv">Lv</span><span class="emblem-num">42</span></div></div>
+        </div>
         <div class="em-box">
           <div class="em-controls">
             <div class="inline">
               <label for="in-em-b" data-i18n="look.em.b">Bordo</label>
               <input type="color" id="in-em-b" value="#ffcf3a">
-              <button type="button" class="btn small" id="em-b-reset" hidden data-i18n="btn.default">Predefinito</button>
+              <button type="button" class="btn small reset" id="em-b-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
             </div>
             <div class="inline">
               <label for="in-em-f" data-i18n="look.em.f">Interno</label>
               <input type="color" id="in-em-f" value="#3049cf">
-              <button type="button" class="btn small" id="em-f-reset" hidden data-i18n="btn.default">Predefinito</button>
+              <button type="button" class="btn small reset" id="em-f-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
             </div>
           </div>
-          <div class="emblem" aria-hidden="true"><div class="emblem-inner"><span class="emblem-lv" data-i18n="lv">Lv</span><span class="emblem-num">42</span></div></div>
         </div>
       </div>
 
@@ -925,9 +970,6 @@
 
       <p class="data-msg" id="custom-msg" role="status" aria-live="polite"></p>
 
-      <div class="modal-actions">
-        <button type="button" class="btn sub" id="btn-custom-reset">Ripristina predefiniti</button>
-      </div>
     </div>
 
     <div role="tabpanel" id="pane-lang" aria-labelledby="tab-lang" hidden>
@@ -997,6 +1039,7 @@
 
     <div class="modal-actions">
       <button type="button" class="btn ghost" id="btn-close" data-i18n="btn.close">Chiudi</button>
+      <button type="button" class="btn sub" id="btn-custom-reset" hidden>Ripristina predefiniti</button>
     </div>
     <input type="file" id="file-import" accept=".json,application/json" hidden>
     <input type="file" id="file-img" accept="image/*" hidden>
@@ -1800,7 +1843,7 @@
 
       "set.title": "Settings",
       "set.aria": "Settings sections",
-      "tab.look": "Appearance",
+      "tab.look": "Look",
       "tab.lang": "Language",
       "tab.sound": "Sound",
       "tab.data": "Data",
@@ -2215,7 +2258,7 @@
 
       "set.title": "Configurações",
       "set.aria": "Seções das configurações",
-      "tab.look": "Aparência",
+      "tab.look": "Visual",
       "tab.lang": "Idioma",
       "tab.sound": "Som",
       "tab.data": "Dados",
@@ -2975,15 +3018,25 @@
   const NS = 'http://www.w3.org/2000/svg';
 
   const icoPx = rw => (Math.max(rw.length, rw[0].length) >= 9 ? 3 : 4);   // pixel interi per le icone delle righe di Statistiche
+  // Ogni quadratino di un'icona pixel deve occupare un numero INTERO di pixel dello schermo: su un telefono con fattore di scala
+  // 2,625 o 2,75 un quadratino da 3 pixel CSS sarebbe largo 7,9 o 8,25 pixel, e i disegni verrebbero storti e irregolari.
+  const snapCell = px => { const d = window.devicePixelRatio || 1; return Math.max(1, Math.round(px * d)) / d; };
+  const snapSize = (sv, cells) => +(cells * snapCell(+sv.dataset.px)).toFixed(4);
   function iconSvg(rows, px) {
     const h = rows.length, w = rows[0].length;
     let r = '';
     rows.forEach((row, y) => [...row].forEach((ch, x) => {
       if (ch === 'X') r += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
     }));
-    const size = px ? ` width="${w * px}" height="${h * px}"` : '';
+    const size = px ? ` data-px="${px}" data-cols="${w}" data-rows="${h}" width="${+(w * snapCell(px)).toFixed(4)}" height="${+(h * snapCell(px)).toFixed(4)}"` : '';
     return `<svg viewBox="0 0 ${w} ${h}"${size} fill="currentColor" shape-rendering="crispEdges" aria-hidden="true">${r}</svg>`;
   }
+  // se cambia lo zoom o lo schermo, le icone si ricalcolano
+  window.addEventListener('resize', () => {
+    document.querySelectorAll('svg[data-px]').forEach(sv => {
+      sv.setAttribute('width', snapSize(sv, +sv.dataset.cols)); sv.setAttribute('height', snapSize(sv, +sv.dataset.rows));
+    });
+  });
 
   /* ----- lista statistiche ----- */
   const list = $('stat-list');
@@ -3195,6 +3248,8 @@
       b.setAttribute('aria-selected', String(n === name));
       b.tabIndex = n === name ? 0 : -1;
     });
+    $('btn-custom-reset').hidden = name !== 'look';
+    if (name !== 'look') custResetArm(false);
     if (name === 'look') paintCustom();
     if (name === 'data') { dataMsg(''); $('json-box').hidden = true; resetArm(false); }
     if (name === 'info') renderInfo();
@@ -3755,6 +3810,7 @@
     document.querySelectorAll('[data-i18n-ph]').forEach(n => { n.placeholder = T(n.dataset.i18nPh); });
     document.querySelectorAll('[data-i18n-aria]').forEach(n => { n.setAttribute('aria-label', T(n.dataset.i18nAria)); });
     $('btn-settings').title = T('nav.settings');
+    document.querySelectorAll('#settings .btn.reset').forEach(b => { b.title = T('btn.default'); });
     STATS.forEach((s, i) => {
       const r = rows[s.key];
       r.nm.textContent = s.name;
@@ -4925,6 +4981,17 @@
   $('m-more').addEventListener('click', () => { doneShown += PAGE; renderMissions(); });
   // frecce pixel-art: il font dell'app non ha i caratteri < e >
   // (pixel grandi come quelli delle lettere: 1 pixel del font = 1/16 della sua altezza)
+  // icone delle schede delle Impostazioni (11 x 11)
+  const TAB_ICONS = {
+    look: ['....XXX....', '..XXX..XX..', '.XXXX...XX.', '.XXXX....X.', 'XXXXX.....X', 'XXXXX.....X', 'XXXXX.....X', '.XXXX....X.', '.XXXX...XX.', '..XXX..XX..', '....XXX....'],
+    lang: ['...XXXXX...', '.XX..X..XX.', '.X..X.X..X.', 'X...X.X...X', 'X..X...X..X', 'XXXXXXXXXXX', 'X..X...X..X', 'X...X.X...X', '.X..X.X..X.', '.XX..X..XX.', '...XXXXX...'],
+    sound: ['....X......', '...XX...X..', '..XXX....X.', 'XXXXX.X..X.', 'XXXXX..X..X', 'XXXXX..X..X', 'XXXXX..X..X', 'XXXXX.X..X.', '..XXX....X.', '...XX...X..', '....X......'],
+    data: ['XXXXXXXXX..', 'XX.....XXX.', 'XX.XXX.XXXX', 'XX.XXX.XXXX', 'XX.....XXXX', 'XXXXXXXXXXX', 'X.........X', 'X.XXXXXXX.X', 'X.........X', 'X.XXXXXXX.X', 'XXXXXXXXXXX'],
+    info: ['....XXX....', '..XXXXXXX..', '.XXXX.XXXX.', '.XXXXXXXXX.', 'XXXXX.XXXXX', 'XXXXX.XXXXX', 'XXXXX.XXXXX', '.XXXX.XXXX.', '.XXXX.XXXX.', '..XXXXXXX..', '....XXX....'],
+  };
+  Object.keys(TAB_ICONS).forEach(k => $('tab-' + k).insertAdjacentHTML('afterbegin', iconSvg(TAB_ICONS[k], 3)));
+  // freccia "torna al predefinito" dei colori (9 x 9)
+  document.querySelectorAll('#settings .btn.reset').forEach(b => { b.innerHTML = iconSvg(['..X......', '.XX......', 'XXXXXXX..', '.XX....X.', '..X.....X', '........X', '........X', '.X.....X.', '..XXXXX..'], 3); });
   // ingranaggio delle Impostazioni (11 x 11, X = pixel pieno)
   $('btn-settings').innerHTML = iconSvg(['....XXX....', '.XX.XXX.XX.', '.XXXXXXXXX.', '..XXXXXXX..', 'XXXX...XXXX', 'XXXX...XXXX', 'XXXX...XXXX', '..XXXXXXX..', '.XXXXXXXXX.', '.XX.XXX.XX.', '....XXX....'], 3);
   $('cal-prev').innerHTML = iconSvg(['.....XX', '....XX.', '...XX..', '..XX...', '.XX....', 'XX.....', '.XX....', '..XX...', '...XX..', '....XX.', '.....XX']);
