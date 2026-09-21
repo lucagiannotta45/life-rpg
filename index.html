@@ -44,6 +44,9 @@
     --track: #060a2e;
     --btn: #3a55e0;
     --fs-s: 20px;   /* misura più piccola del testo (i dettagli) */
+    /* contorno di pulsanti e campi: segue lo stile dei bordi delle finestre (Impostazioni, Aspetto) */
+    --ctl-border: var(--win-line);
+    --ctl-ring: 0 0 0 0 transparent;
 
     box-sizing: border-box;
     padding-top: env(safe-area-inset-top, 0px);
@@ -111,21 +114,19 @@
     font: 24px/1 var(--font);
     color: var(--ink-strong);
     background: var(--btn);
-    border: 3px solid var(--win-line);
+    border: 3px solid var(--ctl-border);
     border-radius: 8px;
     padding: 9px 14px;
     min-height: 42px;
     cursor: pointer;
-    box-shadow: 0 4px 0 var(--win-edge);
+    box-shadow: var(--ctl-ring);
     transform: translateY(0);
-    transition: transform .06s, box-shadow .06s, filter .12s;
+    transition: transform .06s, filter .12s;
   }
   .btn:hover { filter: brightness(1.12); }
-  .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--win-edge); }
-  .btn.add { background: #24a957; box-shadow: 0 4px 0 var(--good-deep); }
-  .btn.add:active { box-shadow: 0 1px 0 var(--good-deep); }
-  .btn.sub { background: #d24848; box-shadow: 0 4px 0 var(--bad-deep); }
-  .btn.sub:active { box-shadow: 0 1px 0 var(--bad-deep); }
+  .btn:active { transform: translateY(2px); }
+  .btn.add { background: #24a957; }
+  .btn.sub { background: #d24848; }
   .btn.small { font-size: 24px; padding: 9px 14px; min-height: 42px; }
   .btn.ghost { background: transparent; }
 
@@ -134,7 +135,6 @@
     display: block; width: 100%; margin: 0 0 34px; padding: 12px 16px; text-align: left; cursor: pointer;
     font: 24px/1.3 var(--font); color: var(--gold);
     background: var(--win-c); border: 3px solid var(--gold); border-radius: 10px;
-    box-shadow: 0 4px 0 var(--win-edge);
   }
   .notice:hover { filter: brightness(1.12); }
   .notice span { display: block; }
@@ -199,7 +199,14 @@
     border-radius: 8px;
   }
 
-  /* ---------- bordi delle finestre (impostazione Personalizza) ---------- */
+  /* ---------- bordi delle finestre e dei controlli (impostazione Personalizza) ---------- */
+  :root[data-frame="nessuno"] { --ctl-border: transparent; --ctl-ring: 0 0 0 0 transparent; }
+  :root[data-frame="sottile"] { --ctl-border: transparent; --ctl-ring: inset 0 0 0 1px color-mix(in srgb, var(--win-line) 45%, transparent); }
+  :root[data-frame="semplice"] { --ctl-border: var(--win-line); --ctl-ring: 0 0 0 0 transparent; }
+  :root[data-frame="classico"] { --ctl-border: var(--win-line); --ctl-ring: 0 0 0 2px var(--win-edge); }
+  :root[data-frame="nessuno"] .btn.ghost, :root[data-frame="sottile"] .btn.ghost { background: var(--track); }
+  :root[data-frame="nessuno"] .mission:not(.failed) { box-shadow: none; }
+  :root[data-frame="sottile"] .mission:not(.failed) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink-soft) 30%, transparent); }
   /* "classico" è lo stile di base qui sopra; gli altri lo modificano */
   :root[data-frame="nessuno"] .win {
     border-color: transparent;
@@ -271,17 +278,17 @@
 
   .row {
     position: relative;
-    display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; align-items: center;
-    width: 100%; padding: var(--row-pad, 3px) 12px var(--row-pad, 3px) 24px; text-align: left;
+    display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center;
+    width: 100%; padding: var(--row-pad, 3px) 4px var(--row-pad, 3px) 6px; text-align: left;
     font: inherit; line-height: 1.1; color: inherit;
     background: transparent; border: 0; border-radius: 6px;
   }
   .ico {
-    display: grid; place-items: center; width: 44px; height: 44px;
+    display: grid; place-items: center; width: 52px; height: 52px;
     color: var(--c); background: var(--track);
     border: 2px solid var(--c); border-radius: 8px;
   }
-  .ico svg { width: 26px; height: 26px; display: block; }
+  .ico svg { display: block; }
 
   .row-main { display: grid; gap: 4px; min-width: 0; }
   .row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
@@ -373,7 +380,7 @@
   #json-box {
     width: 100%; height: 130px; margin: 0 0 14px; padding: 10px;
     font: 14px/1.3 ui-monospace, "Courier New", monospace; color: var(--ink-strong);
-    background: var(--track); border: 3px solid var(--win-line); border-radius: 8px; resize: vertical;
+    background: var(--track); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring); resize: vertical;
   }
   .data-msg { min-height: 1.6em; }
 
@@ -388,7 +395,7 @@
   .text-in {
     width: 100%; padding: 9px 12px; min-height: 48px;
     font: 24px/1 var(--font); color: var(--ink-strong);
-    background: var(--track); border: 3px solid var(--win-line); border-radius: 8px;
+    background: var(--track); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring);
   }
   .text-in::placeholder { font-size: var(--fs-s); color: color-mix(in srgb, var(--ink-soft) 60%, transparent); }
   input[type="range"] { width: 100%; height: 32px; accent-color: var(--gold); cursor: pointer; }
@@ -397,23 +404,23 @@
   .hex {
     width: 104px; min-height: 48px; padding: 6px 10px;
     font: 24px/1 var(--font); color: var(--ink-strong);
-    background: var(--track); border: 3px solid var(--win-line); border-radius: 8px;
+    background: var(--track); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring);
   }
   .hex[aria-invalid="true"] { border-color: var(--bad); }
   input[type="color"] {
     width: 56px; height: 48px; padding: 0; cursor: pointer;
-    background: var(--track); border: 3px solid var(--win-line); border-radius: 8px;
+    background: var(--track); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring);
   }
   .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
   .tabs button {
     font: 24px/1 var(--font); color: var(--ink-strong); padding: 9px 14px; min-height: 42px; cursor: pointer;
-    background: var(--track); border: 3px solid var(--win-line); border-radius: 8px;
+    background: var(--track); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring);
   }
   .tabs button[aria-selected="true"] { background: var(--btn); border-color: var(--gold); }
   .seg { display: flex; flex-wrap: wrap; gap: 8px; }
   .seg button {
     font: 24px/1 var(--font); color: var(--ink-strong); padding: 9px 14px; min-height: 42px; cursor: pointer;
-    background: var(--track); border: 3px solid var(--win-line); border-radius: 8px;
+    background: var(--track); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring);
   }
   .seg button[aria-checked="true"] { background: var(--btn); border-color: var(--gold); }
   .cs-item { margin: 0 0 10px; }
@@ -449,7 +456,7 @@
   body.has-bg { background-image: none; }
   body.has-bg .foot {
     display: table; margin-inline: auto; padding: 8px 14px; color: var(--ink-strong);
-    background: var(--win-c); border: 3px solid var(--win-line); border-radius: 8px;
+    background: var(--win-c); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring);
   }
   body.has-bg .foot:empty { display: none; }
   .ico.has-img, .cs-icon.has-img { padding: 0; overflow: hidden; }
@@ -524,9 +531,9 @@
   .mlist { display: grid; gap: 12px; }
   .mlist + .btn { margin-top: 12px; }
   .mlist > .btn { justify-self: start; }
-  .mlist > .sub:first-child { margin-top: 0; }
+  .mlist > h4.sub:first-child { margin-top: 0; }
   .empty { margin: 0; font-size: var(--fs-s); line-height: 1.4; color: var(--ink-soft); }
-  .sub { margin: 4px 0 0; font-size: var(--fs-s); font-weight: normal; color: var(--ink-soft); }
+  h4.sub { margin: 4px 0 0; font-size: var(--fs-s); font-weight: normal; color: var(--ink-soft); }
   .mission {
     padding: 12px 14px; border-radius: 8px;
     background: rgba(255, 255, 255, .07);
@@ -591,7 +598,7 @@
   .xp-in {
     width: 116px; min-height: 48px; padding: 6px 10px; text-align: right;
     font: 24px/1 var(--font); color: var(--ink-strong);
-    background: var(--track); border: 3px solid var(--win-line); border-radius: 8px;
+    background: var(--track); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring);
   }
 
   /* ---------- info ---------- */
@@ -638,8 +645,8 @@
   @media (max-width: 520px) {
     .win { padding: 28px 14px 18px; }
     #view-stats .win { padding-top: 22px; padding-bottom: 12px; }
-    .row { padding-left: 22px; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; }
-    .ico { width: 40px; height: 40px; }
+    .row { padding-left: 4px; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; }
+    .ico { width: 48px; height: 48px; }
     .emblem { width: 78px; height: 88px; }
     .emblem-num { font-size: 40px; }
     .class-name { font-size: 32px; }
@@ -2546,13 +2553,15 @@
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const NS = 'http://www.w3.org/2000/svg';
 
-  function iconSvg(rows) {
+  const icoPx = rw => (Math.max(rw.length, rw[0].length) >= 9 ? 3 : 4);   // pixel interi per le icone delle righe di Statistiche
+  function iconSvg(rows, px) {
     const h = rows.length, w = rows[0].length;
     let r = '';
     rows.forEach((row, y) => [...row].forEach((ch, x) => {
       if (ch === 'X') r += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
     }));
-    return `<svg viewBox="0 0 ${w} ${h}" fill="currentColor" shape-rendering="crispEdges" aria-hidden="true">${r}</svg>`;
+    const size = px ? ` width="${w * px}" height="${h * px}"` : '';
+    return `<svg viewBox="0 0 ${w} ${h}"${size} fill="currentColor" shape-rendering="crispEdges" aria-hidden="true">${r}</svg>`;
   }
 
   /* ----- lista statistiche ----- */
@@ -2565,7 +2574,7 @@
     item.style.setProperty('--c', s.color);
     item.innerHTML =
       '<div class="row">' +
-        `<span class="ico">${iconSvg(ICONS[s.icon].rows)}</span>` +
+        `<span class="ico">${iconSvg(ICONS[s.icon].rows, icoPx(ICONS[s.icon].rows))}</span>` +
         '<span class="row-main">' +
           `<span class="row-top"><span class="nm">${s.name}</span><span class="lv"><span class="lv-t">Lv</span> <b></b></span></span>` +
           '<span class="bar"><span class="fill"></span></span>' +
@@ -3234,7 +3243,9 @@
       el.classList.add('has-img');
     } else {
       el.classList.remove('has-img');
-      el.innerHTML = iconSvg(ICONS[statIconId(key)].rows);
+      const rw = ICONS[statIconId(key)].rows;
+      // nelle righe delle statistiche l'icona ha pixel interi (3 o 4 px), così resta nitida
+      el.innerHTML = iconSvg(rw, el.classList.contains('ico') ? icoPx(rw) : 0);
     }
   }
   function applyStats() {
@@ -4302,7 +4313,7 @@
   const VIEW_ORDER = ['char', 'stats', 'missions', 'cal'];
   // icone pixel della navigazione (11 x 10, X = pixel pieno)
   const NAV_ICONS = {
-    char: ['...XXXXX...','..XXXXXXX..','..XXXXXXX..','..XXXXXXX..','...XXXXX...','...........','..XXXXXXX..','.XXXXXXXXX.','XXXXXXXXXXX','XXXXXXXXXXX'],
+    char: ['....XXX....','...XXXXX...','...XXXXX...','...XXXXX...','....XXX....','...........','..XXXXXXX..','.XXXXXXXXX.','.XXXXXXXXX.','.XXXXXXXXX.'],
     stats: ['........XXX','........XXX','........XXX','........XXX','....XXX.XXX','....XXX.XXX','XXX.XXX.XXX','XXX.XXX.XXX','...........','XXXXXXXXXXX'],
     missions: ['XXXXXXXXXXX','XXXXXXXXXXX','.X.......X.','.X.XXXXX.X.','.X.......X.','.X.XXXXX.X.','.X.......X.','.X.XXX...X.','XXXXXXXXXXX','XXXXXXXXXXX'],
     cal: ['.XX.....XX.','XXXXXXXXXXX','XXXXXXXXXXX','X.........X','X.X.X.X.X.X','X.........X','X.X.X.X.X.X','X.........X','X.X.X.X.X.X','XXXXXXXXXXX'],
