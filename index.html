@@ -946,6 +946,15 @@
         <p data-i18n="sound.menu.desc">Suoni leggeri quando cambi schermata, apri o chiudi una finestra, salvi o elimini. Seguono l'interruttore qui sopra: se spegni tutto il suono, restano spenti. Vale solo per questo dispositivo.</p>
         <button type="button" class="btn small toggle" id="btn-menu-sound" aria-pressed="true">Suoni dei menu accesi</button>
       </div>
+      <div class="field">
+        <p class="label" data-i18n="music.label">Musica</p>
+        <p data-i18n="music.desc">Una musica di sottofondo che suona nella scheda Personaggio e si ripete. Parte al primo tocco e sfuma quando cambi scheda. Vale solo per questo dispositivo.</p>
+        <button type="button" class="btn small toggle" id="btn-music" aria-pressed="true">Musica accesa</button>
+      </div>
+      <div class="field">
+        <label class="label" for="in-music-vol"><span data-i18n="music.vol">Volume della musica</span>: <span id="music-val">35%</span></label>
+        <input type="range" id="in-music-vol" min="0" max="100" step="5" value="35">
+      </div>
     </div>
 
     <div role="tabpanel" id="pane-data" aria-labelledby="tab-data" hidden>
@@ -1427,6 +1436,11 @@
       "sound.menu.desc": "Suoni leggeri quando cambi schermata, apri o chiudi una finestra, salvi o elimini. Seguono l'interruttore qui sopra: se spegni tutto il suono, restano spenti. Vale solo per questo dispositivo.",
       "sound.menu.on": "Suoni dei menu accesi",
       "sound.menu.off": "Suoni dei menu spenti",
+      "music.label": "Musica",
+      "music.desc": "Una musica di sottofondo che suona nella scheda Personaggio e si ripete. Parte al primo tocco e sfuma quando cambi scheda. Vale solo per questo dispositivo.",
+      "music.on": "Musica accesa",
+      "music.off": "Musica spenta",
+      "music.vol": "Volume della musica",
 
       "data.label": "Salvataggio",
       "data.desc": "Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. «Azzera tutto» cancella i progressi e le missioni, ma non l'aspetto.",
@@ -1837,6 +1851,11 @@
       "sound.menu.desc": "Light sounds when you switch screens, open or close a window, save or delete. They follow the switch above: if all sound is off, they stay off. This only applies to this device.",
       "sound.menu.on": "Menu sounds on",
       "sound.menu.off": "Menu sounds off",
+      "music.label": "Music",
+      "music.desc": "Background music that plays on the Character screen and loops. It starts on your first tap and fades out when you switch screens. This only applies to this device.",
+      "music.on": "Music on",
+      "music.off": "Music off",
+      "music.vol": "Music volume",
 
       "data.label": "Save data",
       "data.desc": "The backup contains progress, missions, appearance, language and images (not sound). Importing it replaces your current data. “Reset everything” deletes your progress and missions, but not your appearance.",
@@ -2247,6 +2266,11 @@
       "sound.menu.desc": "Sons leves ao trocar de tela, abrir ou fechar uma janela, salvar ou excluir. Seguem a chave acima: se todo o som estiver desligado, eles ficam desligados. Vale apenas para este dispositivo.",
       "sound.menu.on": "Sons dos menus ligados",
       "sound.menu.off": "Sons dos menus desligados",
+      "music.label": "Música",
+      "music.desc": "Uma música de fundo que toca na tela Personagem e se repete. Começa no primeiro toque e some aos poucos quando você troca de tela. Vale apenas para este dispositivo.",
+      "music.on": "Música ligada",
+      "music.off": "Música desligada",
+      "music.vol": "Volume da música",
 
       "data.label": "Salvamento",
       "data.desc": "O backup contém progresso, missões, aparência, idioma e imagens (não o som). Ao importá-lo, você substitui os dados atuais. “Zerar tudo” apaga o progresso e as missões, mas não a aparência.",
@@ -3727,7 +3751,7 @@
     document.querySelectorAll('#settings input[type="color"]').forEach(c => {
       if (c._hex) c._hex.setAttribute('aria-label', T('hex.aria'));
     });
-    paintSound(); resetArm(false); custResetArm(false); mfDelArm(false); driveOffArm(false);
+    paintSound(); paintMusic(); resetArm(false); custResetArm(false); mfDelArm(false); driveOffArm(false);
     setSaveState(saveKind);
     if (cs.Vigore) paintCustom();
     render(false);
@@ -4534,6 +4558,90 @@
   }
   // avviso sotto l'intestazione: missioni che scadono oggi e missioni già scadute (senza penalità)
   let curView = 'char';
+
+  /* ================= musica (scheda Personaggio) ================= */
+  // Il brano sta nel file Avventuriero.mp3, accanto a index.html (maiuscole e minuscole contano). Suona solo nella scheda Personaggio, si ripete,
+  // sfuma quando cambi scheda e si ferma quando la pagina non è in primo piano.
+  const LS_MUSIC = 'liferpg:music', LS_MUSIC_VOL = 'liferpg:music:vol';
+  const MUSIC_SRC = 'Avventuriero.mp3';
+  let musicOn = true, musicPct = 35;
+  try {
+    musicOn = localStorage.getItem(LS_MUSIC) !== '0';
+    const raw = localStorage.getItem(LS_MUSIC_VOL), v = Number(raw);
+    if (raw !== null && Number.isFinite(v) && v >= 0 && v <= 100) musicPct = Math.round(v);
+  } catch (e) { /* ignora */ }
+  const musicGain = () => Math.pow(musicPct / 100, 2);     // curva quadratica: i volumi bassi si regolano meglio
+  let musicEl = null, musicFailed = false, musicFade = 0, musicPreviewT = 0;
+  const musicBtn = $('btn-music'), musicSlider = $('in-music-vol'), musicVal = $('music-val');
+  function getMusic() {
+    if (!musicEl && !musicFailed) {
+      const a = new Audio(MUSIC_SRC);
+      a.loop = true; a.preload = 'auto'; a.volume = 0;
+      a.addEventListener('error', () => { musicFailed = true; });   // file mancante: non si insiste
+      musicEl = a;
+    }
+    return musicFailed ? null : musicEl;
+  }
+  function fadeMusic(to, ms, done) {
+    const a = musicEl; if (!a) return;
+    clearInterval(musicFade);
+    const from = a.volume, steps = Math.max(1, Math.round(ms / 50)); let i = 0;
+    musicFade = setInterval(() => {
+      i++;
+      a.volume = Math.min(1, Math.max(0, from + (to - from) * (i / steps)));
+      if (i >= steps) { clearInterval(musicFade); if (done) done(); }
+    }, 50);
+  }
+  const musicWanted = () => musicOn && curView === 'char' && !document.hidden;
+  function musicPlay() {
+    const a = getMusic(); if (!a) return;
+    const p = a.play();
+    const ok = () => fadeMusic(musicGain(), 600);
+    if (p && p.then) p.then(ok, () => { /* il browser aspetta un tocco: si riprova al prossimo */ }); else ok();
+  }
+  function musicStop(now) {
+    clearTimeout(musicPreviewT);
+    const a = musicEl; if (!a || a.paused) return;
+    if (now) { clearInterval(musicFade); a.pause(); return; }
+    fadeMusic(0, 400, () => { if (!musicWanted()) a.pause(); });
+  }
+  function musicSync() { if (musicWanted()) musicPlay(); else musicStop(); }
+  // fuori dalla scheda Personaggio: un breve assaggio, per sentire come suona il volume che scegli
+  function musicPreview() {
+    if (!musicOn) return;
+    const a = getMusic(); if (!a) return;
+    const go = () => {
+      fadeMusic(musicGain(), 200);
+      clearTimeout(musicPreviewT);
+      musicPreviewT = setTimeout(() => { if (!musicWanted()) musicStop(); }, 2500);
+    };
+    const p = a.play();
+    if (p && p.then) p.then(go, () => {}); else go();
+  }
+  function paintMusic() {
+    musicBtn.textContent = musicOn ? T('music.on') : T('music.off');
+    musicBtn.setAttribute('aria-pressed', String(musicOn));
+    musicSlider.value = String(musicPct);
+    musicVal.textContent = musicPct + '%';
+  }
+  musicBtn.addEventListener('click', () => {
+    musicOn = !musicOn;
+    try { localStorage.setItem(LS_MUSIC, musicOn ? '1' : '0'); } catch (e) { /* ignora */ }
+    paintMusic();
+    if (!musicOn) musicStop(); else if (musicWanted()) musicPlay(); else musicPreview();
+  });
+  musicSlider.addEventListener('input', e => {
+    musicPct = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+    try { localStorage.setItem(LS_MUSIC_VOL, String(musicPct)); } catch (err) { /* ignora */ }
+    paintMusic();
+    if (musicEl && !musicEl.paused) { clearInterval(musicFade); musicEl.volume = musicGain(); } else musicPreview();
+  });
+  // i browser non fanno partire la musica prima che tu tocchi qualcosa: al primo tocco riprova
+  ['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, () => {
+    if (musicWanted() && (!musicEl || musicEl.paused)) musicPlay();
+  }, true));
+  document.addEventListener('visibilitychange', () => { if (document.hidden) musicStop(true); else musicSync(); });
+  paintMusic();
   function updateNotice() {
     const box = $('due-notice');
     const today = todayStr();
@@ -4737,6 +4845,7 @@
   const VIEWS = { char: ['vt-char', 'view-char'], stats: ['vt-stats', 'view-stats'], missions: ['vt-missions', 'view-missions'], cal: ['vt-cal', 'view-cal'] };
   function showView(name) {
     curView = name;
+    musicSync();
     updateNotice();
     Object.entries(VIEWS).forEach(([n, [t, v]]) => {
       $(v).hidden = n !== name;

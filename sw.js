@@ -4,6 +4,7 @@
      e se manca la rete o è lenta si usa la copia salvata.
    - Icone e manifest: si usa subito la copia salvata e intanto la si aggiorna.
    - Tutto ciò che viene da altri siti (Google Drive, accesso Google, Calendar) non viene toccato.
+   - La musica (file audio) va sempre direttamente dalla rete: non viene salvata e quindi non c'è offline.
    I percorsi sono relativi, quindi funziona anche in una sottocartella (…/life-rpg/). */
 
 const CACHE = 'life-rpg-v1';
@@ -66,6 +67,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   if (new URL(req.url).origin !== self.location.origin) return;
+  // audio e richieste "a pezzi" (Range): vanno diretti alla rete, altrimenti alcuni browser non riproducono la musica
+  if (req.headers.has('range') || req.destination === 'audio' || req.destination === 'video') return;
   if (req.mode === 'navigate') e.respondWith(pageRequest(req));
   else e.respondWith(assetRequest(e));
 });
