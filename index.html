@@ -2816,7 +2816,7 @@
   }
   // suoni dei menu: hanno un interruttore a parte (Impostazioni, scheda Suono)
   const LS_SOUND_MENU = 'liferpg:sound:menu';
-  const MENU_KINDS = new Set(['tab', 'prev', 'next', 'day', 'open', 'close', 'save', 'del', 'err']);
+  const MENU_KINDS = new Set(['tab', 'open', 'close', 'save', 'del', 'err']);
   let menuOn = true, lastMajor = 0, lastLow = 0;
   try { menuOn = localStorage.getItem(LS_SOUND_MENU) !== '0'; } catch (e) { /* ignora */ }
   function sfx(kind, arg) {
@@ -2843,9 +2843,6 @@
           if (kind === 'down') [392, 330, 262].forEach((f, i) => blip(f, t + i * 0.1, 0.16, 'triangle', 0.08));
           // suoni dei menu e della navigazione
           if (kind === 'tab') blip([523, 587, 659, 784][arg] || 523, t, 0.1, 'triangle', 0.06);   // una nota per scheda, su una scala
-          if (kind === 'prev') blip(494, t, 0.09, 'triangle', 0.06);
-          if (kind === 'next') blip(659, t, 0.09, 'triangle', 0.06);
-          if (kind === 'day') blip(880, t, 0.07, 'triangle', 0.06);
           if (kind === 'open') { blip(392, t, 0.08, 'triangle', 0.06); blip(587, t + 0.07, 0.11, 'triangle', 0.06); }
           if (kind === 'close') { blip(587, t, 0.08, 'triangle', 0.06); blip(392, t + 0.07, 0.11, 'triangle', 0.06); }
           if (kind === 'save') { blip(523, t, 0.08, 'triangle', 0.06); blip(659, t + 0.08, 0.08, 'triangle', 0.06); blip(784, t + 0.16, 0.13, 'triangle', 0.06); }
@@ -2874,7 +2871,7 @@
     menuOn = !menuOn;
     try { localStorage.setItem(LS_SOUND_MENU, menuOn ? '1' : '0'); } catch (e) { /* ignora */ }
     paintSound();
-    if (menuOn) sfx('next');
+    if (menuOn) sfx('tab', 2);
   });
   soundBtn.addEventListener('click', () => {
     soundOn = !soundOn;
@@ -4585,7 +4582,7 @@
         + (todo[ds] ? T('cal.aria.todo', { n: todo[ds] }) : '')
         + (fail[ds] ? TN('cal.aria.fail', fail[ds]) : '')
         + (done[ds] ? TN('cal.aria.done', done[ds]) : ''));
-      b.addEventListener('click', () => { sfx('day'); selectDate(ds); });
+      b.addEventListener('click', () => selectDate(ds));
       b.addEventListener('keydown', e => {
         const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
         if (!step) return;
@@ -4694,9 +4691,9 @@
   // (pixel grandi come quelli delle lettere: 1 pixel del font = 1/16 della sua altezza)
   $('cal-prev').innerHTML = iconSvg(['.....XX', '....XX.', '...XX..', '..XX...', '.XX....', 'XX.....', '.XX....', '..XX...', '...XX..', '....XX.', '.....XX']);
   $('cal-next').innerHTML = iconSvg(['XX.....', '.XX....', '..XX...', '...XX..', '....XX.', '.....XX', '....XX.', '...XX..', '..XX...', '.XX....', 'XX.....']);
-  $('cal-prev').addEventListener('click', () => { sfx('prev'); moveMonth(-1); });
-  $('cal-next').addEventListener('click', () => { sfx('next'); moveMonth(1); });
-  $('cal-today').addEventListener('click', () => { sfx('day'); const n = new Date(); calY = n.getFullYear(); calM = n.getMonth(); selDate = isoDate(n); renderCalendar(); });
+  $('cal-prev').addEventListener('click', () => moveMonth(-1));
+  $('cal-next').addEventListener('click', () => moveMonth(1));
+  $('cal-today').addEventListener('click', () => { const n = new Date(); calY = n.getFullYear(); calM = n.getMonth(); selDate = isoDate(n); renderCalendar(); });
 
   // finestra per creare e modificare una missione
   const mform = $('mform');
