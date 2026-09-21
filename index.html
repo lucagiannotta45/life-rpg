@@ -908,6 +908,11 @@
         <p data-i18n="sound.desc">Brevi suoni quando completi o annulli una missione, sali di livello o perdi XP. Vale solo per questo dispositivo.</p>
         <button type="button" class="btn small" id="btn-sound" aria-pressed="true">Suono acceso</button>
       </div>
+      <div class="field">
+        <p class="label" data-i18n="sound.menu.label">Suoni dei menu</p>
+        <p data-i18n="sound.menu.desc">Suoni leggeri quando cambi schermata, cambi mese, apri o chiudi una finestra, salvi o elimini. Seguono l'interruttore qui sopra: se spegni tutto il suono, restano spenti. Vale solo per questo dispositivo.</p>
+        <button type="button" class="btn small" id="btn-menu-sound" aria-pressed="true">Suoni dei menu accesi</button>
+      </div>
     </div>
 
     <div role="tabpanel" id="pane-data" aria-labelledby="tab-data" hidden>
@@ -1379,6 +1384,10 @@
       "sound.desc": "Brevi suoni quando completi o annulli una missione, sali di livello o perdi XP. Vale solo per questo dispositivo.",
       "sound.on": "Suono acceso",
       "sound.off": "Suono spento",
+      "sound.menu.label": "Suoni dei menu",
+      "sound.menu.desc": "Suoni leggeri quando cambi schermata, cambi mese, apri o chiudi una finestra, salvi o elimini. Seguono l'interruttore qui sopra: se spegni tutto il suono, restano spenti. Vale solo per questo dispositivo.",
+      "sound.menu.on": "Suoni dei menu accesi",
+      "sound.menu.off": "Suoni dei menu spenti",
 
       "data.label": "Salvataggio",
       "data.desc": "Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. \"Azzera tutto\" cancella i progressi e le missioni, ma non l'aspetto.",
@@ -1779,6 +1788,10 @@
       "sound.desc": "Short sounds when you complete or undo a mission, level up or lose XP. This only applies to this device.",
       "sound.on": "Sound on",
       "sound.off": "Sound off",
+      "sound.menu.label": "Menu sounds",
+      "sound.menu.desc": "Light sounds when you switch screens, change month, open or close a window, save or delete. They follow the switch above: if all sound is off, they stay off. This only applies to this device.",
+      "sound.menu.on": "Menu sounds on",
+      "sound.menu.off": "Menu sounds off",
 
       "data.label": "Save data",
       "data.desc": "The backup contains progress, missions, appearance, language and images (not sound). Importing it replaces your current data. \"Reset everything\" deletes your progress and missions, but not your appearance.",
@@ -2179,6 +2192,10 @@
       "sound.desc": "Sons curtos quando você conclui ou desfaz uma missão, sobe de nível ou perde XP. Vale apenas para este dispositivo.",
       "sound.on": "Som ligado",
       "sound.off": "Som desligado",
+      "sound.menu.label": "Sons dos menus",
+      "sound.menu.desc": "Sons leves ao trocar de tela, mudar de mês, abrir ou fechar uma janela, salvar ou excluir. Seguem a chave acima: se todo o som estiver desligado, eles ficam desligados. Vale apenas para este dispositivo.",
+      "sound.menu.on": "Sons dos menus ligados",
+      "sound.menu.off": "Sons dos menus desligados",
 
       "data.label": "Salvamento",
       "data.desc": "O backup contém progresso, missões, aparência, idioma e imagens (não o som). Ao importá-lo, você substitui os dados atuais. \"Zerar tudo\" apaga o progresso e as missões, mas não a aparência.",
@@ -2797,9 +2814,24 @@
     o.connect(g); g.connect(audio.destination);
     o.start(t0); o.stop(t0 + dur + 0.03);
   }
-  let sfxSeq = 0;
-  function sfx(kind) {
+  // suoni dei menu: hanno un interruttore a parte (Impostazioni, scheda Suono)
+  const LS_SOUND_MENU = 'liferpg:sound:menu';
+  const MENU_KINDS = new Set(['tab', 'prev', 'next', 'day', 'open', 'close', 'save', 'del', 'err']);
+  let menuOn = true, lastMajor = 0, lastLow = 0;
+  try { menuOn = localStorage.getItem(LS_SOUND_MENU) !== '0'; } catch (e) { /* ignora */ }
+  function sfx(kind, arg) {
     if (!soundOn) return;
+    if (MENU_KINDS.has(kind) && !menuOn) return;
+    if (kind === 'open' || kind === 'close') {
+      // apertura e chiusura di finestre contano poco: se suona già altro (salvataggio, penalità...) o un'altra finestra, si tacciono
+      setTimeout(() => { const n = Date.now(); if (n - lastMajor > 250 && n - lastLow > 100) sfxNow(kind, arg); }, 40);
+      return;
+    }
+    sfxNow(kind, arg);
+  }
+  let sfxSeq = 0;
+  function sfxNow(kind, arg) {
+    if (kind === 'open' || kind === 'close') lastLow = Date.now(); else lastMajor = Date.now();
     try {
       audio = audio || new (window.AudioContext || window.webkitAudioContext)();
       const play = () => {
@@ -2809,6 +2841,17 @@
           if (kind === 'sub') { blip(440, t, 0.08, 'triangle', 0.07); blip(330, t + 0.07, 0.1, 'triangle', 0.07); }
           if (kind === 'up') [523, 659, 784, 1047, 1319].forEach((f, i) => blip(f, t + i * 0.09, 0.16, 'square', 0.045));
           if (kind === 'down') [392, 330, 262].forEach((f, i) => blip(f, t + i * 0.1, 0.16, 'triangle', 0.08));
+          // suoni dei menu e della navigazione
+          if (kind === 'tab') blip([523, 587, 659, 784][arg] || 523, t, 0.1, 'triangle', 0.06);   // una nota per scheda, su una scala
+          if (kind === 'prev') blip(494, t, 0.09, 'triangle', 0.06);
+          if (kind === 'next') blip(659, t, 0.09, 'triangle', 0.06);
+          if (kind === 'day') blip(880, t, 0.07, 'triangle', 0.06);
+          if (kind === 'open') { blip(392, t, 0.08, 'triangle', 0.06); blip(587, t + 0.07, 0.11, 'triangle', 0.06); }
+          if (kind === 'close') { blip(587, t, 0.08, 'triangle', 0.06); blip(392, t + 0.07, 0.11, 'triangle', 0.06); }
+          if (kind === 'save') { blip(523, t, 0.08, 'triangle', 0.06); blip(659, t + 0.08, 0.08, 'triangle', 0.06); blip(784, t + 0.16, 0.13, 'triangle', 0.06); }
+          if (kind === 'del') { blip(330, t, 0.1, 'triangle', 0.07); blip(196, t + 0.09, 0.16, 'triangle', 0.07); }
+          if (kind === 'err') { blip(180, t, 0.11, 'square', 0.045); blip(150, t + 0.12, 0.15, 'square', 0.045); }
+          if (kind === 'bonus') [[784, 0, 0.08], [988, 0.08, 0.08], [1175, 0.16, 0.08], [1568, 0.24, 0.18]].forEach(([f, d, l]) => blip(f, t + d, l, 'square', 0.04));
         } catch (e) { /* audio non disponibile */ }
       };
       if (audio.state !== 'running') {
@@ -2820,10 +2863,19 @@
     } catch (e) { /* audio non disponibile */ }
   }
   const soundBtn = document.getElementById('btn-sound');
+  const menuBtn = document.getElementById('btn-menu-sound');
   function paintSound() {
     soundBtn.textContent = soundOn ? T('sound.on') : T('sound.off');
     soundBtn.setAttribute('aria-pressed', String(soundOn));
+    menuBtn.textContent = menuOn ? T('sound.menu.on') : T('sound.menu.off');
+    menuBtn.setAttribute('aria-pressed', String(menuOn));
   }
+  menuBtn.addEventListener('click', () => {
+    menuOn = !menuOn;
+    try { localStorage.setItem(LS_SOUND_MENU, menuOn ? '1' : '0'); } catch (e) { /* ignora */ }
+    paintSound();
+    if (menuOn) sfx('next');
+  });
   soundBtn.addEventListener('click', () => {
     soundOn = !soundOn;
     try { localStorage.setItem(LS_SOUND, soundOn ? '1' : '0'); } catch (e) { /* ignora */ }
@@ -3031,9 +3083,11 @@
     activeModal = m;
     m.hidden = false;
     if (focusEl) focusEl.focus();
+    sfx('open');
   }
   function closeModal() {
     if (!activeModal) return;
+    sfx('close');
     activeModal.hidden = true;
     activeModal = null;
     resetArm(false);
@@ -4057,7 +4111,7 @@
   function completeMission(id) {
     const m = missions.find(x => x.id === id);
     if (!m || m.done) return;
-    if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(m.due) }), 'bad'); return; }
+    if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(m.due) }), 'bad'); sfx('err'); return; }
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
     const applied = {};
@@ -4091,7 +4145,7 @@
     STATS.forEach(s => { if (applied[s.key] > 0) floatText(s.key, '+' + fmt(applied[s.key]), false); });
     missionMsg(T(Object.keys(bonus).length ? 'msg.completed.bonus' : 'msg.completed', { title: m.title, gain: gainText(applied), n: rs ? rs.n : 0 }), 'good');
     renderMissionViews();
-    if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after), m.title); sfx('up'); } else sfx('add');
+    if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after), m.title); sfx('up'); } else sfx(Object.keys(bonus).length ? 'bonus' : 'add');
   }
   function undoMission(id) {
     const m = missions.find(x => x.id === id);
@@ -4531,7 +4585,7 @@
         + (todo[ds] ? T('cal.aria.todo', { n: todo[ds] }) : '')
         + (fail[ds] ? TN('cal.aria.fail', fail[ds]) : '')
         + (done[ds] ? TN('cal.aria.done', done[ds]) : ''));
-      b.addEventListener('click', () => selectDate(ds));
+      b.addEventListener('click', () => { sfx('day'); selectDate(ds); });
       b.addEventListener('keydown', e => {
         const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
         if (!step) return;
@@ -4619,18 +4673,20 @@
     cal: ['.XX.....XX.','XXXXXXXXXXX','XXXXXXXXXXX','X.........X','X.X.X.X.X.X','X.........X','X.X.X.X.X.X','X.........X','X.X.X.X.X.X','XXXXXXXXXXX'],
   };
   VIEW_ORDER.forEach(n => $('ni-' + n).insertAdjacentHTML('afterbegin', iconSvg(NAV_ICONS[n])));
+  // cambio di schermata fatto dall'utente: suona la nota della scheda (solo se davvero cambia)
+  const goView = n => { if (n !== curView) sfx('tab', VIEW_ORDER.indexOf(n)); showView(n); };
   VIEW_ORDER.forEach((n, i) => {
     const b = $(VIEWS[n][0]);
-    b.addEventListener('click', () => showView(n));
+    b.addEventListener('click', () => goView(n));
     b.addEventListener('keydown', e => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
       e.preventDefault();
       const to = VIEW_ORDER[(i + (e.key === 'ArrowRight' ? 1 : VIEW_ORDER.length - 1)) % VIEW_ORDER.length];
-      showView(to);
+      goView(to);
       $(VIEWS[to][0]).focus();
     });
   });
-  $('due-notice').addEventListener('click', () => { showView('missions'); $('vt-missions').focus(); });
+  $('due-notice').addEventListener('click', () => { goView('missions'); $('vt-missions').focus(); });
   $('m-new').addEventListener('click', () => openMissionForm(null, null));
   $('day-new').addEventListener('click', () => openMissionForm(null, selDate));
   $('m-more').addEventListener('click', () => { doneShown += PAGE; renderMissions(); });
@@ -4638,9 +4694,9 @@
   // (pixel grandi come quelli delle lettere: 1 pixel del font = 1/16 della sua altezza)
   $('cal-prev').innerHTML = iconSvg(['.....XX', '....XX.', '...XX..', '..XX...', '.XX....', 'XX.....', '.XX....', '..XX...', '...XX..', '....XX.', '.....XX']);
   $('cal-next').innerHTML = iconSvg(['XX.....', '.XX....', '..XX...', '...XX..', '....XX.', '.....XX', '....XX.', '...XX..', '..XX...', '.XX....', 'XX.....']);
-  $('cal-prev').addEventListener('click', () => moveMonth(-1));
-  $('cal-next').addEventListener('click', () => moveMonth(1));
-  $('cal-today').addEventListener('click', () => { const n = new Date(); calY = n.getFullYear(); calM = n.getMonth(); selDate = isoDate(n); renderCalendar(); });
+  $('cal-prev').addEventListener('click', () => { sfx('prev'); moveMonth(-1); });
+  $('cal-next').addEventListener('click', () => { sfx('next'); moveMonth(1); });
+  $('cal-today').addEventListener('click', () => { sfx('day'); const n = new Date(); calY = n.getFullYear(); calM = n.getMonth(); selDate = isoDate(n); renderCalendar(); });
 
   // finestra per creare e modificare una missione
   const mform = $('mform');
@@ -4770,7 +4826,7 @@
     if (routinesBack) { routinesBack = false; openRoutines(); }
   }
   function submitRoutine(title, rewards, penalty) {
-    const fail = (t, el) => { mfMsg(t); if (el) el.focus(); };
+    const fail = (t, el) => { mfMsg(t); sfx('err'); if (el) el.focus(); };
     const days = WD_ALL.filter((d, i) => dayBtns[i].getAttribute('aria-checked') === 'true');
     if (!days.length) return fail(T('mf.err.days'), dayBtns[0]);
     const timeRaw = $('mf-time').value;
@@ -4821,6 +4877,7 @@
     saveRoutinesLocal();
     const wasEdit = !!editingRid;
     syncRoutines();
+    sfx('save');
     finishForm();
     renderMissionViews();
     missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }), 'good');
@@ -4837,12 +4894,13 @@
     routines = routines.filter(x => x !== r);
     saveRoutinesLocal();
     months.forEach(touchMonth);
+    sfx('del');
     finishForm();
     renderMissionViews();
     missionMsg(T('msg.routine.deleted', { title: r.title }), '');
   }
   function submitMission() {
-    const fail = (t, el) => { mfMsg(t); if (el) el.focus(); };
+    const fail = (t, el) => { mfMsg(t); sfx('err'); if (el) el.focus(); };
     const title = $('mf-title').value.replace(/\s+/g, ' ').trim().slice(0, 60);
     if (!title) return fail(T('mf.err.title'), $('mf-title'));
     const rewards = {};
@@ -4895,6 +4953,7 @@
       missions.push(m);
     }
     touchMonth(monthOf(m));
+    sfx('save');
     closeModal();
     renderMissionViews();
     missionMsg(T(editingId ? 'msg.edited' : 'msg.created', { title }), 'good');
@@ -4907,6 +4966,7 @@
     if (!$('mf-del').dataset.armed) { mfDelArm(true); mfMsg(T('mf.del.confirm')); return; }
     missions = missions.filter(x => x !== m);
     touchMonth(monthOf(m));
+    sfx('del');
     closeModal();
     renderMissionViews();
     missionMsg(T('msg.deleted', { title: m.title }), '');
