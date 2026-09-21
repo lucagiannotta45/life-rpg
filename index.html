@@ -670,7 +670,7 @@
   /* calendario: mese e pulsante "Oggi" insieme, in colonna tra le due frecce */
   .cal-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
   .cal-mid .cal-title { flex: none; }
-  .cal-nav .cal-today { min-width: 0; min-height: 32px; padding: 2px 12px; font-size: 20px; }
+  .cal-nav .cal-today { min-width: 0; }
   /* giorno scelto: anello chiaro, distinto dal bordo dorato di oggi */
   .cal-day[aria-pressed="true"] { box-shadow: inset 0 0 0 3px var(--ink-strong); }
   /* interruttori */
@@ -701,8 +701,9 @@
   .btn.icon-btn svg { display: block; }
 
   /* ---------- Impostazioni: spazi più stretti, righe ordinate, meno andare a capo ---------- */
-  #settings.modal { padding: 12px 10px; }
-  #settings .modal-win { padding-left: 14px; padding-right: 14px; }
+  .modal { padding-top: calc(env(safe-area-inset-top, 0px) + 32px); }
+  #settings.modal { padding-left: 8px; padding-right: 8px; padding-bottom: 12px; }
+  #settings .modal-win { padding-left: 12px; padding-right: 12px; }
   #settings .tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-bottom: 16px; }
   #settings .tabs button { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 8px 0 6px; min-height: 0; font-size: 17px; line-height: 1; }
   #settings .tabs button svg { display: block; }
@@ -713,9 +714,9 @@
   /* righe dei colori: nome, campione, codice e freccia "predefinito" sulla stessa riga */
   #settings .inline { flex-wrap: nowrap; gap: 8px; margin-top: 8px; }
   #settings .inline label { flex: 1 1 0; min-width: 0; font-size: 20px; line-height: 1.1; }
-  #settings input[type="color"] { flex: none; width: 44px; height: 40px; }
-  #settings .hex { flex: none; width: 100px; min-height: 40px; padding: 4px 8px; font-size: 20px; }
-  #settings .btn.reset { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 40px; min-height: 40px; padding: 0; }
+  #settings input[type="color"] { flex: none; width: 48px; height: 48px; }
+  #settings .hex { flex: none; width: 96px; min-height: 48px; padding: 4px 8px; }
+  #settings .btn.reset { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 48px; min-height: 48px; padding: 0; }
   #settings .btn.reset svg { display: block; }
   #settings .inline .btn.reset[hidden] { display: inline-flex !important; visibility: hidden; }   /* riserva lo spazio: le colonne restano allineate */
   /* esagono del livello: anteprima piccola accanto al titolo */
@@ -735,8 +736,6 @@
   /* lingue: un pulsante per riga (tre su schermi larghi), invece di 2 + 1 */
   #seg-lang { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
   #settings .info-sec p:last-of-type { margin-bottom: 4px; }
-  #settings .modal-actions { gap: 8px; margin-top: 4px; }
-  #settings .modal-actions .btn { font-size: 20px; padding: 8px 10px; min-height: 40px; }
   /* legenda del calendario: le regole per gli schermi stretti vanno DOPO la regola principale, altrimenti non valgono */
   @media (max-width: 400px) { .cal-foot { column-gap: 14px; } }
   @media (max-width: 350px) { .cal-foot { font-size: 16px; column-gap: 12px; } }
