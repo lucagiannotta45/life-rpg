@@ -330,6 +330,7 @@
   /* ---------- piè di pagina ---------- */
   .foot { margin: 34px 0 0; text-align: center; font-size: 24px; color: var(--page-ink-soft); }
   .foot:empty { display: none; }
+  .foot.warn { color: var(--page-ink); padding: 10px 14px; border: 3px solid var(--bad-deep); border-radius: 8px; background: color-mix(in srgb, var(--bad) 18%, transparent); }
 
   /* ---------- level up ---------- */
   .lu {
@@ -460,6 +461,7 @@
     background: var(--win-c); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring);
   }
   body.has-bg .foot:empty { display: none; }
+  body.has-bg .foot.warn { color: var(--ink-strong); background: var(--win-c); border-color: var(--bad); }
   .ico.has-img, .cs-icon.has-img { padding: 0; overflow: hidden; }
   .ico img, .cs-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cs-panel { margin: 10px 0 8px; }
@@ -758,7 +760,7 @@
   </section>
   </main>
 
-  <p class="foot" id="save-state"></p>
+  <p class="foot" id="save-state" role="status" aria-live="polite"></p>
 </div>
 
 <div class="lu" id="levelup" hidden aria-hidden="true">
@@ -1411,6 +1413,7 @@
 
       "save.nostorage": "Questo browser non permette di salvare i dati da questa pagina: alla chiusura perderai i progressi. Apri la pagina da un sito web oppure fai spesso un backup dal menu Impostazioni, scheda Dati.",
       "save.error": "Salvataggio nell'account non riuscito. I progressi restano in questo browser.",
+      "save.full": "La memoria di questo browser è piena: gli ultimi progressi potrebbero non essere salvati. Fai subito un backup da Impostazioni, scheda Dati, e togli qualche immagine.",
 
       "range.below": "sotto {n}",
       "range.from": "da {from} a {to}",
@@ -1807,6 +1810,7 @@
 
       "save.nostorage": "This browser doesn't allow saving data from this page: you will lose your progress when you close it. Open the page from a website, or make backups often from Settings, Data tab.",
       "save.error": "Saving to your account failed. Your progress stays in this browser.",
+      "save.full": "This browser's storage is full: your latest progress may not be saved. Make a backup now from Settings, Data tab, and remove some images.",
 
       "range.below": "below {n}",
       "range.from": "from {from} to {to}",
@@ -2203,6 +2207,7 @@
 
       "save.nostorage": "Este navegador não permite salvar dados a partir desta página: você perderá o progresso ao fechá-la. Abra a página a partir de um site ou faça backups com frequência em Configurações, aba Dados.",
       "save.error": "Falha ao salvar na conta. O progresso continua neste navegador.",
+      "save.full": "A memória deste navegador está cheia: o progresso mais recente pode não ser salvo. Faça um backup agora em Configurações, aba Dados, e remova algumas imagens.",
 
       "range.below": "abaixo de {n}",
       "range.from": "de {from} a {to}",
@@ -2424,7 +2429,7 @@
     return blank();
   }
   function saveLocal() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(xp)); } catch (e) { /* ignora */ }
+    lsSet(LS_KEY, JSON.stringify(xp));
     driveMark();
   }
   const hasProgress = o => Object.values(o).some(v => v > 0);
@@ -2492,7 +2497,7 @@
     return defaultSettings();
   }
   function saveSettingsLocal() {
-    try { localStorage.setItem(LS_SET, JSON.stringify(settings)); } catch (e) { /* ignora */ }
+    lsSet(LS_SET, JSON.stringify(settings));
     driveMark();
   }
   const isDefaultSettings = () => JSON.stringify(settings) === JSON.stringify(defaultSettings());
@@ -2523,13 +2528,62 @@
       try { const v = localStorage.getItem(LS_IMG + n); if (validImg(v)) imgs[n] = v; } catch (e) { /* ignora */ }
     }
   }
+  // Le immagini stanno in IndexedDB (molto più spazio di localStorage). Restano in memoria in `imgs`;
+  // localStorage serve solo per i dati salvati da versioni precedenti e come ripiego se IndexedDB non c'è.
+  const IDB_NAME = 'liferpg', IDB_STORE = 'imgs';
+  let idbPromise = null;
+  function idbOpen() {
+    if (!idbPromise) idbPromise = new Promise((res, rej) => {
+      if (!window.indexedDB) { rej(new Error('noidb')); return; }
+      let r;
+      try { r = indexedDB.open(IDB_NAME, 1); } catch (e) { rej(e); return; }
+      r.onupgradeneeded = () => { r.result.createObjectStore(IDB_STORE); };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error || new Error('idb'));
+      r.onblocked = () => rej(new Error('blocked'));
+    });
+    return idbPromise;
+  }
+  // esegue fn(store) in una transazione e risolve quando è davvero finita (scritta su disco)
+  function idbRun(mode, fn) {
+    return idbOpen().then(db => new Promise((res, rej) => {
+      const tx = db.transaction(IDB_STORE, mode);
+      tx.oncomplete = () => res();
+      tx.onerror = tx.onabort = () => rej(tx.error || new Error('tx'));
+      fn(tx.objectStore(IDB_STORE));
+    }));
+  }
+  const idbPut = (n, v) => idbRun('readwrite', st => { st.put(v, n); });
+  const idbDel = n => idbRun('readwrite', st => { st.delete(n); });
+  function idbLoad() {
+    const got = {};
+    return idbRun('readonly', st => {
+      IMG_NAMES.forEach(n => { st.get(n).onsuccess = e => { if (e.target.result != null) got[n] = e.target.result; }; });
+    }).then(() => got);
+  }
+  // salva l'immagine n (quella in `imgs`); risolve true se è stata scritta da qualche parte, false se no
   function saveImgLocal(n) {
-    let ok = true;
-    try {
-      if (imgs[n]) localStorage.setItem(LS_IMG + n, imgs[n]); else localStorage.removeItem(LS_IMG + n);
-    } catch (e) { ok = false; }
-    driveMark();
-    return ok;
+    driveMark();     // subito, in modo sincrono
+    const v = imgs[n] || null;
+    return (v ? idbPut(n, v) : idbDel(n)).then(
+      () => { lsSet(LS_IMG + n, null); return true; },     // ora è in IndexedDB: la copia vecchia si toglie
+      () => lsSet(LS_IMG + n, v)                            // IndexedDB non disponibile: si ripiega su localStorage
+    );
+  }
+  // all'avvio: prende le immagini da IndexedDB e sposta lì quelle rimaste in localStorage
+  async function imagesInit() {
+    let stored;
+    try { stored = await idbLoad(); } catch (e) { return; }   // niente IndexedDB: si resta su localStorage
+    let changed = false;
+    for (const n of IMG_NAMES) {
+      if (imgTouched.has(n)) continue;                        // cambiata da quando la pagina è aperta: vale quella
+      if (validImg(stored[n])) {
+        if (imgs[n] !== stored[n]) { imgs[n] = stored[n]; changed = true; }
+      } else if (imgs[n]) {
+        try { await idbPut(n, imgs[n]); lsSet(LS_IMG + n, null); } catch (e) { /* resta dov'è */ }
+      }
+    }
+    if (changed) { applyImages(); if (cs.Vigore) paintCustom(); }
   }
   loadImgsLocal();
 
@@ -2602,8 +2656,7 @@
     return [];
   }
   function saveMissionsLocal() {
-    let ok = true;
-    try { localStorage.setItem(LS_MIS, JSON.stringify(missions)); } catch (e) { ok = false; }
+    const ok = lsSet(LS_MIS, JSON.stringify(missions));
     driveMark();
     return ok;
   }
@@ -2652,7 +2705,7 @@
     return [];
   }
   function saveRoutinesLocal() {
-    try { localStorage.setItem(LS_ROU, JSON.stringify(routines)); } catch (e) { /* ignora */ }
+    lsSet(LS_ROU, JSON.stringify(routines));
     driveMark();
   }
   let routines = loadRoutinesLocal();
@@ -2687,11 +2740,25 @@
   try { localStorage.setItem('liferpg:probe', '1'); localStorage.removeItem('liferpg:probe'); } catch (e) { storageOk = false; }
   let saveKind = 'local';
   const saveStateEl = document.getElementById('save-state');
-  const setSaveState = k => {
-    saveKind = k;
-    const key = (!storageOk && k === 'local') ? 'nostorage' : k;
-    saveStateEl.textContent = (key === 'nostorage' || key === 'error') ? T('save.' + key) : '';
+  const lsFailed = new Set();   // chiavi che il browser non è riuscito a scrivere (memoria piena)
+  const paintSaveState = () => {
+    const key = (!storageOk && saveKind === 'local') ? 'nostorage' : saveKind;
+    const full = storageOk && lsFailed.size > 0;
+    saveStateEl.textContent = full ? T('save.full') : (key === 'nostorage' || key === 'error') ? T('save.' + key) : '';
+    saveStateEl.classList.toggle('warn', !!saveStateEl.textContent);
   };
+  const setSaveState = k => { saveKind = k; paintSaveState(); };
+  // scrive in localStorage (value null = cancella); se non ci riesce lo segnala invece di ignorarlo
+  function lsSet(key, value) {
+    let ok = true;
+    try { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch (e) { ok = false; }
+    if (storageOk) {
+      const was = lsFailed.size;
+      if (ok) lsFailed.delete(key); else lsFailed.add(key);
+      if (was !== lsFailed.size) paintSaveState();
+    }
+    return ok;
+  }
 
   async function flush() {
     if (!dbRef) return;
@@ -3775,16 +3842,16 @@
   }
   function dbImgs() { return dbRef.collection('imgs'); }
 
-  // applica e salva un'immagine (null = toglie); restituisce false se il browser non ha spazio
-  function setImg(name, data) {
+  // applica e salva un'immagine (null = toglie); risolve false se il browser non ha spazio
+  async function setImg(name, data) {
     imgs[name] = data;
     imgTouched.add(name);
-    const ok = saveImgLocal(name);
+    const saving = saveImgLocal(name);     // l'immagine si vede subito, senza aspettare il salvataggio
     applyImages();
     if (cs.Vigore) paintCustom();
     imgQueue.add(name);
     flushImgs();
-    return ok;
+    return saving;
   }
 
   function loadImage(file) {
@@ -3839,7 +3906,7 @@
         else { data = makeBackground(im); gifBig = true; }
       } else data = slot === 'bg' ? makeBackground(im) : makeIcon(im);
       if (!validImg(data)) { imgMsg(T('img.msg.unusable')); return; }
-      const saved = setImg(slot, data);
+      const saved = await setImg(slot, data);
       if (!saved) imgMsg(T('img.msg.full'));
       else if (gifBig) imgMsg(T('img.msg.gifbig'));
       else if (dbRef && data.length > CLOUD_IMG_MAX) imgMsg(T('img.msg.gifcloud'));
@@ -5082,6 +5149,15 @@
   async function initCloud() {
     try { await initCloudInner(); }
     finally { penaltyReady = true; checkPenalties(); }
+  }
+  imagesInit();
+  // sull'app installata chiede al browser di non cancellare i dati quando lo spazio scarseggia
+  try {
+    if (navigator.storage && navigator.storage.persist && matchMedia('(display-mode: standalone)').matches) navigator.storage.persist();
+  } catch (e) { /* facoltativo */ }
+  // offline: il service worker tiene una copia dell'app sul dispositivo
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(e => console.warn('sw', e)); });
   }
   initCloud();
 })();
