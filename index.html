@@ -1126,6 +1126,7 @@
       "day.title": "Giorno",
       "day.new": "Aggiungi missione",
       "day.empty": "Nessuna missione in questo giorno.",
+      "day.routines": "Routine previste",
       "day.today": " (oggi)",
 
       "m.done.on": "Completata il {when}",
@@ -1471,6 +1472,7 @@
       "day.title": "Day",
       "day.new": "Add mission",
       "day.empty": "No missions on this day.",
+      "day.routines": "Planned routines",
       "day.today": " (today)",
 
       "m.done.on": "Completed on {when}",
@@ -1816,6 +1818,7 @@
       "day.title": "Dia",
       "day.new": "Adicionar missão",
       "day.empty": "Nenhuma missão neste dia.",
+      "day.routines": "Rotinas previstas",
       "day.today": " (hoje)",
 
       "m.done.on": "Concluída em {when}",
@@ -4037,12 +4040,12 @@
       act.append(
         btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id)),
         btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
-      if (m.due && !m.rid) {
+      if (m.rid ? !!rtn : !!m.due) {
         const a = mk('a', 'btn small gcal', T('btn.gcal'));
-        a.href = gcalUrl(m);
+        a.href = m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m);   // per una routine: un evento che si ripete
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
-        a.setAttribute('aria-label', T('aria.gcal') + ' ' + m.title);
+        a.setAttribute('aria-label', m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title);
         act.appendChild(a);
       }
     }
@@ -4163,6 +4166,11 @@
     const t = new Date();
     calY = t.getFullYear(); calM = t.getMonth(); selDate = isoDate(t);
   }
+  // routine previste nei giorni futuri (non sono ancora missioni: compaiono il giorno stesso)
+  function plannedRoutines(ds, ids) {
+    if (ds <= todayStr()) return [];
+    return routines.filter(r => dayCounts(r, ds) && !ids.has(occId(r, ds)));
+  }
   function renderCalendar(focusDate) {
     const grid = $('cal-grid');
     grid.textContent = '';
@@ -4177,8 +4185,11 @@
       else if (m.due) todo[m.due] = (todo[m.due] || 0) + 1;
     });
     const today = todayStr();
+    const ids = new Set(missions.map(m => m.id));
     for (let d = 1; d <= days; d++) {
       const ds = calY + '-' + pad2(calM + 1) + '-' + pad2(d);
+      const planned = plannedRoutines(ds, ids).length;
+      if (planned) todo[ds] = (todo[ds] || 0) + planned;
       const b = mk('button', 'cal-day' + (ds === today ? ' today' : ''));
       b.type = 'button';
       b.dataset.date = ds;
@@ -4228,7 +4239,22 @@
     const todo = missions.filter(m => !m.done && !m.failed && m.due === selDate).sort(byTime);
     const failed = missions.filter(m => !m.done && m.failed && m.due === selDate).sort(byTime);
     const done = missions.filter(m => m.done && m.done.date === selDate);
-    if (!todo.length && !failed.length && !done.length) box.appendChild(mk('p', 'empty', T('day.empty')));
+    const planned = plannedRoutines(selDate, new Set(missions.map(m => m.id)));
+    if (!todo.length && !failed.length && !done.length && !planned.length) box.appendChild(mk('p', 'empty', T('day.empty')));
+    if (planned.length) {
+      box.appendChild(mk('h4', 'sub', T('day.routines')));
+      planned.forEach(r => {
+        const card = mk('article', 'mission');
+        const head = mk('div', 'm-head');
+        head.appendChild(mk('h3', 'm-title', r.title));
+        if (r.time) head.appendChild(mk('span', 'm-date', T('r.at', { time: r.time })));
+        card.appendChild(head);
+        if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
+        card.appendChild(mk('p', 'm-routine', T('m.routine')));
+        card.appendChild(chips(r.rewards));
+        box.appendChild(card);
+      });
+    }
     if (todo.length) { box.appendChild(mk('h4', 'sub', T('mis.todo'))); todo.forEach(m => box.appendChild(missionCard(m))); }
     if (failed.length) { box.appendChild(mk('h4', 'sub', T('grp.late'))); failed.forEach(m => box.appendChild(missionCard(m))); }
     if (done.length) { box.appendChild(mk('h4', 'sub', T('mis.done'))); done.forEach(m => box.appendChild(missionCard(m))); }
