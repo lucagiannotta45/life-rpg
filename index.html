@@ -6,6 +6,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e0c08">
 <title>Life RPG</title>
 <style>
   /* Font "Pokemon DPPt" di aztecwarrior28 (FontStruct), licenza CC BY-SA 3.0.
@@ -2587,10 +2588,12 @@
     let dyName = -6, dyLv = 16;
     if (i === 0) { dyName = -22; dyLv = 0; }
     if (i === 3) { dyName = 8; dyLv = 30; }
-    const n = el('text', { class: 'r-name', x: p[0].toFixed(1), y: (p[1] + dyName).toFixed(1), 'text-anchor': 'middle' });
+    // le etichette dei lati si allargano un poco, in modo simmetrico: 3 spazi del font (3 x 6) verso l'esterno
+    const dx = (i === 1 || i === 2) ? 18 : (i === 4 || i === 5) ? -18 : 0;
+    const n = el('text', { class: 'r-name', x: (p[0] + dx).toFixed(1), y: (p[1] + dyName).toFixed(1), 'text-anchor': 'middle' });
     n.textContent = s.name;
     radarNames.push(n);
-    const l = el('text', { class: 'r-lv', x: p[0].toFixed(1), y: (p[1] + dyLv).toFixed(1), 'text-anchor': 'middle' });
+    const l = el('text', { class: 'r-lv', x: (p[0] + dx).toFixed(1), y: (p[1] + dyLv).toFixed(1), 'text-anchor': 'middle' });
     l.textContent = T('lv') + ' 0';
     labelLv.push(l);
   });
