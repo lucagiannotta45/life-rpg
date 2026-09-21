@@ -954,7 +954,14 @@
         <p class="tip" data-i18n="mf.bonus.tip">Se completi la routine in tempo per tanti giorni di fila, ricevi il bonus. Lascia vuoto per non averlo.</p>
         <p class="label" data-i18n="mf.pause.h">Pausa (per esempio le vacanze)</p>
         <div class="inline">
-          <input class="text-in date" id="mf-pause-until" type="date" aria-label="In pausa fino al" data-i18n-aria="mf.pause.until">
+          <label for="mf-pause-from" data-i18n="mf.pause.from">Dal (vuoto: da oggi)</label>
+          <input class="text-in date" id="mf-pause-from" type="date">
+        </div>
+        <div class="inline">
+          <label for="mf-pause-until" data-i18n="mf.pause.until">Fino al (compreso)</label>
+          <input class="text-in date" id="mf-pause-until" type="date">
+        </div>
+        <div class="inline">
           <button type="button" class="btn small" id="mf-pause-clear" data-i18n="mf.pause.clear">Togli pausa</button>
         </div>
         <p class="tip" data-i18n="mf.pause.tip">Nei giorni di pausa la routine non compare e la serie non si interrompe.</p>
@@ -1141,6 +1148,7 @@
       "aria.edit": "Modifica la missione",
       "btn.gcal": "+ Google Calendar",
       "aria.gcal": "Aggiungi a Google Calendar la missione",
+      "aria.gcal.routine": "Aggiungi a Google Calendar la routine",
       "ntf.today_one": "Oggi scade 1 missione",
       "ntf.today_other": "Oggi scadono {n} missioni",
       "ntf.late_one": "1 missione scaduta",
@@ -1177,7 +1185,10 @@
       "mf.bonus.xp": "XP in più per ogni statistica",
       "mf.bonus.tip": "Se completi la routine in tempo per tanti giorni di fila, ricevi il bonus. Lascia vuoto per non averlo.",
       "mf.pause.h": "Pausa (per esempio le vacanze)",
-      "mf.pause.until": "In pausa fino al",
+      "mf.pause.until": "Fino al (compreso)",
+      "mf.pause.from": "Dal (vuoto: da oggi)",
+      "mf.err.pause": "Per la pausa scegli una data di fine che non sia prima di quella di inizio.",
+      "r.pause.plan": "Pausa dal {from} al {to}",
       "mf.pause.clear": "Togli pausa",
       "mf.pause.tip": "Nei giorni di pausa la routine non compare e la serie non si interrompe.",
       "mf.pen.tip.r": "XP che perdi se non la completi nel giorno previsto. Vale al massimo per gli ultimi 2 giorni saltati.",
@@ -1196,7 +1207,7 @@
       "r.best": "Record: {n}",
       "r.bonus": "Bonus: +{xp} XP ogni {n} giorni di fila",
       "r.paused": "In pausa fino al {when}",
-      "info.mis.p6": "Una routine è una missione che compare da sola nei giorni che scegli (pulsante «Routine»). La serie conta i giorni di fila in cui la completi in tempo.",
+      "info.mis.p6": "Una routine è una missione che compare da sola nei giorni che scegli (pulsante «Routine»). La serie conta i giorni di fila in cui la completi in tempo. Dal pulsante «+ Google Calendar» della routine crei un evento che si ripete negli stessi giorni.",
       "mf.title": "Titolo",
       "mf.title.ph": "Per esempio: Correre 30 minuti",
       "mf.desc": "Descrizione",
@@ -1482,6 +1493,7 @@
       "aria.edit": "Edit mission",
       "btn.gcal": "+ Google Calendar",
       "aria.gcal": "Add to Google Calendar:",
+      "aria.gcal.routine": "Add to Google Calendar the routine:",
       "ntf.today_one": "1 mission due today",
       "ntf.today_other": "{n} missions due today",
       "ntf.late_one": "1 mission overdue",
@@ -1518,7 +1530,10 @@
       "mf.bonus.xp": "Extra XP for each stat",
       "mf.bonus.tip": "If you complete the routine on time for that many days in a row, you get the bonus. Leave empty for none.",
       "mf.pause.h": "Pause (for example on vacation)",
-      "mf.pause.until": "Paused until",
+      "mf.pause.until": "Until (included)",
+      "mf.pause.from": "From (empty: from today)",
+      "mf.err.pause": "For the pause, choose an end date that is not before the start date.",
+      "r.pause.plan": "Pause from {from} to {to}",
       "mf.pause.clear": "Remove pause",
       "mf.pause.tip": "On paused days the routine doesn't show up and your streak isn't broken.",
       "mf.pen.tip.r": "XP you lose if you don't complete it on the scheduled day. It applies to the last 2 missed days at most.",
@@ -1537,7 +1552,7 @@
       "r.best": "Best: {n}",
       "r.bonus": "Bonus: +{xp} XP every {n} days in a row",
       "r.paused": "Paused until {when}",
-      "info.mis.p6": "A routine is a mission that shows up by itself on the days you choose (“Routines” button). The streak counts the days in a row you complete it on time.",
+      "info.mis.p6": "A routine is a mission that shows up by itself on the days you choose (“Routines” button). The streak counts the days in a row you complete it on time. The “+ Google Calendar” button on a routine creates an event that repeats on the same days.",
       "mf.title": "Title",
       "mf.title.ph": "For example: Run for 30 minutes",
       "mf.desc": "Description",
@@ -1823,6 +1838,7 @@
       "aria.edit": "Editar a missão",
       "btn.gcal": "+ Google Agenda",
       "aria.gcal": "Adicionar ao Google Agenda a missão",
+      "aria.gcal.routine": "Adicionar ao Google Agenda a rotina",
       "ntf.today_one": "1 missão vence hoje",
       "ntf.today_other": "{n} missões vencem hoje",
       "ntf.late_one": "1 missão vencida",
@@ -1859,7 +1875,10 @@
       "mf.bonus.xp": "XP a mais para cada estatística",
       "mf.bonus.tip": "Se você concluir a rotina no prazo por esses dias seguidos, recebe o bônus. Deixe vazio para não ter.",
       "mf.pause.h": "Pausa (por exemplo, nas férias)",
-      "mf.pause.until": "Em pausa até",
+      "mf.pause.until": "Até (incluído)",
+      "mf.pause.from": "De (vazio: a partir de hoje)",
+      "mf.err.pause": "Para a pausa, escolha uma data de fim que não seja anterior à de início.",
+      "r.pause.plan": "Pausa de {from} a {to}",
       "mf.pause.clear": "Tirar pausa",
       "mf.pause.tip": "Nos dias de pausa a rotina não aparece e a sequência não é interrompida.",
       "mf.pen.tip.r": "XP que você perde se não concluir no dia previsto. Vale no máximo para os últimos 2 dias perdidos.",
@@ -1878,7 +1897,7 @@
       "r.best": "Recorde: {n}",
       "r.bonus": "Bônus: +{xp} XP a cada {n} dias seguidos",
       "r.paused": "Em pausa até {when}",
-      "info.mis.p6": "Uma rotina é uma missão que aparece sozinha nos dias que você escolher (botão “Rotinas”). A sequência conta os dias seguidos em que você a conclui no prazo.",
+      "info.mis.p6": "Uma rotina é uma missão que aparece sozinha nos dias que você escolher (botão “Rotinas”). A sequência conta os dias seguidos em que você a conclui no prazo. O botão “+ Google Agenda” da rotina cria um evento que se repete nos mesmos dias.",
       "mf.title": "Título",
       "mf.title.ph": "Por exemplo: Correr 30 minutos",
       "mf.desc": "Descrição",
@@ -4374,6 +4393,7 @@
     setDays(r ? r.days : WD_ALL);
     $('mf-bonus-every').value = r && r.bonus ? String(r.bonus.every) : '';
     $('mf-bonus-xp').value = r && r.bonus ? String(r.bonus.xp) : '';
+    $('mf-pause-from').value = r && r.pause ? r.pause.from : '';
     $('mf-pause-until').value = r && r.pause ? r.pause.until : '';
     syncTime();
     $('mf-del').hidden = !r;
@@ -4401,10 +4421,12 @@
       bonus = { every: e, xp: x };
     }
     const today = todayStr();
-    const pu = $('mf-pause-until').value;
-    if (pu && !validDate(pu)) return fail(T('mf.err.date'), $('mf-pause-until'));
+    const pu = $('mf-pause-until').value, pf = $('mf-pause-from').value;
+    if ((pu && !validDate(pu)) || (pf && !validDate(pf))) return fail(T('mf.err.date'), $('mf-pause-until'));
+    if (pf && !pu) return fail(T('mf.err.pause'), $('mf-pause-until'));
+    if (pu && pf && pu < pf) return fail(T('mf.err.pause'), $('mf-pause-until'));
     let r = editingRid ? routines.find(x => x.id === editingRid) : null;
-    const pause = pu && pu >= today ? { from: r && r.pause && r.pause.until >= today ? r.pause.from : today, until: pu } : null;
+    const pause = pu && pu >= today ? { from: pf || today, until: pu } : null;
     const desc = $('mf-desc').value.trim().slice(0, 500);
     const time = timeRaw || null;
     if (r) {
@@ -4519,7 +4541,29 @@
   $('mf-save').addEventListener('click', submitMission);
   $('mf-cancel').addEventListener('click', finishForm);
   $('mf-rep').addEventListener('click', () => setFormRepeat(!formRepeat));
-  $('mf-pause-clear').addEventListener('click', () => { $('mf-pause-until').value = ''; });
+  $('mf-pause-clear').addEventListener('click', () => { $('mf-pause-from').value = ''; $('mf-pause-until').value = ''; });
+
+  // Google Calendar per una routine: un evento che si ripete negli stessi giorni (l'avviso lo decide il calendario)
+  function gcalRoutineUrl(r) {
+    const d8 = ds => ds.replace(/-/g, '');
+    const p2 = n => String(n).padStart(2, '0');
+    let d = todayStr();
+    for (let i = 0; i < 400 && !dayCounts(r, d); i++) d = addDaysStr(d, 1);   // il primo giorno previsto (dopo un'eventuale pausa)
+    if (!dayCounts(r, d)) { d = todayStr(); for (let i = 0; i < 7 && !r.days.includes(parseDate(d).getDay()); i++) d = addDaysStr(d, 1); }
+    const BY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+    const rule = r.days.length === 7 ? 'RRULE:FREQ=DAILY' : 'RRULE:FREQ=WEEKLY;BYDAY=' + WD_ALL.filter(x => r.days.includes(x)).map(x => BY[x]).join(',');
+    let dates;
+    if (r.time) {
+      const [hh, mm] = r.time.split(':').map(Number);
+      const e = parseDate(d); e.setHours(hh, mm + 30, 0, 0);
+      dates = d8(d) + 'T' + p2(hh) + p2(mm) + '00/' + d8(isoDate(e)) + 'T' + p2(e.getHours()) + p2(e.getMinutes()) + '00';
+    } else {
+      dates = d8(d) + '/' + d8(addDaysStr(d, 1));
+    }
+    let u = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(r.title) + '&dates=' + dates + '&recur=' + encodeURIComponent(rule);
+    if (r.desc) u += '&details=' + encodeURIComponent(r.desc);
+    return u;
+  }
 
   // elenco delle routine
   const rmodal = $('rmodal');
@@ -4538,13 +4582,23 @@
     card.appendChild(chips(r.rewards));
     card.appendChild(mk('p', 'm-desc', T('r.streak', { n: r.streak || 0 }) + ', ' + T('r.best', { n: r.best || 0 })));
     if (r.bonus) card.appendChild(mk('p', 'm-desc', T('r.bonus', { xp: fmt(r.bonus.xp), n: r.bonus.every })));
-    if (r.pause && r.pause.until >= todayStr()) card.appendChild(mk('p', 'm-pen', T('r.paused', { when: fmtDay(r.pause.until) })));
+    if (r.pause && r.pause.until >= todayStr()) {
+      card.appendChild(mk('p', 'm-pen', r.pause.from > todayStr()
+        ? T('r.pause.plan', { from: fmtDay(r.pause.from), to: fmtDay(r.pause.until) })
+        : T('r.paused', { when: fmtDay(r.pause.until) })));
+    }
     const act = mk('div', 'm-actions');
     const b = mk('button', 'btn small', T('btn.edit'));
     b.type = 'button';
     b.setAttribute('aria-label', T('aria.edit') + ' ' + r.title);
     b.addEventListener('click', () => { closeModal(); routinesBack = true; openRoutineForm(r.id); });
     act.appendChild(b);
+    const g = mk('a', 'btn small gcal', T('btn.gcal'));
+    g.href = gcalRoutineUrl(r);
+    g.target = '_blank';
+    g.rel = 'noopener noreferrer';
+    g.setAttribute('aria-label', T('aria.gcal.routine') + ' ' + r.title);
+    act.appendChild(g);
     card.appendChild(act);
     return card;
   }
