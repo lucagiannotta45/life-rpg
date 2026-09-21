@@ -5,7 +5,7 @@ Ogni ruolo ha il suo brano. Il file si chiama come il ruolo, **con la prima lett
 - Il **grado** davanti al nome (Apprendista, Maestro, Gran Maestro) non conta: «Gran Maestro Mago» usa lo stesso `Mago.mp3`.
 - Il nome del file è sempre **italiano**, anche se il gioco è in inglese o in portoghese.
 - Se un ruolo non ha il suo file, suona `Avventuriero.mp3`. Puoi quindi aggiungere i brani un po' alla volta.
-- Il brano si sceglie quando entri nella scheda Personaggio e non cambia finché resti lì.
+- La musica continua su tutte le schede (più piano fuori da Personaggio). Il brano si sceglie quando entri nella scheda Personaggio: se nel frattempo il tuo ruolo è cambiato, parte quello nuovo.
 
 ## Equilibrati (5)
 

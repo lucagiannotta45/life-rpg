@@ -948,7 +948,7 @@
       </div>
       <div class="field">
         <p class="label" data-i18n="music.label">Musica</p>
-        <p data-i18n="music.desc">Una musica di sottofondo che suona nella scheda Personaggio e si ripete. Parte al primo tocco e sfuma quando cambi scheda. Vale solo per questo dispositivo.</p>
+        <p data-i18n="music.desc">Una musica di sottofondo che si ripete. Nella scheda Personaggio suona al volume scelto, nelle altre si abbassa da sola. Parte al primo tocco. Vale solo per questo dispositivo.</p>
         <button type="button" class="btn small toggle" id="btn-music" aria-pressed="true">Musica accesa</button>
       </div>
       <div class="field">
@@ -1437,7 +1437,7 @@
       "sound.menu.on": "Suoni dei menu accesi",
       "sound.menu.off": "Suoni dei menu spenti",
       "music.label": "Musica",
-      "music.desc": "Una musica di sottofondo che suona nella scheda Personaggio e si ripete. Parte al primo tocco e sfuma quando cambi scheda. Vale solo per questo dispositivo.",
+      "music.desc": "Una musica di sottofondo che si ripete. Nella scheda Personaggio suona al volume scelto, nelle altre si abbassa da sola. Parte al primo tocco. Vale solo per questo dispositivo.",
       "music.on": "Musica accesa",
       "music.off": "Musica spenta",
       "music.vol": "Volume della musica",
@@ -1852,7 +1852,7 @@
       "sound.menu.on": "Menu sounds on",
       "sound.menu.off": "Menu sounds off",
       "music.label": "Music",
-      "music.desc": "Background music that plays on the Character screen and loops. It starts on your first tap and fades out when you switch screens. This only applies to this device.",
+      "music.desc": "Background music that loops. On the Character screen it plays at the volume you choose; on the other screens it lowers by itself. It starts on your first tap. This only applies to this device.",
       "music.on": "Music on",
       "music.off": "Music off",
       "music.vol": "Music volume",
@@ -2267,7 +2267,7 @@
       "sound.menu.on": "Sons dos menus ligados",
       "sound.menu.off": "Sons dos menus desligados",
       "music.label": "Música",
-      "music.desc": "Uma música de fundo que toca na tela Personagem e se repete. Começa no primeiro toque e some aos poucos quando você troca de tela. Vale apenas para este dispositivo.",
+      "music.desc": "Uma música de fundo que se repete. Na tela Personagem toca no volume escolhido; nas outras, abaixa sozinha. Começa no primeiro toque. Vale apenas para este dispositivo.",
       "music.on": "Música ligada",
       "music.off": "Música desligada",
       "music.vol": "Volume da música",
@@ -2483,27 +2483,37 @@
   const SPEC_RATIO = 2;        // specializzato se il livello massimo è almeno il doppio del minimo
   const NEAR_RATIO = 0.8;      // "vicine" alla massima: almeno l'80% del suo livello
 
-  function heroClass() {
+  // Il ruolo del personaggio: { ns, id, lv }. "ns" è il gruppo dei testi (tier, cls, pair, triple, quad, quint),
+  // "id" il nome interno e "lv" il livello da cui dipende il grado. Serve sia al nome mostrato sia al brano musicale.
+  function heroRole() {
     // ordine per XP (a parità di XP vince la prima nell'elenco)
     const order = STATS.map((s, i) => ({ s, i, xp: xp[s.key], lv: levelFromXp(xp[s.key]) }))
       .sort((a, b) => b.xp - a.xp || a.i - b.i);
     const levels = order.map(o => o.lv);
     const maxLv = Math.max(...levels), minLv = Math.min(...levels);
-    if (maxLv < SPEC_MIN_LEVEL || maxLv < SPEC_RATIO * minLv) return tierOf(overallOf(levels));
+    if (maxLv < SPEC_MIN_LEVEL || maxLv < SPEC_RATIO * minLv) {
+      const ov = overallOf(levels);
+      return { ns: 'tier', id: (TIERS.find(x => ov >= x[0]) || TIERS[TIERS.length - 1])[1], lv: 0 };
+    }
     const near = order.filter(o => o.lv >= NEAR_RATIO * maxLv).length;
-    if (near === 1) return withGrade(order[0].s.cls, order[0].lv);   // una sola statistica in testa
+    if (near === 1) return { ns: 'cls', id: order[0].s.key, lv: order[0].lv };   // una sola statistica in testa
     if (near === 2) {                                        // due statistiche in testa
       const [a, b] = [order[0], order[1]].sort((p, q) => p.i - q.i);
-      return withGrade(T('pair.' + PAIRS[a.s.key + '+' + b.s.key]), Math.floor((a.lv + b.lv) / 2));
+      return { ns: 'pair', id: PAIRS[a.s.key + '+' + b.s.key], lv: Math.floor((a.lv + b.lv) / 2) };
     }
     // tre, quattro o cinque in testa: un titolo per la combinazione, con il grado della media dei loro livelli
     const lead = order.slice(0, near).sort((p, q) => p.i - q.i);
     const avg = Math.floor(lead.reduce((t, o) => t + o.lv, 0) / lead.length);
     const key = lead.map(o => o.s.key).join('+');
-    if (near === 3) return withGrade(T('triple.' + TRIPLES[key]), avg);
-    if (near === 4) return withGrade(T('quad.' + QUADS[key]), avg);
+    if (near === 3) return { ns: 'triple', id: TRIPLES[key], lv: avg };
+    if (near === 4) return { ns: 'quad', id: QUADS[key], lv: avg };
     const missing = STATS.find(s => !lead.some(o => o.s.key === s.key));
-    return withGrade(T('quint.' + QUINTS[missing.key]), avg);           // cinque forti e una sola lacuna
+    return { ns: 'quint', id: QUINTS[missing.key], lv: avg };           // cinque forti e una sola lacuna
+  }
+  function heroClass() {
+    const r = heroRole();
+    const name = T(r.ns + '.' + r.id);
+    return r.ns === 'tier' ? name : withGrade(name, r.lv);
   }
   const fmt = n => n.toLocaleString(locale());
 
@@ -3156,12 +3166,14 @@
     m.hidden = false;
     if (focusEl) focusEl.focus();
     sfx('open');
+    musicRetune();
   }
   function closeModal() {
     if (!activeModal) return;
     sfx('close');
     activeModal.hidden = true;
     activeModal = null;
+    musicRetune();
     resetArm(false);
     custResetArm(false);
     mfDelArm(false);
@@ -4559,11 +4571,20 @@
   // avviso sotto l'intestazione: missioni che scadono oggi e missioni già scadute (senza penalità)
   let curView = 'char';
 
-  /* ================= musica (scheda Personaggio) ================= */
-  // Il brano sta nel file Avventuriero.mp3, accanto a index.html (maiuscole e minuscole contano). Suona solo nella scheda Personaggio, si ripete,
-  // sfuma quando cambi scheda e si ferma quando la pagina non è in primo piano.
+  /* ================= musica ================= */
+  // Il brano suona in loop su tutte le schede: nella scheda Personaggio al volume scelto, nelle altre più piano.
+  // Ogni ruolo ha il suo file, con il nome italiano del ruolo (Eroe.mp3, Mago.mp3, Samurai.mp3...), senza il grado davanti,
+  // accanto a index.html (maiuscole e minuscole contano). Se il file del ruolo non c'è si usa Avventuriero.mp3.
+  // Il brano si sceglie quando entri nella scheda Personaggio; la musica si ferma solo se la spegni o se la pagina non è in primo piano.
   const LS_MUSIC = 'liferpg:music', LS_MUSIC_VOL = 'liferpg:music:vol';
-  const MUSIC_SRC = 'Avventuriero.mp3';
+  const MUSIC_FALLBACK = 'Avventuriero.mp3';
+  const MUSIC_DUCK = 0.3;      // volume nelle schede diverse da Personaggio, rispetto a quello scelto
+  function roleFile() {
+    const r = heroRole();
+    const it = (I18N.it && I18N.it[r.ns + '.' + r.id]) || '';
+    const base = it.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]/g, '');
+    return base ? base + '.mp3' : MUSIC_FALLBACK;
+  }
   let musicOn = true, musicPct = 35;
   try {
     musicOn = localStorage.getItem(LS_MUSIC) !== '0';
@@ -4571,16 +4592,30 @@
     if (raw !== null && Number.isFinite(v) && v >= 0 && v <= 100) musicPct = Math.round(v);
   } catch (e) { /* ignora */ }
   const musicGain = () => Math.pow(musicPct / 100, 2);     // curva quadratica: i volumi bassi si regolano meglio
-  let musicEl = null, musicFailed = false, musicFade = 0, musicPreviewT = 0;
+  // con le Impostazioni aperte il volume è quello pieno, così senti davvero quello che scegli
+  const musicLevel = () => (curView === 'char' || (activeModal && activeModal === settingsWin)) ? 1 : MUSIC_DUCK;
+  const musicTarget = () => musicGain() * musicLevel();
+  let musicEl = null, musicFile = '', musicFailed = false, musicFade = 0;
+  const musicMissing = new Set();      // brani che il server non ha: non si richiedono di nuovo
   const musicBtn = $('btn-music'), musicSlider = $('in-music-vol'), musicVal = $('music-val');
-  function getMusic() {
-    if (!musicEl && !musicFailed) {
-      const a = new Audio(MUSIC_SRC);
-      a.loop = true; a.preload = 'auto'; a.volume = 0;
-      a.addEventListener('error', () => { musicFailed = true; });   // file mancante: non si insiste
-      musicEl = a;
+  function loadTrack(file) {
+    if (!musicEl) {
+      musicEl = new Audio();
+      musicEl.loop = true; musicEl.preload = 'auto'; musicEl.volume = 0;
+      musicEl.addEventListener('error', onMusicError);
     }
-    return musicFailed ? null : musicEl;
+    if (musicFile !== file) { musicFile = file; musicEl.src = file; }   // cambiando brano si riparte dall'inizio
+  }
+  function onMusicError() {
+    musicMissing.add(musicFile);
+    if (musicFile !== MUSIC_FALLBACK) { if (musicWanted()) musicPlay(); }   // manca il brano del ruolo: si usa quello di riserva
+    else musicFailed = true;                                                // manca anche quello: niente musica
+  }
+  const pickTrack = () => { const f = roleFile(); return musicMissing.has(f) ? MUSIC_FALLBACK : f; };
+  function getMusic() {
+    if (musicFailed) return null;
+    if (!musicEl || musicEl.paused) loadTrack(pickTrack());     // mentre suona il brano non cambia
+    return musicEl;
   }
   function fadeMusic(to, ms, done) {
     const a = musicEl; if (!a) return;
@@ -4592,32 +4627,28 @@
       if (i >= steps) { clearInterval(musicFade); if (done) done(); }
     }, 50);
   }
-  const musicWanted = () => musicOn && curView === 'char' && !document.hidden;
-  function musicPlay() {
+  const musicWanted = () => musicOn && !document.hidden;
+  function musicPlay() {           // parte, oppure porta il volume al livello giusto per la scheda in cui sei
     const a = getMusic(); if (!a) return;
     const p = a.play();
-    const ok = () => fadeMusic(musicGain(), 600);
+    const ok = () => fadeMusic(musicTarget(), 600);
     if (p && p.then) p.then(ok, () => { /* il browser aspetta un tocco: si riprova al prossimo */ }); else ok();
   }
   function musicStop(now) {
-    clearTimeout(musicPreviewT);
     const a = musicEl; if (!a || a.paused) return;
     if (now) { clearInterval(musicFade); a.pause(); return; }
     fadeMusic(0, 400, () => { if (!musicWanted()) a.pause(); });
   }
-  function musicSync() { if (musicWanted()) musicPlay(); else musicStop(); }
-  // fuori dalla scheda Personaggio: un breve assaggio, per sentire come suona il volume che scegli
-  function musicPreview() {
-    if (!musicOn) return;
-    const a = getMusic(); if (!a) return;
-    const go = () => {
-      fadeMusic(musicGain(), 200);
-      clearTimeout(musicPreviewT);
-      musicPreviewT = setTimeout(() => { if (!musicWanted()) musicStop(); }, 2500);
-    };
-    const p = a.play();
-    if (p && p.then) p.then(go, () => {}); else go();
+  // entrando nella scheda Personaggio si controlla se il ruolo è cambiato: in quel caso cambia anche il brano
+  function musicRetrack() {
+    const want = pickTrack();
+    if (!musicEl || musicEl.paused || want === musicFile) { musicPlay(); return; }
+    fadeMusic(0, 300, () => { loadTrack(want); musicPlay(); });
   }
+  function musicSync(enteringChar) {
+    if (!musicWanted()) musicStop(); else if (enteringChar) musicRetrack(); else musicPlay();
+  }
+  function musicRetune() { if (musicEl && !musicEl.paused) fadeMusic(musicTarget(), 400); }   // apre/chiude le Impostazioni
   function paintMusic() {
     musicBtn.textContent = musicOn ? T('music.on') : T('music.off');
     musicBtn.setAttribute('aria-pressed', String(musicOn));
@@ -4628,15 +4659,15 @@
     musicOn = !musicOn;
     try { localStorage.setItem(LS_MUSIC, musicOn ? '1' : '0'); } catch (e) { /* ignora */ }
     paintMusic();
-    if (!musicOn) musicStop(); else if (musicWanted()) musicPlay(); else musicPreview();
+    if (musicOn) musicPlay(); else musicStop();
   });
   musicSlider.addEventListener('input', e => {
     musicPct = Math.min(100, Math.max(0, Number(e.target.value) || 0));
     try { localStorage.setItem(LS_MUSIC_VOL, String(musicPct)); } catch (err) { /* ignora */ }
     paintMusic();
-    if (musicEl && !musicEl.paused) { clearInterval(musicFade); musicEl.volume = musicGain(); } else musicPreview();
+    if (musicEl && !musicEl.paused) { clearInterval(musicFade); musicEl.volume = musicTarget(); } else if (musicWanted()) musicPlay();
   });
-  // i browser non fanno partire la musica prima che tu tocchi qualcosa: al primo tocco riprova
+  // i browser non fanno partire la musica prima che tu tocchi qualcosa: al primo tocco (su qualsiasi scheda) parte
   ['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, () => {
     if (musicWanted() && (!musicEl || musicEl.paused)) musicPlay();
   }, true));
@@ -4844,8 +4875,9 @@
   // viste: Personaggio, Missioni, Calendario
   const VIEWS = { char: ['vt-char', 'view-char'], stats: ['vt-stats', 'view-stats'], missions: ['vt-missions', 'view-missions'], cal: ['vt-cal', 'view-cal'] };
   function showView(name) {
+    const prevView = curView;
     curView = name;
-    musicSync();
+    musicSync(name === 'char' && prevView !== 'char');
     updateNotice();
     Object.entries(VIEWS).forEach(([n, [t, v]]) => {
       $(v).hidden = n !== name;
@@ -5431,6 +5463,7 @@
     try { await initCloudInner(); }
     finally { penaltyReady = true; checkPenalties(); }
   }
+  musicSync();      // prova a partire subito (funziona se il browser lo permette, altrimenti al primo tocco)
   imagesInit();
   // sull'app installata chiede al browser di non cancellare i dati quando lo spazio scarseggia
   try {
