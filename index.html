@@ -696,6 +696,9 @@
   .modal { background: rgba(0, 0, 0, .72); }
   #settings[data-tab="look"] { background: rgba(0, 0, 0, .28); }
   #settings .modal-win { margin-block: 0 auto; }
+  /* pulsante a icona (ingranaggio delle Impostazioni) */
+  .btn.icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 48px; min-height: 48px; padding: 0; }
+  .btn.icon-btn svg { display: block; }
 </style>
 </head>
 <body>
@@ -705,7 +708,7 @@
   <header class="top">
     <h1 class="logo" id="app-title">Life RPG</h1>
     <div class="top-actions">
-      <button type="button" class="btn small" id="btn-settings" data-i18n="nav.settings">Impostazioni</button>
+      <button type="button" class="btn small icon-btn" id="btn-settings" aria-label="Impostazioni" title="Impostazioni" data-i18n-aria="nav.settings"></button>
     </div>
   </header>
 
@@ -830,7 +833,7 @@
         <div class="img-actions">
           <button type="button" class="btn small toggle" id="btn-title-show" aria-pressed="true">Titolo mostrato</button>
         </div>
-        <p class="tip" data-i18n="look.title.tip">Se lasci il campo vuoto resta «Life RPG». Puoi anche nasconderlo del tutto.</p>
+        <p class="tip" data-i18n="look.title.tip">Se lasci il campo vuoto resta “Life RPG”. Puoi anche nasconderlo del tutto.</p>
       </div>
 
       <div class="field">
@@ -977,7 +980,7 @@
       </div>
       <div class="field">
         <p class="label" data-i18n="data.label">Salvataggio</p>
-        <p data-i18n="data.desc">Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. «Azzera tutto» cancella i progressi e le missioni, ma non l'aspetto.</p>
+        <p data-i18n="data.desc">Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. “Azzera tutto” cancella i progressi e le missioni, ma non l'aspetto.</p>
         <div class="data-actions">
           <button type="button" class="btn" id="btn-export" data-i18n="data.export">Esporta salvataggio</button>
           <button type="button" class="btn" id="btn-import" data-i18n="data.import">Importa salvataggio</button>
@@ -1236,7 +1239,7 @@
       "mis.more.aria_one": "Mostra un'altra missione",
       "mis.more.aria_other": "Mostra altre {n} missioni",
       "mis.more.grp": " del gruppo {group}",
-      "mis.empty.todo": "Nessuna missione da fare. Crea la prima con «Nuova missione».",
+      "mis.empty.todo": "Nessuna missione da fare. Crea la prima con “Nuova missione”.",
       "mis.empty.done": "Le missioni completate compariranno qui.",
       "grp.late": "Scadute",
       "grp.today": "Oggi",
@@ -1343,7 +1346,7 @@
       "r.best": "Record: {n}",
       "r.bonus": "Bonus: +{xp} XP ogni {n} giorni di fila",
       "r.paused": "In pausa fino al {when}",
-      "info.mis.p6": "Una routine è una missione che compare da sola nei giorni che scegli (pulsante «Routine»). La serie conta i giorni di fila in cui la completi in tempo. Dal pulsante «+ Google Calendar» della routine crei un evento che si ripete negli stessi giorni.",
+      "info.mis.p6": "Una routine è una missione che compare da sola nei giorni che scegli (pulsante “Routine”). La serie conta i giorni di fila in cui la completi in tempo. Dal pulsante “+ Google Calendar” della routine crei un evento che si ripete negli stessi giorni.",
       "mf.title": "Titolo",
       "mf.title.ph": "Per esempio: Correre 30 minuti",
       "mf.desc": "Descrizione",
@@ -1392,7 +1395,7 @@
       "look.title": "Titolo in alto",
       "look.title.shown": "Titolo mostrato",
       "look.title.hidden": "Titolo nascosto",
-      "look.title.tip": "Se lasci il campo vuoto resta «Life RPG». Puoi anche nasconderlo del tutto.",
+      "look.title.tip": "Se lasci il campo vuoto resta “Life RPG”. Puoi anche nasconderlo del tutto.",
       "look.textcolor": "Colore dei testi",
       "look.c.ink": "Testo principale",
       "look.c.soft": "Testo secondario",
@@ -1443,7 +1446,7 @@
       "music.vol": "Volume della musica",
 
       "data.label": "Salvataggio",
-      "data.desc": "Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. «Azzera tutto» cancella i progressi e le missioni, ma non l'aspetto.",
+      "data.desc": "Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. “Azzera tutto” cancella i progressi e le missioni, ma non l'aspetto.",
       "data.export": "Esporta salvataggio",
       "data.import": "Importa salvataggio",
       "data.reset": "Azzera tutto",
@@ -1483,7 +1486,7 @@
 
       "info.play.h": "Come si gioca",
       "info.play.p1": "Crea una missione e scegli quanti XP dà e a quali statistiche.",
-      "info.play.p2": "Quando la finisci, premi «Completa»: ricevi gli XP e le statistiche crescono.",
+      "info.play.p2": "Quando la finisci, premi “Completa”: ricevi gli XP e le statistiche crescono.",
 
       "info.lvl.h": "Livelli e XP",
       "info.lvl.p1": "XP vuol dire punti esperienza. Ogni statistica ha un livello da 0 a 100: i primi livelli arrivano presto, gli ultimi molto più tardi.",
@@ -1508,9 +1511,9 @@
       "info.mis.h": "Missioni",
       "info.mis.p1": "Ogni missione si fa una volta sola. La data è facoltativa.",
       "info.mis.p2": "Puoi aggiungere una penalità: sono gli XP che perdi se non completi la missione entro la data.",
-      "info.mis.p3": "Una missione scaduta con penalità va tra le «Fallite». Puoi completarla in ritardo (la penalità resta) oppure premere «Annulla penalità»: riprendi gli XP e scegli una nuova data.",
-      "info.mis.p4": "Completata per sbaglio? «Riapri» toglie gli XP e la rimette tra le missioni «Da fare».",
-      "info.mis.p5": "Il pulsante «Aggiungi a Google Calendar» aggiunge la missione al tuo calendario: l'avviso lo scegli tu lì.",
+      "info.mis.p3": "Una missione scaduta con penalità va tra le “Fallite”. Puoi completarla in ritardo (la penalità resta) oppure premere “Annulla penalità”: riprendi gli XP e scegli una nuova data.",
+      "info.mis.p4": "Completata per sbaglio? “Riapri” toglie gli XP e la rimette tra le missioni “Da fare”.",
+      "info.mis.p5": "Il pulsante “Aggiungi a Google Calendar” aggiunge la missione al tuo calendario: l'avviso lo scegli tu lì.",
 
       "info.data.h": "I tuoi dati",
       "info.data.cloud": "I tuoi progressi sono salvati nel tuo account e li ritrovi su ogni dispositivo.",
@@ -1526,7 +1529,7 @@
       "drive.st.ok": "Collegato a {who}. Ultimo salvataggio: {when}.",
       "drive.st.ok0": "Collegato a {who}.",
       "drive.st.busy": "Sincronizzazione in corso…",
-      "drive.st.auth": "Collegato. Tocca «Sincronizza ora» per salvare le ultime modifiche.",
+      "drive.st.auth": "Collegato. Tocca “Sincronizza ora” per salvare le ultime modifiche.",
       "drive.st.err": "Non sono riuscito a sincronizzare. Riprova tra poco.",
       "drive.unavail": "Il salvataggio su Google Drive funziona solo se apri l'app da un indirizzo web (https).",
       "drive.conflict": "Su Google Drive ci sono dati diversi da quelli di questo dispositivo. Drive: {drive}. Questo dispositivo: {here}. Quali vuoi tenere?",
@@ -3166,14 +3169,12 @@
     m.hidden = false;
     if (focusEl) focusEl.focus();
     sfx('open');
-    musicRetune();
   }
   function closeModal() {
     if (!activeModal) return;
     sfx('close');
     activeModal.hidden = true;
     activeModal = null;
-    musicRetune();
     resetArm(false);
     custResetArm(false);
     mfDelArm(false);
@@ -3753,6 +3754,7 @@
     document.querySelectorAll('[data-i18n]').forEach(n => { n.textContent = T(n.dataset.i18n); });
     document.querySelectorAll('[data-i18n-ph]').forEach(n => { n.placeholder = T(n.dataset.i18nPh); });
     document.querySelectorAll('[data-i18n-aria]').forEach(n => { n.setAttribute('aria-label', T(n.dataset.i18nAria)); });
+    $('btn-settings').title = T('nav.settings');
     STATS.forEach((s, i) => {
       const r = rows[s.key];
       r.nm.textContent = s.name;
@@ -4592,8 +4594,9 @@
     if (raw !== null && Number.isFinite(v) && v >= 0 && v <= 100) musicPct = Math.round(v);
   } catch (e) { /* ignora */ }
   const musicGain = () => Math.pow(musicPct / 100, 2);     // curva quadratica: i volumi bassi si regolano meglio
-  // con le Impostazioni aperte il volume è quello pieno, così senti davvero quello che scegli
-  const musicLevel = () => (curView === 'char' || (activeModal && activeModal === settingsWin)) ? 1 : MUSIC_DUCK;
+  // mentre muovi il cursore del volume (e per due secondi dopo) suona al volume pieno, così senti davvero quello che scegli
+  let musicBoost = false, musicBoostT = 0;
+  const musicLevel = () => (curView === 'char' || musicBoost) ? 1 : MUSIC_DUCK;
   const musicTarget = () => musicGain() * musicLevel();
   let musicEl = null, musicFile = '', musicFailed = false, musicFade = 0;
   const musicMissing = new Set();      // brani che il server non ha: non si richiedono di nuovo
@@ -4648,7 +4651,7 @@
   function musicSync(enteringChar) {
     if (!musicWanted()) musicStop(); else if (enteringChar) musicRetrack(); else musicPlay();
   }
-  function musicRetune() { if (musicEl && !musicEl.paused) fadeMusic(musicTarget(), 400); }   // apre/chiude le Impostazioni
+  function musicRetune() { if (musicEl && !musicEl.paused) fadeMusic(musicTarget(), 600); }   // finito il cursore, si riabbassa
   function paintMusic() {
     musicBtn.textContent = musicOn ? T('music.on') : T('music.off');
     musicBtn.setAttribute('aria-pressed', String(musicOn));
@@ -4665,7 +4668,13 @@
     musicPct = Math.min(100, Math.max(0, Number(e.target.value) || 0));
     try { localStorage.setItem(LS_MUSIC_VOL, String(musicPct)); } catch (err) { /* ignora */ }
     paintMusic();
-    if (musicEl && !musicEl.paused) { clearInterval(musicFade); musicEl.volume = musicTarget(); } else if (musicWanted()) musicPlay();
+    const wasFull = musicLevel() === 1;
+    musicBoost = true;
+    clearTimeout(musicBoostT);
+    musicBoostT = setTimeout(() => { musicBoost = false; musicRetune(); }, 2000);
+    if (musicEl && !musicEl.paused) {
+      if (wasFull) { clearInterval(musicFade); musicEl.volume = musicTarget(); } else fadeMusic(musicTarget(), 200);
+    } else if (musicWanted()) musicPlay();
   });
   // i browser non fanno partire la musica prima che tu tocchi qualcosa: al primo tocco (su qualsiasi scheda) parte
   ['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, () => {
@@ -4916,6 +4925,8 @@
   $('m-more').addEventListener('click', () => { doneShown += PAGE; renderMissions(); });
   // frecce pixel-art: il font dell'app non ha i caratteri < e >
   // (pixel grandi come quelli delle lettere: 1 pixel del font = 1/16 della sua altezza)
+  // ingranaggio delle Impostazioni (11 x 11, X = pixel pieno)
+  $('btn-settings').innerHTML = iconSvg(['....XXX....', '.XX.XXX.XX.', '.XXXXXXXXX.', '..XXXXXXX..', 'XXXX...XXXX', 'XXXX...XXXX', 'XXXX...XXXX', '..XXXXXXX..', '.XXXXXXXXX.', '.XX.XXX.XX.', '....XXX....'], 3);
   $('cal-prev').innerHTML = iconSvg(['.....XX', '....XX.', '...XX..', '..XX...', '.XX....', 'XX.....', '.XX....', '..XX...', '...XX..', '....XX.', '.....XX']);
   $('cal-next').innerHTML = iconSvg(['XX.....', '.XX....', '..XX...', '...XX..', '....XX.', '.....XX', '....XX.', '...XX..', '..XX...', '.XX....', 'XX.....']);
   $('cal-prev').addEventListener('click', () => moveMonth(-1));
