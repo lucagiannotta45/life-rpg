@@ -2562,8 +2562,14 @@
     const todayLbl = new Date().toLocaleDateString(locale(), { day: 'numeric', month: 'short' });
     $('cal-today').textContent = T('cal.today.btn', { date: todayLbl });
     $('cal-today').setAttribute('aria-label', T('cal.today.aria', { date: todayLbl }));
+    syncTodayBtn();
     renderDay();
     if (focusDate) { const b = grid.querySelector('[data-date="' + focusDate + '"]'); if (b) b.focus(); }
+  }
+  // "Oggi" compare solo quando serve: se stai guardando un altro mese o hai scelto un altro giorno
+  function syncTodayBtn() {
+    const n = new Date();
+    $('cal-today-row').hidden = calY === n.getFullYear() && calM === n.getMonth() && selDate === isoDate(n);
   }
   function selectDate(ds, focus) {
     selDate = ds;
@@ -2574,6 +2580,7 @@
       return;
     }
     $('cal-grid').querySelectorAll('.cal-day').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.date === ds)));
+    syncTodayBtn();
     renderDay();
     if (focus) { const b = $('cal-grid').querySelector('[data-date="' + ds + '"]'); if (b) b.focus(); }
   }
@@ -2687,7 +2694,10 @@
   $('cal-next').innerHTML = iconSvg(['XX.....', '.XX....', '..XX...', '...XX..', '....XX.', '.....XX', '....XX.', '...XX..', '..XX...', '.XX....', 'XX.....']);
   $('cal-prev').addEventListener('click', () => moveMonth(-1));
   $('cal-next').addEventListener('click', () => moveMonth(1));
-  $('cal-today').addEventListener('click', () => { const n = new Date(); calY = n.getFullYear(); calM = n.getMonth(); selDate = isoDate(n); renderCalendar(); });
+  $('cal-today').addEventListener('click', () => {
+    const n = new Date(); calY = n.getFullYear(); calM = n.getMonth(); selDate = isoDate(n);
+    renderCalendar(selDate);   // il pulsante sparisce: il fuoco va sul giorno di oggi nella griglia
+  });
 
   // finestra per creare e modificare una missione
   const mform = $('mform');
