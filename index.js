@@ -702,6 +702,53 @@
     return iconSvg(rows.map(row => row.slice(from, to + 1)));
   }
 
+  /* ----- linguetta del livello: pixel art dorata al centro del bordo in alto della scheda Personaggio ----- */
+  // targhetta con gli angoli smussati e bordo doppio (L chiaro, B oro, D scuro), interno I, punte a freccia ai lati;
+  // dentro "Lv" e il numero con le cifre a pixel. Si allarga da sola con il numero (anche 100).
+  const TAB_H = 15, TAB_LV = 8, TAB_PAD = 3, TAB_GAP = 2;
+  const TAB_CAP = ['...L', '..LB', '.LBB', 'LBBB', '.DBB', '..DB', '...D'];
+  const TAB_CAP_R = TAB_CAP.map(r => [...r].reverse().map(c => c === 'L' ? 'D' : c === 'D' ? 'L' : c).join(''));
+  function tabDigits(str) {
+    let g = Array.from({ length: 9 }, (_, r) => [...str].map(ch => (DIGITS[ch] || DIGITS['0'])[r]).join(''));
+    const used = c => g.some(row => row[c] === 'X');
+    let from = 0, to = g[0].length - 1;
+    while (from < to && !used(from)) from++;
+    while (to > from && !used(to)) to--;
+    return g.map(row => row.slice(from, to + 1));
+  }
+  function levelTabSvg(level, px) {
+    const dg = tabDigits(String(Math.max(0, level)));
+    const pw = 2 + TAB_PAD + TAB_LV + TAB_GAP + dg[0].length + TAB_PAD + 2, cap = TAB_CAP[0].length, W = pw + 2 * cap, H = TAB_H;
+    const inside = (x, y) => x >= 0 && x < pw && y >= 0 && y < H && !((x === 0 || x === pw - 1) && (y === 0 || y === H - 1));
+    const out = (x, y) => ({ u: !inside(x, y - 1), d: !inside(x, y + 1), l: !inside(x - 1, y), r: !inside(x + 1, y) });
+    const edge = (x, y) => { const o = out(x, y); return o.u || o.d || o.l || o.r; };
+    const grid = Array.from({ length: H }, () => Array(W).fill('.'));
+    const cy = (H - TAB_CAP.length) / 2;
+    TAB_CAP.forEach((row, y) => [...row].forEach((c, x) => { if (c !== '.') grid[cy + y][x] = c; }));
+    TAB_CAP_R.forEach((row, y) => [...row].forEach((c, x) => { if (c !== '.') grid[cy + y][cap + pw + x] = c; }));
+    for (let y = 0; y < H; y++) for (let x = 0; x < pw; x++) {
+      if (!inside(x, y)) continue;
+      let c;
+      if (edge(x, y)) { const o = out(x, y); c = ((o.d || o.r) && !(o.u || o.l)) || (o.d && o.l) ? 'D' : 'L'; }
+      else if ([[0, -1], [0, 1], [-1, 0], [1, 0]].some(([a, b]) => inside(x + a, y + b) && edge(x + a, y + b))) c = 'B';
+      else c = 'I';
+      grid[y][cap + x] = c;
+    }
+    const dx = cap + 2 + TAB_PAD + TAB_LV + TAB_GAP, dy = (H - 9) / 2;
+    dg.forEach((row, y) => [...row].forEach((c, x) => { if (c === 'X') grid[dy + y][dx + x] = 'n'; }));
+    let body = '';
+    grid.forEach((row, y) => {
+      let x = 0;
+      while (x < W) {
+        const c = row[x]; let e = x + 1;
+        while (e < W && row[e] === c) e++;
+        if (c !== '.') body += `<rect class="lt-${c}" x="${x}" y="${y}" width="${e - x}" height="1"/>`;
+        x = e;
+      }
+    });
+    body += `<text class="lt-t" x="${cap + 2 + TAB_PAD}" y="${dy + 9}" font-size="10">${T('lv')}</text>`;
+    return `<svg viewBox="0 0 ${W} ${H}" data-px="${px}" data-cols="${W}" data-rows="${H}" width="${+(W * snapCell(px)).toFixed(4)}" height="${+(H * snapCell(px)).toFixed(4)}" shape-rendering="crispEdges" aria-hidden="true">${body}</svg>`;
+  }
   // se cambia lo zoom o lo schermo, le icone si ricalcolano
   window.addEventListener('resize', () => {
     document.querySelectorAll('svg[data-px]').forEach(sv => {
@@ -811,9 +858,10 @@
     });
 
     const ov = overallOf(levels);
-    // livello complessivo accanto al nome
-    const lvEl = $('lv-tag');
-    lvEl.textContent = T('lv') + ' ' + ov;
+    // livello complessivo nella linguetta dorata in cima alla scheda
+    const lvEl = $('lv-tab');
+    lvEl.innerHTML = levelTabSvg(ov, 3);
+    lvEl.setAttribute('aria-label', T('lv') + ' ' + ov);
     if (animate && lastOverall !== null && ov !== lastOverall && !reduce) {   // cambia livello: un piccolo balzo
       lvEl.classList.remove('bump'); void lvEl.offsetWidth; lvEl.classList.add('bump');
     }
