@@ -253,7 +253,7 @@
   }
 
   .radar-wrap { margin-top: 18px; }
-  #radar { display: block; width: 100%; height: auto; max-width: 420px; margin: 0 auto; overflow: visible; }
+  #radar, #fp-radar { display: block; width: 100%; height: auto; max-width: 420px; margin: 0 auto; overflow: visible; }
   .r-ring { fill: none; stroke: color-mix(in srgb, var(--ink-soft) 30%, transparent); stroke-width: 1.5; }
   .r-ring.outer { stroke: rgba(242, 245, 255, .7); stroke-width: 2.5; }
   .r-axis { stroke: color-mix(in srgb, var(--ink-soft) 30%, transparent); stroke-width: 1.5; }
@@ -369,7 +369,7 @@
   /* nella scheda Aspetto lo sfondo dietro è più chiaro, così si vedono subito le modifiche */
   #settings[data-tab="look"] { background: rgba(0, 0, 0, .28); }
   .modal-win.wide { width: min(640px, 100%); }
-  .modal-win p { margin: 0 0 14px; color: var(--ink-soft); font-size: 24px; }
+  .modal-win p:not(.player-name):not(.class-name) { margin: 0 0 14px; color: var(--ink-soft); font-size: 24px; }   /* nome e ruolo (profilo di un amico) restano come nella scheda Personaggio */
   .data-actions { display: grid; gap: 12px; margin-bottom: 14px; }
   .data-actions .btn { width: 100%; }
   #json-box {
@@ -784,9 +784,8 @@
   .fr-friend:hover { filter: brightness(1.15); }
   .fr-friend:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   .fr-lv { color: var(--gold); white-space: nowrap; }
-  /* profilo di un amico: la stessa scheda del Personaggio, in una finestra */
-  .fp-win { padding-top: 36px; }
-  .fp-win .radar-wrap { margin-top: 10px; }
+  /* profilo di un amico: la stessa scheda del Personaggio, in una finestra larga quanto la scheda */
+  .modal-win.fp-win { width: min(640px, 100%); }
   /* sfondo dell'amico, se lo condivide: dentro la sua finestra, scurito per leggere bene */
   .fp-win.has-bg {
     background: linear-gradient(color-mix(in srgb, var(--win-c) 55%, transparent), color-mix(in srgb, var(--win-c) 80%, transparent)), var(--fp-bg) center / cover no-repeat;
