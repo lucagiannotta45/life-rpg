@@ -233,22 +233,14 @@
   :root[data-frame="semplice"] .lu-card { box-shadow: 0 0 70px rgba(255, 213, 74, .3); }
 
   /* ---------- livello complessivo ---------- */
-  /* esagono del livello sopra, poi nome e rango: tutto centrato, sullo stesso asse del grafico */
-  .hero-head { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; margin-top: 14px; }   /* sotto il medaglione */
+  /* nome con il livello complessivo accanto, poi il rango: tutto centrato, sullo stesso asse del grafico */
+  .hero-head { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+  .name-line { margin: 0 0 2px; display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 4px 14px; }
+  .name-line .player-name { margin: 0; }
+  .lv-tag { font-size: 24px; line-height: 1.1; color: var(--ink-strong); text-shadow: 2px 2px 0 var(--win-edge); }
+  .lv-tag.bump { animation: bump .5s cubic-bezier(.2, 1.8, .4, 1); display: inline-block; }
+  @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
   .hero-head > div:last-child { max-width: 100%; }
-  /* medaglione del livello: pixel art appoggiata sull'angolo in alto a destra della finestra, come una spilla */
-  .lv-medal { position: absolute; top: -30px; right: 16px; line-height: 0; }
-  .lv-medal svg, .em-prev svg { display: block; }
-  .bn-K, .bn-L { fill: var(--em-b1, #fff2a8); }
-  .bn-B { fill: var(--em-b2, #ffcf3a); }
-  .bn-D { fill: var(--em-b3, #c98a00); }
-  .bn-I { fill: var(--em-fb, var(--win-b)); fill-opacity: var(--em-a, 1); }
-  .bn-t { font-family: var(--font); fill: var(--em-lv, var(--gold)); }
-  .bn-c { fill: var(--em-lv, var(--gold)); }
-  .bn-n { fill: var(--em-num, var(--ink-strong)); }
-  /* quando cambia il livello complessivo il medaglione gira su se stesso come una moneta */
-  .lv-medal.flip { animation: flip .7s ease-in-out; }
-  @keyframes flip { from { transform: rotateY(0); } to { transform: rotateY(360deg); } }
 
   .class-name {
     margin: 0; font-size: 40px; line-height: 1.1; color: var(--ink-strong);
@@ -436,9 +428,6 @@
     .cs-row .hex { width: 96px; }
   }
   @media (max-width: 369px) { .cs-row .hex { display: none; } }
-  .em-box { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
-  .em-controls { flex: 1 1 240px; }
-  .em-a-label { display: block; margin: 14px 0 6px; font-size: 24px; color: var(--ink-soft); }
   .modal-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 
   /* ---------- immagini personalizzate ---------- */
@@ -651,7 +640,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .fill { transition: none; }
-    .float, .lu, .lu-card, .lv-medal.flip { animation: none !important; }
+    .float, .lu, .lu-card, .lv-tag.bump { animation: none !important; }
     .lu-burst { display: none; }
     .btn { transition: none; }
   }
@@ -731,8 +720,6 @@
   #settings .btn.reset svg { display: block; }
   #settings .inline .btn.reset[hidden] { display: inline-flex !important; visibility: hidden; }   /* riserva lo spazio: le colonne restano allineate */
   /* esagono del livello: anteprima piccola accanto al titolo */
-  .em-head { display: flex; align-items: center; justify-content: flex-start; gap: 12px; margin: 0 0 2px; }
-  #settings .em-head .label { margin: 0; }
   /* sfondo: "Adattamento" con un po' d'aria sopra */
   #fit-wrap { margin-top: 18px; }
   /* bordi delle finestre: 2 x 2 invece di 3 + 1 */

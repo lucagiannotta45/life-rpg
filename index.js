@@ -234,7 +234,7 @@
     { id: 'allunga', name: 'Allunga', size: '100% 100%' },
   ];
   const HEX = /^#[0-9a-f]{6}$/i;
-  const defaultSettings = () => ({ name: '', titleText: '', titleShow: true, frame: 'semplice', frameV: 2, bgFit: 'adatta', winColor: null, inkColor: null, softColor: null, accentColor: null, nameColor: null, titleColor: null, trans: 0, emblem: { border: null, fill: null, alpha: 0 }, colors: {}, lang: 'it' });
+  const defaultSettings = () => ({ name: '', titleText: '', titleShow: true, frame: 'semplice', frameV: 2, bgFit: 'adatta', winColor: null, inkColor: null, softColor: null, accentColor: null, nameColor: null, titleColor: null, trans: 0, colors: {}, lang: 'it' });
   function normalizeSettings(o) {
     const s = defaultSettings();
     if (!o || typeof o !== 'object') return s;
@@ -255,11 +255,6 @@
       if (typeof o[k] === 'string' && HEX.test(o[k])) s[k] = o[k].toLowerCase();
     }
     if (Number.isFinite(Number(o.trans))) s.trans = Math.min(100, Math.max(0, Math.round(Number(o.trans))));
-    if (o.emblem && typeof o.emblem === 'object') {
-      if (typeof o.emblem.border === 'string' && HEX.test(o.emblem.border)) s.emblem.border = o.emblem.border.toLowerCase();
-      if (typeof o.emblem.fill === 'string' && HEX.test(o.emblem.fill)) s.emblem.fill = o.emblem.fill.toLowerCase();
-      if (Number.isFinite(Number(o.emblem.alpha))) s.emblem.alpha = Math.min(100, Math.max(0, Math.round(Number(o.emblem.alpha))));
-    }
     for (const st of STATS) {
       if (o.colors && typeof o.colors[st.key] === 'string' && HEX.test(o.colors[st.key])) s.colors[st.key] = o.colors[st.key].toLowerCase();
     }
@@ -707,59 +702,6 @@
     return iconSvg(rows.map(row => row.slice(from, to + 1)));
   }
 
-  /* ----- medaglione del livello (pixel art, appoggiato sull'angolo in alto a destra della scheda Personaggio) ----- */
-  // cerchio di 23 pixel: bordo doppio (L chiaro in alto a sinistra, D scuro in basso a destra, B oro pieno) e interno I
-  const MEDAL = (() => {
-    const D = 23, R = D / 2, C = (D - 1) / 2, rows = [];
-    for (let y = 0; y < D; y++) {
-      let row = '';
-      for (let x = 0; x < D; x++) {
-        const dx = x - C, dy = y - C, d = Math.hypot(dx, dy);
-        if (d > R - 0.25) row += '.';
-        else if (d > R - 1.25) row += dx + dy < -0.5 ? 'L' : dx + dy > 0.5 ? 'D' : (dy < 0 ? 'L' : 'D');
-        else if (d > R - 2.25) row += 'B';
-        else row += 'I';
-      }
-      rows.push(row);
-    }
-    return { W: D, H: D, CX: C, rows };
-  })();
-  const CROWN = ['X...X...X', 'XX.XXX.XX', 'XXXXXXXXX', 'XXXXXXXXX', '.XXXXXXX.', '.........', 'XXXXXXXXX'];
-  // rettangoli di una griglia: un rettangolo per ogni tratto orizzontale dello stesso segno (meno elementi)
-  function pixRuns(rows, x0, y0, pick) {
-    let r = '';
-    rows.forEach((row, y) => {
-      let x = 0;
-      while (x < row.length) {
-        const c = row[x], cls = pick(c);
-        let e = x + 1;
-        while (e < row.length && row[e] === c) e++;
-        if (cls) r += `<rect class="${cls}" x="${x0 + x}" y="${y0 + y}" width="${e - x}" height="1"/>`;
-        x = e;
-      }
-    });
-    return r;
-  }
-  function medalSvg(level, px) {
-    const { W, H, CX, rows } = MEDAL;
-    let body = pixRuns(rows, 0, 0, c => c === '.' ? '' : 'bn-' + c);
-    if (level >= MAX_LEVEL) {   // livello massimo: "MAX" e una corona al posto del numero
-      body += `<text class="bn-t" x="${CX + 0.5}" y="7.6" text-anchor="middle" font-size="6">MAX</text>`;
-      body += pixRuns(CROWN, Math.round(CX - (CROWN[0].length - 1) / 2), 10, c => c === 'X' ? 'bn-c' : '');
-    } else {
-      const str = String(Math.max(0, level));
-      let dr = Array.from({ length: 9 }, (_, r) => [...str].map(ch => (DIGITS[ch] || DIGITS['0'])[r]).join(''));
-      const used = c => dr.some(row => row[c] === 'X');
-      let from = 0, to = dr[0].length - 1;
-      while (from < to && !used(from)) from++;
-      while (to > from && !used(to)) to--;
-      dr = dr.map(row => row.slice(from, to + 1));
-      // centrato sulla colonna di mezzo; con una larghezza pari si sposta di mezzo pixel a destra (l'1 pesa a destra)
-      body += `<text class="bn-t" x="${CX + 0.5}" y="7.6" text-anchor="middle" font-size="6">${T('lv')}</text>`;
-      body += pixRuns(dr, Math.ceil(CX - (dr[0].length - 1) / 2), 9, c => c === 'X' ? 'bn-n' : '');
-    }
-    return `<svg viewBox="0 0 ${W} ${H}" data-px="${px}" data-cols="${W}" data-rows="${H}" width="${+(W * snapCell(px)).toFixed(4)}" height="${+(H * snapCell(px)).toFixed(4)}" shape-rendering="crispEdges" aria-hidden="true">${body}</svg>`;
-  }
   // se cambia lo zoom o lo schermo, le icone si ricalcolano
   window.addEventListener('resize', () => {
     document.querySelectorAll('svg[data-px]').forEach(sv => {
@@ -869,13 +811,11 @@
     });
 
     const ov = overallOf(levels);
-    const bn = $('lv-medal');
-    bn.innerHTML = medalSvg(ov, 3);
-    bn.setAttribute('aria-label', T('emblem.aria') + ': ' + ov);
-    const prev = $('em-prev');
-    if (prev) prev.innerHTML = medalSvg(42, 2);   // anteprima nelle impostazioni
-    if (animate && lastOverall !== null && ov !== lastOverall && !reduce) {   // cambia livello: il medaglione gira come una moneta
-      bn.classList.remove('flip'); void bn.offsetWidth; bn.classList.add('flip');
+    // livello complessivo accanto al nome
+    const lvEl = $('lv-tag');
+    lvEl.textContent = T('lv') + ' ' + ov;
+    if (animate && lastOverall !== null && ov !== lastOverall && !reduce) {   // cambia livello: un piccolo balzo
+      lvEl.classList.remove('bump'); void lvEl.offsetWidth; lvEl.classList.add('bump');
     }
     lastOverall = ov;
     $('class-name').textContent = heroClass();
@@ -1362,7 +1302,6 @@
   /* ================= personalizzazione ================= */
   const rootStyle = document.documentElement.style;
   const WIN_VARS = ['--win-a', '--win-b', '--win-c', '--win-edge', '--win-glow', '--ink-soft', '--track', '--btn'];
-  const EM_VARS = ['--em-b1', '--em-b2', '--em-b3', '--em-f1', '--em-f2', '--em-num', '--em-lv', '--em-a', '--em-fb'];
 
   function luminance(hex) {
     const n = parseInt(hex.slice(1), 16);
@@ -1411,39 +1350,7 @@
     if (settings.titleColor) rootStyle.setProperty('--title-color', settings.titleColor);
     if (settings.softColor) rootStyle.setProperty('--ink-soft', settings.softColor);
   }
-  function applyPalette() { applyTheme(); applyTextColors(); applyEmblem(); }   // l'esagono si mescola col colore delle finestre
-  // colore predefinito dell'interno dell'esagono: quello delle finestre
-  function themeFillHex() {
-    return settings.winColor ? winBase(settings.winColor) : '#3049cf';
-  }
-  // medaglione del livello: bordo (di solito dorato),
-  // interno (di solito come le finestre) e trasparenza dell'interno (0 = pieno, 100 = invisibile)
-  function applyEmblem() {
-    EM_VARS.forEach(v => rootStyle.removeProperty(v));
-    const { border, fill, alpha } = settings.emblem;
-    const a = (alpha || 0) / 100;
-    // il colore che si vede davvero: l'interno mescolato con la finestra dietro, secondo la trasparenza
-    const seen = fill ? mixHex(fill, themeFillHex(), a) : null;
-    const fillDark = seen ? luminance(seen) < 0.4 : true;
-    if (a > 0) rootStyle.setProperty('--em-a', String(1 - a));
-    let lv = null;
-    if (border) {
-      const b1 = mixHex(border, '#ffffff', 0.55), b3 = mixHex(border, '#000000', 0.4);
-      rootStyle.setProperty('--em-b1', b1);
-      rootStyle.setProperty('--em-b2', border);
-      rootStyle.setProperty('--em-b3', b3);
-      lv = fillDark ? b1 : b3;
-    } else if (fill && !fillDark) {
-      lv = '#8a5a00';
-    }
-    if (fill) {
-      rootStyle.setProperty('--em-f1', fill);
-      rootStyle.setProperty('--em-f2', mixHex(fill, '#000000', 0.55));
-      rootStyle.setProperty('--em-fb', mixHex(fill, '#000000', 0.45));
-      rootStyle.setProperty('--em-num', fillDark ? '#ffffff' : '#12172e');
-    }
-    if (lv) rootStyle.setProperty('--em-lv', lv);
-  }
+  function applyPalette() { applyTheme(); applyTextColors(); }
   // trasparenza delle finestre: 0 = opache, 100 = completamente trasparenti.
   // Con la trasparenza si aggiunge uno sfocato (fino a 6px verso il 60%) che poi scompare,
   // così a 100% lo sfondo si vede nitido.
@@ -1567,7 +1474,7 @@
     paintFormRepeat();
     if (!rmodal.hidden) renderRoutines();
   }
-  function applyAll() { applyLang(); applyTheme(); applyFrame(); applyTextColors(); applyTransparency(); applyEmblem(); applyName(); applyTitle(); applyImages(); }
+  function applyAll() { applyLang(); applyTheme(); applyFrame(); applyTextColors(); applyTransparency(); applyName(); applyTitle(); applyImages(); }
 
   let setTimer = 0;
   function changed(soon) {
@@ -1626,22 +1533,6 @@
       b.setAttribute('role', 'radio');
       b.addEventListener('click', () => { settings.bgFit = f.id; applyImages(); paintCustom(); changed(); });
       $('seg-fit').appendChild(b);
-    });
-    // esagono del livello
-    $('in-em-b').addEventListener('input', e => {
-      settings.emblem.border = e.target.value.toLowerCase();
-      applyEmblem(); paintCustom(); changed(true);
-    });
-    $('in-em-f').addEventListener('input', e => {
-      settings.emblem.fill = e.target.value.toLowerCase();
-      applyEmblem(); paintCustom(); changed(true);
-    });
-    $('em-b-reset').addEventListener('click', () => { settings.emblem.border = null; applyEmblem(); paintCustom(); changed(); });
-    $('em-f-reset').addEventListener('click', () => { settings.emblem.fill = null; applyEmblem(); paintCustom(); changed(); });
-    $('in-em-a').addEventListener('input', e => {
-      settings.emblem.alpha = Math.min(100, Math.max(0, Math.round(Number(e.target.value)) || 0));
-      $('em-a-val').textContent = settings.emblem.alpha + '%';
-      applyEmblem(); changed(true);
     });
     // titolo in alto
     $('in-title').addEventListener('input', e => {
@@ -1734,12 +1625,6 @@
     });
     document.querySelectorAll('#seg-lang button').forEach(b =>
       b.setAttribute('aria-checked', String(b.dataset.id === settings.lang)));
-    $('in-em-b').value = settings.emblem.border || '#ffcf3a';
-    $('in-em-f').value = settings.emblem.fill || themeFillHex();
-    $('em-b-reset').hidden = !settings.emblem.border;
-    $('em-f-reset').hidden = !settings.emblem.fill;
-    $('in-em-a').value = settings.emblem.alpha || 0;
-    $('em-a-val').textContent = (settings.emblem.alpha || 0) + '%';
     STATS.forEach(s => {
       const c = cs[s.key], col = statColor(s.key);
       c.item.style.setProperty('--c', col);

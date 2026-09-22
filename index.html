@@ -47,10 +47,9 @@
   <section class="screen solo" id="view-char" role="tabpanel" aria-labelledby="vt-char">
     <section class="win hero" aria-labelledby="t-profile">
       <h2 class="win-title" id="t-profile" data-i18n="view.char">Personaggio</h2>
-      <div class="lv-medal" id="lv-medal" role="img" aria-label="Livello complessivo"></div>
       <div class="hero-head">
         <div>
-          <p class="player-name" id="player-name"></p>
+          <p class="name-line"><span class="player-name" id="player-name"></span> <span class="lv-tag" id="lv-tag">Lv 0</span></p>
           <p class="class-name" id="class-name">Avventuriero</p>
         </div>
       </div>
@@ -202,29 +201,6 @@
       <div class="field">
         <p class="label" id="l-frame" data-i18n="look.frame">Bordi delle finestre</p>
         <div class="seg" id="seg-frame" role="radiogroup" aria-labelledby="l-frame"></div>
-      </div>
-
-      <div class="field">
-        <div class="em-head">
-          <p class="label" id="l-em" data-i18n="look.em">Medaglione del livello</p>
-          <span class="em-prev" id="em-prev" aria-hidden="true"></span>
-        </div>
-        <div class="em-box">
-          <div class="em-controls">
-            <div class="inline">
-              <label for="in-em-b" data-i18n="look.em.b">Bordo</label>
-              <input type="color" id="in-em-b" value="#ffcf3a">
-              <button type="button" class="btn small reset" id="em-b-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
-            </div>
-            <div class="inline">
-              <label for="in-em-f" data-i18n="look.em.f">Interno</label>
-              <input type="color" id="in-em-f" value="#3049cf">
-              <button type="button" class="btn small reset" id="em-f-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
-            </div>
-            <label class="em-a-label" for="in-em-a"><span data-i18n="look.em.a">Trasparenza dell'interno</span>: <span id="em-a-val">0%</span></label>
-            <input type="range" id="in-em-a" min="0" max="100" step="5" value="0">
-          </div>
-        </div>
       </div>
 
       <div class="field" data-slot="bg">
