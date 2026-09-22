@@ -652,6 +652,18 @@
 
   /* ================= interfaccia: elementi ================= */
   const $ = id => document.getElementById(id);
+  // quanto spazio copre la barra in basso (Personaggio, Statistiche...): serve al CSS per non nascondere la fine delle finestre
+  (() => {
+    const nav = document.querySelector('.tabs.views');
+    if (!nav) return;
+    const measure = () => {
+      const h = Math.ceil(window.innerHeight - nav.getBoundingClientRect().top);
+      if (h > 0) document.documentElement.style.setProperty('--nav-h', h + 'px');
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    if (window.ResizeObserver) new ResizeObserver(measure).observe(nav);
+  })();
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const NS = 'http://www.w3.org/2000/svg';
 
@@ -1909,6 +1921,7 @@
   function completeMission(id) {
     const m = missions.find(x => x.id === id);
     if (!m || m.done || m.failed) return;   // scaduta: non si completa più (si può solo riprogrammare)
+    if (isLate(m)) { checkPenalties(); return; }   // scaduta da poco ma non ancora segnata come fallita: lo diventa adesso
     if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(m.due) }), 'bad'); sfx('err'); return; }
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
@@ -2113,7 +2126,7 @@
     return changed;
   }
 
-  // le penalità scattano quando apri la pagina o ci torni, non mentre la stai usando
+  // le penalità scattano appena la missione scade: all'apertura, al ritorno sulla pagina e, con l'app aperta, entro pochi secondi
   let penaltyReady = false, lastSig = '';
   function checkPenalties() {
     if (!penaltyReady || activeModal) return;   // prima si aspetta il caricamento; con una finestra aperta si riprova dopo
@@ -2126,12 +2139,12 @@
   $('pmodal').addEventListener('click', e => { if (e.target === $('pmodal')) closeModal(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) checkPenalties(); });
   window.addEventListener('focus', checkPenalties);
-  // se l'app resta aperta a cavallo della mezzanotte compaiono le routine del nuovo giorno (le penalità no: aspettano che riapri l'app)
+  // con l'app aperta: a cavallo della mezzanotte compaiono le routine del nuovo giorno,
+  // e una missione che scade diventa subito fallita (con una finestra aperta si aspetta che la chiudi)
   setInterval(() => {
-    if (!penaltyReady || activeModal || todayStr() === routinesDay) return;
-    syncRoutines();
-    renderMissionViews();
-  }, 60000);
+    if (!penaltyReady || activeModal || document.hidden) return;
+    if (todayStr() !== routinesDay || missions.some(m => !m.done && !m.failed && isLate(m))) checkPenalties();
+  }, 15000);
 
   // schede delle missioni
   // valore uguale per tutte e sei le statistiche (0 se non lo è)

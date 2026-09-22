@@ -469,7 +469,9 @@
   /* ---------- viste, missioni e calendario ---------- */
   .tabs.views { margin: 0 0 42px; }
   /* navigazione principale: barra fissa in basso, su ogni schermo (su schermi larghi resta centrata) */
-  .app { padding-bottom: 100px; }
+  /* sotto l'ultima finestra resta lo spazio della barra (misurata da index.js) più un margine per scorrere oltre */
+  .app { padding-bottom: calc(var(--nav-h, 130px) + 48px); }
+  html { scroll-padding-bottom: calc(var(--nav-h, 130px) + 16px); }
   .tabs.views {
     position: fixed; z-index: 40; margin: 0 auto;
     left: max(10px, env(safe-area-inset-left, 0px));
@@ -509,7 +511,6 @@
   @media (min-width: 601px) {
     .nav-lbl { font-size: 24px; }
     .tabs.views .nav-tab { min-height: 72px; }
-    .app { padding-bottom: 112px; }
   }
   /* schede con una sola finestra, centrata */
   .screen.solo { grid-template-columns: minmax(0, 640px); grid-template-areas: "one"; justify-content: center; }
