@@ -787,7 +787,6 @@
   /* profilo di un amico: la stessa scheda del Personaggio, in una finestra */
   .fp-win { padding-top: 36px; }
   .fp-win .radar-wrap { margin-top: 10px; }
-  .fp-upd { text-align: center; }
   /* sfondo dell'amico, se lo condivide: dentro la sua finestra, scurito per leggere bene */
   .fp-win.has-bg {
     background: linear-gradient(color-mix(in srgb, var(--win-c) 55%, transparent), color-mix(in srgb, var(--win-c) 80%, transparent)), var(--fp-bg) center / cover no-repeat;

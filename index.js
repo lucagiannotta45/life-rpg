@@ -507,7 +507,7 @@
   let dbRef = null, writing = false, again = false;
   let fbAuth = null, fbDb = null, fbUser = null, accBusy = false;   // account Firebase (vedi la sezione "account")
   let accPending = null;                                            // scelta "quali dati tenere" in attesa
-  let myCode = '', codeJob = null, pubTimer = 0, lastPub = '', lastBg;   // amici: il tuo codice e l'ultimo profilo pubblicato
+  let myCode = '', codeJob = null, pubTimer = 0, lastPub = '', pubBgId;   // amici: il tuo codice, l'ultimo profilo pubblicato, l'impronta dello sfondo condiviso
   let friends = { rows: [], profs: {}, loaded: false };
   let downloadsCap = null;
 
@@ -3182,6 +3182,38 @@
   const fmtCode = c => c ? c.slice(0, 4) + '-' + c.slice(4) : '';
   const cleanCode = t => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const pairOf = (a, b) => a < b ? a + '_' + b : b + '_' + a;
+  function imgId(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return (h >>> 0).toString(36) + str.length.toString(36);
+  }
+  // sfondi degli amici conservati sul dispositivo (IndexedDB, non tocca lo spazio dei tuoi salvataggi):
+  // uno per amico, sostituito solo quando l'amico cambia sfondo, cancellato se non è più tuo amico
+  const bgCache = (() => {
+    let dbp = null;
+    const open = () => dbp || (dbp = new Promise((res, rej) => {
+      if (!window.indexedDB) { rej(new Error('idb')); return; }
+      const r = indexedDB.open('liferpg-friends', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('bg');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    }));
+    const tx = async (mode, fn) => {
+      const db = await open();
+      return new Promise((res, rej) => {
+        const t = db.transaction('bg', mode), st = t.objectStore('bg');
+        const out = fn(st);
+        t.oncomplete = () => res(out && out.result);
+        t.onerror = () => rej(t.error);
+      });
+    };
+    return {
+      get: uid => tx('readonly', st => st.get(uid)).catch(() => null),
+      put: (uid, v) => tx('readwrite', st => st.put(v, uid)).catch(() => {}),
+      del: uid => tx('readwrite', st => st.delete(uid)).catch(() => {}),
+      keys: () => tx('readonly', st => st.getAllKeys()).catch(() => []),
+    };
+  })();
   function genCode() {
     const b = new Uint32Array(8);
     crypto.getRandomValues(b);
@@ -3214,15 +3246,22 @@
     try {
       const code = await ensureCode();
       const bg = settings.shareBg && imgs.bg && imgs.bg.length <= CLOUD_IMG_MAX ? imgs.bg : null;
-      const look = { bg: !!bg };
+      const bgId = bg ? imgId(bg) : '';
+      const look = { bg: !!bg, bgId };
       ['winColor', 'inkColor', 'softColor', 'accentColor', 'nameColor'].forEach(k => { if (settings[k]) look[k] = settings[k]; });
       const pub = { name: settings.name.trim().slice(0, 30), level: overallOf(STATS.map(s => levelFromXp(xp[s.key]))), stats: { ...xp }, look, code };
-      // sfondo: solo se l'hai scelto tu; se lo spegni o lo togli, sparisce anche per gli amici
-      if (bg !== lastBg) {
+      // sfondo: solo se l'hai scelto tu; se lo spegni o lo togli, sparisce anche per gli amici.
+      // Si carica solo quando cambia davvero: l'impronta (bgId) dice se quello online è già questo.
+      if (pubBgId === undefined) {
+        const ps = await fbDb.doc('profiles/' + fbUser.uid).get();
+        const old = ps.exists && ps.data().look;
+        pubBgId = old ? (old.bgId || (old.bg ? '?' : '')) : '?';   // profilo di una versione precedente: si ricarica una volta
+      }
+      if (bgId !== pubBgId) {
         const bref = fbDb.doc('profileBg/' + fbUser.uid);
         if (bg) await bref.set({ data: bg, updated: Date.now() });
         else await bref.delete();
-        lastBg = bg;
+        pubBgId = bgId;
       }
       const sig = JSON.stringify(pub);
       if (sig === lastPub) return;
@@ -3232,7 +3271,7 @@
     } catch (e) { console.warn('profile', e); }
   }
   function friendsReset() {
-    myCode = ''; lastPub = ''; lastBg = undefined; clearTimeout(pubTimer);
+    myCode = ''; lastPub = ''; pubBgId = undefined; clearTimeout(pubTimer);
     friends = { rows: [], profs: {}, loaded: false };
     paintFriendsBtn();
   }
@@ -3253,6 +3292,8 @@
     }));
     friends = { rows, profs, loaded: true };
     paintFriendsBtn();
+    const keep = new Set(acc.map(otherOf).filter(uid => profs[uid] && profs[uid].look && profs[uid].look.bg));
+    bgCache.keys().then(ks => (ks || []).forEach(k => { if (!keep.has(k)) bgCache.del(k); }));
   }
   async function checkFriendRequests() {
     try { await loadFriends(); } catch (e) { console.warn('friends', e); }
@@ -3409,7 +3450,6 @@
     $('fp-name').textContent = friendName(p);
     $('fp-class').textContent = heroClass(x);
     $('fp-radar').innerHTML = radarMarkup(x);
-    $('fp-upd').textContent = p.updated ? T('fr.updated', { when: new Date(p.updated).toLocaleDateString(locale(), { day: 'numeric', month: 'long' }) }) : '';
     fpArm(false);
     const win = $('fpmodal').querySelector('.fp-win');
     applyFriendLook(win, p.look);
@@ -3417,14 +3457,24 @@
     closeModal();
     openModal($('fpmodal'), $('fp-close'));
     // lo sfondo (se l'amico lo condivide) arriva dopo: la scheda si vede subito
-    if (p.look && p.look.bg) {
-      fbDb.doc('profileBg/' + uid).get().then(b => {
-        const d = b.exists && b.data().data;
-        if (fpUid !== uid || !validImg(d)) return;
-        win.style.setProperty('--fp-bg', 'url("' + d + '")');
-        win.classList.add('has-bg');
-      }).catch(e => console.warn('friend bg', e));
-    }
+    if (p.look && p.look.bg) showFriendBg(uid, p.look.bgId || '', win);
+    else bgCache.del(uid);
+  }
+  async function showFriendBg(uid, id, win) {
+    const show = d => {
+      if (fpUid !== uid || !validImg(d)) return;
+      win.style.setProperty('--fp-bg', 'url("' + d + '")');
+      win.classList.add('has-bg');
+    };
+    const c = await bgCache.get(uid);
+    if (c && id && c.id === id) { show(c.data); return; }   // è ancora quello: niente download
+    try {
+      const b = await fbDb.doc('profileBg/' + uid).get();
+      const d = b.exists && b.data().data;
+      if (!validImg(d)) return;
+      show(d);
+      if (id) bgCache.put(uid, { id, data: d });
+    } catch (e) { console.warn('friend bg', e); if (c) show(c.data); }   // senza rete: meglio la copia vecchia che niente
   }
   function fpArm(on) {
     clearTimeout(fpArmTimer);
