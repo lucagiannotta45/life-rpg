@@ -1921,7 +1921,13 @@
   function completeMission(id) {
     const m = missions.find(x => x.id === id);
     if (!m || m.done || m.failed) return;   // scaduta: non si completa più (si può solo riprogrammare)
-    if (isLate(m)) { checkPenalties(); return; }   // scaduta da poco ma non ancora segnata come fallita: lo diventa adesso
+    if (isLate(m)) {   // scaduta da poco ma non ancora segnata come fallita: non si completa, e diventa fallita adesso
+      missionMsg(T('msg.expired', { title: m.title }), 'bad');
+      sfx('err');
+      renderMissionViews();
+      checkPenalties();
+      return;
+    }
     if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(m.due) }), 'bad'); sfx('err'); return; }
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
@@ -2129,9 +2135,11 @@
   // le penalità scattano appena la missione scade: all'apertura, al ritorno sulla pagina e, con l'app aperta, entro pochi secondi
   let penaltyReady = false, lastSig = '';
   function checkPenalties() {
-    if (!penaltyReady || activeModal) return;   // prima si aspetta il caricamento; con una finestra aperta si riprova dopo
-    if (syncRoutines()) renderMissionViews();
-    applyPenalties();
+    // le penalità aspettano il caricamento dell'account e che non ci sia una finestra aperta; le schede si aggiornano comunque
+    if (penaltyReady && !activeModal) {
+      if (syncRoutines()) renderMissionViews();
+      applyPenalties();
+    }
     const sig = todayStr() + ':' + missions.filter(m => !m.done && isLate(m)).length;
     if (sig !== lastSig) { lastSig = sig; renderMissionViews(); }
   }
@@ -2142,7 +2150,7 @@
   // con l'app aperta: a cavallo della mezzanotte compaiono le routine del nuovo giorno,
   // e una missione che scade diventa subito fallita (con una finestra aperta si aspetta che la chiudi)
   setInterval(() => {
-    if (!penaltyReady || activeModal || document.hidden) return;
+    if (document.hidden) return;
     if (todayStr() !== routinesDay || missions.some(m => !m.done && !m.failed && isLate(m))) checkPenalties();
   }, 15000);
 
@@ -2276,7 +2284,7 @@
       }
     } else {
       const cb = btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
-      if (notYet(m)) { cb.disabled = true; cb.classList.add('locked'); }   // una missione con la data nel futuro si completa dal giorno stesso
+      if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }   // data nel futuro: si completa dal giorno stesso; scaduta: mai più
       act.append(cb, btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
       if (m.rid ? !!rtn : !!m.due) {
         const a = mk('a', 'btn small gcal', T('btn.gcal'));
@@ -2603,7 +2611,20 @@
     selDate = (calY === now.getFullYear() && calM === now.getMonth()) ? isoDate(now) : isoDate(t);
     renderCalendar();
   }
-  function renderMissionViews() { renderMissions(); renderCalendar(); }
+  function renderMissionViews() { renderMissions(); renderCalendar(); scheduleExpiry(); }
+  // allo scoccare della prossima scadenza la scheda diventa subito "Scaduta" (e la missione fallita), senza aspettare
+  let expiryTimer = 0;
+  function scheduleExpiry() {
+    clearTimeout(expiryTimer);
+    const now = Date.now();
+    const next = missions.reduce((mn, m) => {
+      if (m.done || m.failed || !m.due) return mn;
+      const e = dueEndMs(m);
+      return e > now ? Math.min(mn, e) : mn;
+    }, Infinity);
+    if (next === Infinity) return;
+    expiryTimer = setTimeout(() => { renderMissionViews(); checkPenalties(); }, Math.min(next - now + 50, 3600000));   // al massimo un'ora: si ricontrolla
+  }
 
   // viste: Personaggio, Missioni, Calendario
   const VIEWS = { char: ['vt-char', 'view-char'], stats: ['vt-stats', 'view-stats'], missions: ['vt-missions', 'view-missions'], cal: ['vt-cal', 'view-cal'] };

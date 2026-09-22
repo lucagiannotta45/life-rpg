@@ -77,9 +77,10 @@
   html { scroll-padding-top: env(safe-area-inset-top, 0px); }
   [hidden] { display: none !important; }
 
+  /* niente altezza minima: la pagina è alta quanto il contenuto, così si scorre solo se c'è altro da vedere
+     (lo sfondo di body riempie comunque tutto lo schermo) */
   body {
     margin: 0;
-    min-height: 100vh;
     background-color: var(--page-bg);
     background-image:
       linear-gradient(var(--page-dot) 2px, transparent 2px),
@@ -469,9 +470,10 @@
   /* ---------- viste, missioni e calendario ---------- */
   .tabs.views { margin: 0 0 42px; }
   /* navigazione principale: barra fissa in basso, su ogni schermo (su schermi larghi resta centrata) */
-  /* sotto l'ultima finestra resta lo spazio della barra (misurata da index.js) più un margine per scorrere oltre */
-  .app { padding-bottom: calc(var(--nav-h, 130px) + 48px); }
-  html { scroll-padding-bottom: calc(var(--nav-h, 130px) + 16px); }
+  /* sotto l'ultima finestra resta lo spazio della barra (misurata da index.js, zona di sistema compresa,
+     che :root lascia già vuota) più un piccolo margine: se il contenuto sta sopra la barra non si scorre */
+  .app { padding-bottom: calc(var(--nav-h, 110px) - env(safe-area-inset-bottom, 0px) + 28px); }
+  html { scroll-padding-bottom: calc(var(--nav-h, 110px) + 16px); }
   .tabs.views {
     position: fixed; z-index: 40; margin: 0 auto;
     left: max(10px, env(safe-area-inset-left, 0px));
