@@ -560,7 +560,7 @@
   #mf-rep-box > .label:not(:first-child) { margin-top: 22px; }
   .m-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
-  .cal-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 12px; }
+  .cal-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
   .cal-nav .btn { display: inline-flex; align-items: center; justify-content: center; min-width: 56px; min-height: 48px; }
   .cal-nav .btn svg { display: block; width: calc(7em / 16); height: calc(11em / 16); }
   @media (max-width: 350px) { .cal-foot { font-size: 16px; } }
@@ -658,12 +658,8 @@
   }
 
   /* ---------- ritocchi grafici ---------- */
-  /* calendario: mese e pulsante "Oggi" insieme, in colonna tra le due frecce */
-  .cal-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .cal-mid .cal-title { flex: none; }
-  .cal-nav .cal-today { min-width: 0; }
-  /* frecce alla stessa altezza del pulsante "Oggi" (la riga in basso), non a metà tra mese e pulsante */
-  #cal-prev, #cal-next { align-self: flex-end; }
+  /* calendario: le frecce stanno sulla riga del mese (che è ciò che cambiano), il pulsante "Oggi" sulla riga sotto */
+  .cal-today-row { display: flex; justify-content: center; margin: 0 0 12px; }
   /* giorno scelto: anello chiaro, distinto dal bordo dorato di oggi */
   .cal-day[aria-pressed="true"] { box-shadow: inset 0 0 0 3px var(--ink-strong); }
   /* interruttori */
