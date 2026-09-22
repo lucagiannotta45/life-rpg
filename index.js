@@ -3192,10 +3192,23 @@
     fbUser = await fbFirstUser();
     paintAccount();
     if (!fbUser) { setSaveState('local'); return; }
-    try { await cloudLoad(fbDb.doc('users/' + fbUser.uid), fbUser.uid); }
-    catch (e) { console.warn('cloud', e); if (!dbRef) setSaveState('local'); }
-    paintAccount();
+    await fbConnect();
   }
+  // collega l'account (carica e unisce i dati). Se in quel momento manca la connessione si riprova da soli:
+  // quando torna internet, quando torni sull'app, quando apri gli amici. Nel frattempo si salva sul dispositivo.
+  let cloudJob = null;
+  function fbConnect() {
+    if (!fbUser || dbRef || accPending) return Promise.resolve();
+    if (cloudJob) return cloudJob;
+    cloudJob = (async () => {
+      try { await cloudLoad(fbDb.doc('users/' + fbUser.uid), fbUser.uid); }
+      catch (e) { console.warn('cloud', e); if (!dbRef) setSaveState('local'); }
+      paintAccount();
+    })().finally(() => { cloudJob = null; });
+    return cloudJob;
+  }
+  window.addEventListener('online', () => { fbConnect(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) fbConnect(); });
 
   /* ================= amici ================= */
   // Ogni giocatore ha un codice amico (8 caratteri) e un profilo pubblico: nome, livello complessivo,
@@ -3398,10 +3411,21 @@
   }
   async function openFriends(afterMsg) {
     frMsg('');
-    const on = !!(fbUser && dbRef);
-    $('fr-noacc').hidden = on; $('fr-main').hidden = !on;
-    openModal($('fmodal'), on ? $('fr-in') : $('fr-goacc'));
-    if (!on) return;
+    const noacc = t => {   // niente amici per ora: senza accesso (con il pulsante) oppure account non raggiungibile
+      $('fr-noacc-text').textContent = t;
+      $('fr-goacc').hidden = !!fbUser;
+      $('fr-noacc').hidden = false; $('fr-main').hidden = true;
+    };
+    if (!fbUser) { noacc(T('fr.needacc')); openModal($('fmodal'), $('fr-goacc')); return; }
+    if (!dbRef) {
+      noacc(T('fr.connecting'));
+      openModal($('fmodal'), $('fr-close'));
+      await fbConnect();
+      if ($('fmodal').hidden) return;                  // nel frattempo hai chiuso la finestra
+      if (!dbRef) { noacc(T('fr.offline')); return; }
+    }
+    $('fr-noacc').hidden = true; $('fr-main').hidden = false;
+    if ($('fmodal').hidden) openModal($('fmodal'), $('fr-in'));
     renderFriends();
     frMsg(T('fr.msg.wait'));
     try { await ensureCode(); await publishProfile(); await loadFriends(); renderFriends(); frMsg(afterMsg || ''); }
@@ -3528,7 +3552,8 @@
     $('acc-out').hidden = !fbUser;
     $('acc-in').disabled = $('acc-out').disabled = accBusy;
     const who = fbUser ? (fbUser.email || fbUser.displayName || '') : '';
-    $('acc-status').textContent = !usable ? T('acc.unavail') : fbUser ? T('acc.as', { who }) : T('acc.off');
+    $('acc-status').textContent = !usable ? T('acc.unavail') : !fbUser ? T('acc.off')
+      : dbRef ? T('acc.as', { who }) : T('acc.as.wait', { who });   // accesso fatto, ma l'account non è ancora raggiungibile
   }
   function accMsg(t) { $('acc-msg').textContent = t || ''; }
   $('acc-in').addEventListener('click', async () => {
@@ -3540,7 +3565,7 @@
       const r = await fbAuth.signInWithPopup(provider);
       fbUser = r.user;
       paintAccount();
-      await cloudLoad(fbDb.doc('users/' + fbUser.uid), fbUser.uid);
+      await fbConnect();
       sfx('ok');
     } catch (e) {
       const code = e && e.code || '';
