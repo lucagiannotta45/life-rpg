@@ -929,6 +929,7 @@
   }
   function closeModal() {
     if (!activeModal) return;
+    if (activeModal.id === 'fpmodal') musicGuestEnd();   // esci dal profilo di un amico: torna la tua musica
     sfx('close');
     activeModal.hidden = true;
     activeModal = null;
@@ -2121,8 +2122,8 @@
   const LS_MUSIC = 'liferpg:music', LS_MUSIC_VOL = 'liferpg:music:vol';
   const MUSIC_FALLBACK = 'Avventuriero.mp3';
   const MUSIC_DUCK = 0.3;      // volume nelle schede diverse da Personaggio, rispetto a quello scelto
-  function roleFile() {
-    const r = heroRole();
+  function roleFile(x = xp) {   // x: gli XP di chi ascoltiamo (di solito i tuoi, oppure quelli di un amico)
+    const r = heroRole(x);
     const it = (I18N.it && I18N.it[r.ns + '.' + r.id]) || '';
     const base = it.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]/g, '');
     return base ? base + '.mp3' : MUSIC_FALLBACK;
@@ -2154,7 +2155,29 @@
     if (musicFile !== MUSIC_FALLBACK) { if (musicWanted()) musicPlay(); }   // manca il brano del ruolo: si usa quello di riserva
     else musicFailed = true;                                                // manca anche quello: niente musica
   }
-  const pickTrack = () => { const f = roleFile(); return musicMissing.has(f) ? MUSIC_FALLBACK : f; };
+  // mentre guardi il profilo di un amico suona il brano del SUO ruolo (musicGuest); chiudendo torna il tuo
+  let musicGuest = null, ownResume = null;
+  const pickTrack = () => { const f = musicGuest || roleFile(); return musicMissing.has(f) ? MUSIC_FALLBACK : f; };
+  function musicSwitch(resumeAt) {
+    const want = pickTrack();
+    if (!musicWanted() || !musicEl || musicEl.paused || want === musicFile) return;   // stesso brano: continua senza interruzioni
+    fadeMusic(0, 300, () => {
+      loadTrack(want);   // brano diverso: riparte dall'inizio...
+      if (resumeAt) musicEl.addEventListener('loadedmetadata', () => { try { musicEl.currentTime = resumeAt; } catch (e) { /* ignora */ } }, { once: true });   // ...tranne il tuo, che riprende da dov'era
+      musicPlay();
+    });
+  }
+  function musicGuestStart(x) {
+    if (!musicGuest && musicEl && !musicEl.paused) ownResume = { file: musicFile, t: musicEl.currentTime };
+    musicGuest = roleFile(x);
+    musicSwitch(0);
+  }
+  function musicGuestEnd() {
+    if (!musicGuest) return;
+    musicGuest = null;
+    const r = ownResume; ownResume = null;
+    musicSwitch(r && r.file === pickTrack() ? r.t : 0);
+  }
   function getMusic() {
     if (musicFailed) return null;
     if (!musicEl || musicEl.paused) loadTrack(pickTrack());     // mentre suona il brano non cambia
@@ -3456,6 +3479,7 @@
     win.classList.remove('has-bg'); win.style.removeProperty('--fp-bg');
     closeModal();
     openModal($('fpmodal'), $('fp-close'));
+    musicGuestStart(x);   // la musica del ruolo dell'amico, dall'inizio
     // lo sfondo (se l'amico lo condivide) arriva dopo: la scheda si vede subito
     if (p.look && p.look.bg) showFriendBg(uid, p.look.bgId || '', win);
     else bgCache.del(uid);
