@@ -266,23 +266,6 @@
         </div>
         <p class="data-msg" id="acc-msg" role="status" aria-live="polite"></p>
       </div>
-      <div class="field" id="drive-box" hidden>
-        <p class="label" data-i18n="drive.h">Google Drive</p>
-        <p data-i18n="drive.desc">Salva una copia dei tuoi dati nel tuo Google Drive, in una cartella nascosta usata solo da questa app. Così li ritrovi anche se cancelli i dati del browser o cambi telefono.</p>
-        <p class="data-msg" id="drive-status" role="status" aria-live="polite"></p>
-        <div id="drive-conflict" hidden>
-          <p id="drive-conflict-text"></p>
-          <div class="data-actions">
-            <button type="button" class="btn" id="drive-keep-drive" data-i18n="drive.keep.drive">Usa i dati di Drive</button>
-            <button type="button" class="btn" id="drive-keep-local" data-i18n="drive.keep.local">Usa i dati di questo dispositivo</button>
-          </div>
-        </div>
-        <div class="data-actions">
-          <button type="button" class="btn" id="drive-connect" data-i18n="drive.connect">Collega Google Drive</button>
-          <button type="button" class="btn" id="drive-sync" hidden data-i18n="drive.sync">Sincronizza ora</button>
-          <button type="button" class="btn ghost" id="drive-off" hidden data-i18n="drive.off">Scollega</button>
-        </div>
-      </div>
       <div class="field">
         <p class="label" data-i18n="data.label">Salvataggio</p>
         <p data-i18n="data.desc">Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. “Azzera tutto” cancella i progressi e le missioni, ma non l'aspetto.</p>
@@ -421,6 +404,19 @@
     <div class="modal-actions">
       <button type="button" class="btn add" id="r-new" data-i18n="r.new">Nuova routine</button>
       <button type="button" class="btn ghost" id="r-close" data-i18n="btn.close">Chiudi</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="accmodal" hidden>
+  <div class="win modal-win" role="alertdialog" aria-modal="true" aria-labelledby="t-accc" aria-describedby="acc-choice-text">
+    <h2 class="win-title" id="t-accc" data-i18n="acc.choice.title">Quali dati vuoi tenere?</h2>
+    <p id="acc-choice-text" data-i18n="acc.choice.text">Nel tuo account ci sono già dei dati, diversi da quelli di questo dispositivo. Scegli quali tenere: gli altri verranno sostituiti.</p>
+    <p id="acc-choice-acc"></p>
+    <p id="acc-choice-dev"></p>
+    <div class="modal-actions acc-actions">
+      <button type="button" class="btn" id="acc-keep-acc" data-i18n="acc.keep.acc">Usa i dati dell'account</button>
+      <button type="button" class="btn" id="acc-keep-dev" data-i18n="acc.keep.dev">Usa i dati di questo dispositivo</button>
     </div>
   </div>
 </div>

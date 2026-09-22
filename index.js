@@ -17,7 +17,7 @@
  *   5. interfaccia: elementi                  — riferimenti ai nodi del DOM
  *   6. effetti                                — animazioni e feedback visivi
  *   7. finestre (Dati e Personalizza)         — pannelli modali
- *   8. Google Drive                           — backup/sync su Drive
+ *   8. account (Firebase)                     — accesso con Google e salvataggio nell'account
  *   9. personalizzazione                      — temi, sfondi, nome, icone
  *  10. missioni e calendario                  — creazione/gestione missioni, vista calendario
  *  11. musica                                 — musica di sottofondo
@@ -205,7 +205,6 @@
   }
   function saveLocal() {
     lsSet(LS_KEY, JSON.stringify(xp));
-    driveMark();
   }
   const hasProgress = o => Object.values(o).some(v => v > 0);
 
@@ -269,7 +268,6 @@
   }
   function saveSettingsLocal() {
     lsSet(LS_SET, JSON.stringify(settings));
-    driveMark();
   }
   const isDefaultSettings = () => JSON.stringify(settings) === JSON.stringify(defaultSettings());
   let settings = loadSettingsLocal();
@@ -334,7 +332,6 @@
   }
   // salva l'immagine n (quella in `imgs`); risolve true se è stata scritta da qualche parte, false se no
   function saveImgLocal(n) {
-    driveMark();     // subito, in modo sincrono
     const v = imgs[n] || null;
     return (v ? idbPut(n, v) : idbDel(n)).then(
       () => { lsSet(LS_IMG + n, null); return true; },     // ora è in IndexedDB: la copia vecchia si toglie
@@ -449,7 +446,6 @@
   }
   function saveMissionsLocal() {
     const ok = lsSet(LS_MIS, JSON.stringify(missions));
-    driveMark();
     return ok;
   }
   let missions = loadMissionsLocal();
@@ -495,37 +491,21 @@
     try { const raw = localStorage.getItem(LS_ROU); if (raw) return normalizeRoutines(JSON.parse(raw)); } catch (e) { /* ignora */ }
     return [];
   }
+  let routinesTouched = false, routinesApplying = false;
   function saveRoutinesLocal() {
     lsSet(LS_ROU, JSON.stringify(routines));
-    driveMark();
+    if (routinesApplying) return;   // routine appena arrivate dall'account: non c'è niente da rimandare
+    routinesTouched = true;
+    if (dbRef) flush();
   }
   let routines = loadRoutinesLocal();
+  try { localStorage.removeItem('liferpg:drive'); } catch (e) { /* Google Drive non c'è più */ }
 
   let xp = loadLocal();
   let touched = false;
   let dbRef = null, writing = false, again = false;
   let fbAuth = null, fbDb = null, fbUser = null, accBusy = false;   // account Firebase (vedi la sezione "account")
   let downloadsCap = null;
-
-  // Google Drive: stato del collegamento (le funzioni sono più sotto, nella sezione dedicata).
-  // Per attivarlo va scritto qui l'ID client creato su Google Cloud (vedi le istruzioni).
-  const GOOGLE_CLIENT_ID = '1034279734942-khlirvv64u1us7hmdikiqq41nal9skd1.apps.googleusercontent.com';
-  const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';   // cartella nascosta, solo di questa app
-  const DRIVE_FILE = 'life_rpg_save.json';
-  const LS_DRIVE = 'liferpg:drive';
-  const drv = { on: false, email: '', fileId: '', synced: 0, dirty: false, lastAt: 0, changedAt: 0, token: '', exp: 0, busy: false,
-    state: 'off', conflict: null, timer: 0, rev: 0, applying: false, tapAt: 0, checked: false };
-  try {
-    const d = JSON.parse(localStorage.getItem(LS_DRIVE) || 'null');
-    if (d && d.on) Object.assign(drv, { on: true, email: String(d.email || ''), fileId: String(d.fileId || ''), synced: Number(d.synced) || 0, dirty: !!d.dirty, lastAt: Number(d.lastAt) || 0, changedAt: Number(d.changedAt) || 0 });
-  } catch (e) { /* ignora */ }
-  // ogni modifica ai dati locali segna che c'è qualcosa da salvare su Drive
-  function driveMark() {
-    if (!drv.on || drv.applying) return;
-    drv.dirty = true; drv.rev++; drv.changedAt = Date.now();
-    driveKeep();
-    driveSchedule();
-  }
 
   // Alcuni browser non lasciano salvare dati quando si apre un file HTML dal dispositivo
   let storageOk = true;
@@ -557,7 +537,7 @@
     if (writing) { again = true; return; }
     writing = true;
     try {
-      await dbRef.set({ v: 1, xp: { ...xp }, settings });
+      await dbRef.set({ v: 1, xp: { ...xp }, settings, routines: JSON.parse(JSON.stringify(routines)) });
       setSaveState('account');
     } catch (e) {
       console.warn('db.set', e);
@@ -950,7 +930,6 @@
     resetArm(false);
     custResetArm(false);
     mfDelArm(false);
-    driveOffArm(false);
     pasteSlot = null;
     if (lastFocus && lastFocus.focus) lastFocus.focus();
     checkPenalties();
@@ -1020,7 +999,7 @@
     } catch (e) { return false; }
   }
 
-  // il salvataggio completo (usato dal backup e da Google Drive)
+  // il salvataggio completo (usato dal backup)
   function buildBackup() {
     const out = { ...xp, _settings: settings };
     out._images = Object.fromEntries(IMG_NAMES.filter(n => imgs[n]).map(n => [n, imgs[n]]));
@@ -1099,234 +1078,6 @@
   });
 
 
-  /* ================= Google Drive ================= */
-  // Una copia del salvataggio vive in una cartella nascosta del tuo Drive (visibile solo a questa app).
-  // Il collegamento usa l'accesso di Google: dura circa un'ora, poi al primo tocco si rinnova da solo.
-  const driveOk = !!GOOGLE_CLIENT_ID && (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname));
-  const tokenValid = () => !!drv.token && Date.now() < drv.exp;
-  const hasLocalData = () => hasProgress(xp) || missions.length > 0 || IMG_NAMES.some(n => imgs[n])
-    || JSON.stringify({ ...settings, lang: 'it' }) !== JSON.stringify(defaultSettings());
-  function driveKeep() {
-    try {
-      if (drv.on) localStorage.setItem(LS_DRIVE, JSON.stringify({ on: true, email: drv.email, fileId: drv.fileId, synced: drv.synced, dirty: drv.dirty, lastAt: drv.lastAt, changedAt: drv.changedAt }));
-      else localStorage.removeItem(LS_DRIVE);
-    } catch (e) { /* ignora */ }
-  }
-  const driveSummary = obj => {
-    const x = normalize(obj);
-    const n = Array.isArray(obj._missions) ? obj._missions.length : 0;
-    return TN('drive.sum', n, { lv: overallOf(STATS.map(s => levelFromXp(x[s.key]))) });
-  };
-  // riepilogo di una copia: livello, missioni, XP totali e (se si sa) quando è stata salvata o modificata
-  const driveDetail = (obj, when, whenKey) => {
-    const xpTotal = Object.values(normalize(obj)).reduce((a, b) => a + b, 0);
-    const parts = [driveSummary(obj), T('drive.sum.xp', { xp: fmt(xpTotal) })];
-    if (when > 0) parts.push(T(whenKey, { when: new Date(when).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) }));
-    return parts.join(' · ');
-  };
-  function driveState(k) { drv.state = k; paintDrive(); }
-  function paintDrive() {
-    const box = $('drive-box');
-    box.hidden = !GOOGLE_CLIENT_ID;
-    if (!GOOGLE_CLIENT_ID) return;
-    const st = $('drive-status');
-    const conflict = drv.on && drv.state === 'conflict' && !!drv.conflict;
-    $('drive-connect').hidden = !driveOk || drv.on;
-    $('drive-sync').hidden = !drv.on || conflict;
-    $('drive-off').hidden = !drv.on;
-    $('drive-conflict').hidden = !conflict;
-    const who = drv.email || 'Google';
-    let t;
-    if (!driveOk) t = T('drive.unavail');
-    else if (!drv.on) t = T('drive.st.off');
-    else if (conflict) t = '';
-    else if (drv.state === 'busy') t = T('drive.st.busy');
-    else if (drv.state === 'auth') t = T('drive.st.auth');
-    else if (drv.state === 'err') t = T('drive.st.err');
-    else t = drv.lastAt
-      ? T('drive.st.ok', { who, when: new Date(drv.lastAt).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) })
-      : T('drive.st.ok0', { who });
-    st.textContent = t;
-    st.hidden = !t;
-    if (conflict) $('drive-conflict-text').textContent = T('drive.conflict', {
-      drive: driveDetail(drv.conflict, Number(drv.conflict._savedAt) || 0, 'drive.sum.remote'),
-      here: driveDetail(buildBackup(), drv.changedAt, 'drive.sum.local'),
-    });
-  }
-
-  let gisPromise = null;
-  const gisReady = () => !!(window.google && google.accounts && google.accounts.oauth2);
-  function driveLoadScript() {
-    if (!gisPromise) gisPromise = new Promise((res, rej) => {
-      if (gisReady()) { res(); return; }
-      const sc = document.createElement('script');
-      sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true;
-      sc.onload = () => res();
-      sc.onerror = () => { gisPromise = null; rej(new Error('script')); };
-      document.head.appendChild(sc);
-    });
-    return gisPromise;
-  }
-  // chiede il permesso a Google: va chiamata da un tocco dell'utente, altrimenti il browser blocca la finestrella
-  function driveAuth() {
-    return new Promise((resolve, reject) => {
-      const go = () => {
-        try {
-          const c = google.accounts.oauth2.initTokenClient({
-            client_id: GOOGLE_CLIENT_ID, scope: DRIVE_SCOPE,
-            callback: r => {
-              if (r && r.access_token) { drv.token = r.access_token; drv.exp = Date.now() + ((Number(r.expires_in) || 3600) - 60) * 1000; resolve(); }
-              else { const e = new Error('auth'); e.auth = true; reject(e); }
-            },
-            error_callback: () => { const e = new Error('auth'); e.auth = true; reject(e); },
-          });
-          c.requestAccessToken({ prompt: '', hint: drv.email || undefined });
-        } catch (e) { reject(e); }
-      };
-      if (gisReady()) go(); else driveLoadScript().then(go, reject);
-    });
-  }
-  async function driveFetch(url, opts) {
-    const o = opts || {};
-    const r = await fetch(url, { ...o, headers: { ...(o.headers || {}), Authorization: 'Bearer ' + drv.token } });
-    if (r.status === 401) { drv.token = ''; drv.exp = 0; const e = new Error('auth'); e.auth = true; throw e; }
-    if (!r.ok) { const e = new Error('http ' + r.status); e.status = r.status; throw e; }
-    return r;
-  }
-  async function driveFind() {
-    const q = encodeURIComponent("name='" + DRIVE_FILE + "' and 'appDataFolder' in parents and trashed=false");
-    const r = await driveFetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&pageSize=1&fields=files(id,modifiedTime)&q=' + q);
-    const j = await r.json();
-    return (j.files && j.files[0]) || null;
-  }
-  async function driveDownload(id) {
-    const r = await driveFetch('https://www.googleapis.com/drive/v3/files/' + id + '?alt=media');
-    return r.json();
-  }
-  async function driveWrite(text) {
-    if (drv.fileId) {
-      try {
-        await driveFetch('https://www.googleapis.com/upload/drive/v3/files/' + drv.fileId + '?uploadType=media',
-          { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: text });
-        return;
-      } catch (e) { if (e.status !== 404) throw e; drv.fileId = ''; }   // il file non c'è più: se ne crea uno nuovo
-    }
-    const b = 'lrpg' + Math.random().toString(36).slice(2);
-    const meta = JSON.stringify({ name: DRIVE_FILE, parents: ['appDataFolder'], mimeType: 'application/json' });
-    const body = '--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta
-      + '\r\n--' + b + '\r\nContent-Type: application/json\r\n\r\n' + text + '\r\n--' + b + '--';
-    const r = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-      { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body });
-    drv.fileId = (await r.json()).id;
-  }
-  async function driveUpload() {
-    const rev = drv.rev;
-    const at = Date.now();
-    const snap = buildBackup(); snap._savedAt = at;
-    await driveWrite(JSON.stringify(snap));
-    drv.synced = at; drv.lastAt = at;
-    if (drv.rev === rev) drv.dirty = false;     // se nel frattempo è cambiato altro, resta da salvare
-    driveKeep();
-  }
-  function driveApply(remote) {
-    drv.applying = true;
-    try { applyBackup(remote); } finally { drv.applying = false; }
-    drv.synced = Number(remote._savedAt) || 0; drv.dirty = false; drv.lastAt = Date.now();
-    driveKeep();
-  }
-  function driveFail(e) {
-    console.warn('drive', e);
-    drv.busy = false;
-    driveState(e && e.auth ? 'auth' : 'err');
-  }
-  function driveSchedule() {
-    clearTimeout(drv.timer);
-    drv.timer = setTimeout(() => driveSync(false), 4000);
-  }
-  // user = true quando parte da un tocco: solo allora si può chiedere il permesso a Google
-  async function driveSync(user) {
-    if (!drv.on || drv.busy || drv.conflict) return;
-    drv.busy = true; driveState('busy');
-    try {
-      if (!tokenValid()) {
-        if (!user) { drv.busy = false; driveState('auth'); return; }
-        await driveAuth();
-      }
-      if (!drv.email) {
-        try { drv.email = (await (await driveFetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)')).json()).user.emailAddress || ''; } catch (e) { /* facoltativo */ }
-      }
-      const file = await driveFind();
-      const remote = file ? await driveDownload(file.id) : null;
-      if (file) drv.fileId = file.id;
-      const rAt = remote && isBackup(remote) ? Number(remote._savedAt) || 0 : -1;
-      if (rAt < 0) {
-        await driveUpload();                                   // ancora niente su Drive
-      } else if (rAt === drv.synced) {
-        if (drv.dirty) await driveUpload();                    // Drive è com'era: si salvano le modifiche fatte qui
-      } else if (drv.synced && !drv.dirty) {
-        driveApply(remote); dataMsg(T('drive.msg.loaded'));    // qui non è cambiato niente: si prende quello di Drive
-      } else if (!drv.synced && !hasLocalData()) {
-        driveApply(remote); dataMsg(T('drive.msg.loaded'));    // dispositivo nuovo e vuoto
-      } else {
-        drv.conflict = remote;                                 // dati diversi da entrambe le parti: sceglie l'utente
-        drv.busy = false; drv.checked = true; driveState('conflict');
-        if (typeof openSettings === 'function') openSettings('data');
-        return;
-      }
-      drv.checked = true; drv.busy = false;
-      driveState('ok');
-      if (drv.dirty) driveSchedule();
-    } catch (e) { driveFail(e); }
-  }
-  async function driveKeepLocal() {
-    drv.conflict = null; drv.busy = true; driveState('busy');
-    try {
-      if (!tokenValid()) await driveAuth();
-      drv.dirty = true;
-      await driveUpload();
-      drv.checked = true; drv.busy = false;
-      driveState('ok'); dataMsg(T('drive.msg.saved'));
-    } catch (e) { driveFail(e); }
-  }
-  $('drive-connect').addEventListener('click', () => {
-    drv.on = true; drv.synced = 0; drv.dirty = false; drv.changedAt = 0; drv.conflict = null; drv.checked = false;
-    driveKeep();
-    driveSync(true);
-  });
-  $('drive-sync').addEventListener('click', () => driveSync(true));
-  const offBtn = $('drive-off');
-  let offTimer = 0;
-  function driveOffArm(on) {
-    clearTimeout(offTimer);
-    offBtn.dataset.armed = on ? '1' : '';
-    offBtn.textContent = on ? T('drive.off.confirm') : T('drive.off');
-    if (on) offTimer = setTimeout(() => driveOffArm(false), 4000);
-  }
-  offBtn.addEventListener('click', () => {
-    if (!offBtn.dataset.armed) { driveOffArm(true); return; }     // primo tocco: chiede conferma
-    driveOffArm(false);
-    clearTimeout(drv.timer);
-    drv.on = false; drv.conflict = null; drv.dirty = false; drv.changedAt = 0; drv.synced = 0; drv.fileId = ''; drv.token = ''; drv.exp = 0; drv.state = 'off';
-    driveKeep(); paintDrive(); dataMsg(T('drive.msg.off'));
-  });
-  $('drive-keep-drive').addEventListener('click', () => {
-    const r = drv.conflict; if (!r) return;
-    drv.conflict = null;
-    driveApply(r); driveState('ok'); dataMsg(T('drive.msg.loaded'));
-  });
-  $('drive-keep-local').addEventListener('click', driveKeepLocal);
-  // al primo tocco di ogni sessione (e quando l'accesso è scaduto) si riprende il collegamento
-  document.addEventListener('click', e => {
-    if (!driveOk || !drv.on || drv.busy || drv.conflict) return;
-    if (e.target && e.target.closest && e.target.closest('#drive-box')) return;
-    if (tokenValid() && drv.checked) return;
-    if (!drv.checked || drv.dirty) {
-      if (Date.now() - drv.tapAt < 30000) return;
-      drv.tapAt = Date.now();
-      driveSync(true);
-    }
-  }, true);
-  if (driveOk) driveLoadScript().catch(() => { /* niente rete: si riprova al tocco */ });
 
   let armTimer = 0;
   const resetBtn = $('btn-reset');
@@ -1513,13 +1264,12 @@
     document.querySelectorAll('#settings input[type="color"]').forEach(c => {
       if (c._hex) c._hex.setAttribute('aria-label', T('hex.aria'));
     });
-    paintSound(); paintMusic(); resetArm(false); custResetArm(false); mfDelArm(false); driveOffArm(false);
+    paintSound(); paintMusic(); resetArm(false); custResetArm(false); mfDelArm(false);
     setSaveState(saveKind);
     if (cs.Vigore) paintCustom();
     render(false);
     renderMissionViews();
     renderInfo();
-    paintDrive();
     paintAccount();
     paintFormRepeat();
     if (!rmodal.hidden) renderRoutines();
@@ -3219,7 +2969,6 @@
     b = section('data', T('info.data.h'));
     p(b, dbRef ? T('info.data.cloud') : storageOk ? T('info.data.local') : T('info.data.nostorage'));
     p(b, T('info.data.p3'));
-    if (GOOGLE_CLIENT_ID) p(b, T('info.data.drive'));
   }
 
   /* ================= avvio ================= */
@@ -3257,12 +3006,76 @@
   // al primo avvio Firebase ritrova da solo l'accesso fatto in precedenza (anche offline)
   function fbFirstUser() { return new Promise(res => { const off = fbAuth.onAuthStateChanged(u => { off(); res(u); }); }); }
 
-  // carica i dati dall'account (ref = documento del giocatore) e li unisce a quelli di questo dispositivo
-  async function cloudLoad(ref) {
+  // legge tutto quello che c'è nell'account (documento del giocatore, immagini, missioni per mese)
+  async function cloudFetch(ref) {
     const snap = await ref.get();
+    const d = snap.exists ? snap.data() : null;
+    const isnap = await ref.collection('imgs').get();
+    const rImgs = {};
+    isnap.docs.forEach(x => { const v = x.data() && x.data().data; if (validImg(v)) rImgs[x.id] = v; });
+    const msnap = await ref.collection('m').get();
+    const rM = {};
+    msnap.docs.forEach(x => { rM[x.id] = normalizeMissions(x.data() && x.data().items).filter(m => monthOf(m) === x.id); });
+    return { d, rImgs, rM };
+  }
+  // il dispositivo ricorda a quale account è già collegato: la scelta "quali dati tenere" si fa una volta sola
+  const LS_ACC = 'liferpg:acc';
+  const linkedUid = () => { try { return localStorage.getItem(LS_ACC) || ''; } catch (e) { return ''; } };
+  const linkUid = uid => lsSet(LS_ACC, uid);
+  const sortedMissions = list => JSON.stringify([...list].sort((a, b) => a.id.localeCompare(b.id)));
+  const remoteMissions = r => Object.values(r.rM).flat();
+  const deviceHasData = () => hasProgress(xp) || missions.length > 0 || routines.length > 0 || !isDefaultSettings() || IMG_NAMES.some(n => imgs[n]);
+  function accountHasData(r) {
+    return !!r.d && (hasProgress(normalize(r.d.xp)) || (Array.isArray(r.d.routines) && r.d.routines.length > 0)
+      || (!!r.d.settings && JSON.stringify(mergeSettings(r.d.settings)) !== JSON.stringify({ ...defaultSettings(), lang: settings.lang })))
+      || remoteMissions(r).length > 0 || Object.keys(r.rImgs).length > 0;
+  }
+  function sameData(r) {
+    if (!r.d) return false;
+    return JSON.stringify(normalize(r.d.xp)) === JSON.stringify(xp)
+      && JSON.stringify(mergeSettings(r.d.settings || {})) === JSON.stringify(settings)
+      && JSON.stringify(normalizeRoutines(r.d.routines || [])) === JSON.stringify(routines)
+      && sortedMissions(remoteMissions(r)) === sortedMissions(missions)
+      && IMG_NAMES.every(n => {
+        const here = imgs[n] || null;
+        if (here && here.length > CLOUD_IMG_MAX) return true;   // troppo grande per l'account: non conta
+        return (r.rImgs[n] || null) === here;
+      });
+  }
+  // riassunto di un insieme di dati per la finestra della scelta
+  function dataSummary(x, list) {
+    const total = STATS.reduce((t, s) => t + (x[s.key] || 0), 0);
+    return TN('acc.sum', list.length, { lv: overallOf(STATS.map(s => levelFromXp(x[s.key]))), xp: fmt(total) });
+  }
+
+  // carica i dati dall'account (ref = documento del giocatore) e li unisce a quelli di questo dispositivo.
+  // uid: l'account Firebase; se il dispositivo non è ancora collegato e sia l'account sia il dispositivo
+  // hanno dati diversi, prima si chiede quali tenere.
+  let accPending = null;
+  async function cloudLoad(ref, uid) {
+    const r = await cloudFetch(ref);
+    if (uid && linkedUid() !== uid && accountHasData(r) && deviceHasData() && !sameData(r)) {
+      accPending = { ref, uid, r };
+      $('acc-choice-acc').textContent = T('acc.choice.acc', { sum: dataSummary(normalize(r.d && r.d.xp), remoteMissions(r)) });
+      $('acc-choice-dev').textContent = T('acc.choice.dev', { sum: dataSummary(xp, missions) });
+      openModal($('accmodal'), $('acc-keep-acc'));
+      return;
+    }
+    cloudApply(ref, r, 'merge');
+    if (uid) linkUid(uid);
+  }
+  // mode: 'merge' = unisce (l'account vince, tranne ciò che hai cambiato in questa sessione);
+  //       'account' = tiene solo i dati dell'account; 'device' = tiene solo quelli di questo dispositivo
+  function cloudApply(ref, r, mode) {
+    const d = r.d;
     dbRef = ref;
     setSaveState('account');
-    const d = snap.exists ? snap.data() : null;
+    if (mode === 'account') { touched = false; settingsTouched = false; routinesTouched = false; imgTouched.clear(); missionsTouched.clear(); }
+    if (mode === 'device') {
+      touched = true; settingsTouched = true; routinesTouched = true;
+      IMG_NAMES.forEach(n => { if (imgs[n] || r.rImgs[n]) imgTouched.add(n); });   // solo quelle da salvare o da togliere
+      new Set([...missions.map(monthOf), ...Object.keys(r.rM)]).forEach(ym => missionsTouched.add(ym));
+    }
     if (d && !touched) { xp = normalize(d.xp); saveLocal(); }
     if (d && d.settings && !settingsTouched) {
       settings = mergeSettings(d.settings);
@@ -3270,43 +3083,53 @@
       applyAll();
       paintCustom();
     }
+    if (d && Array.isArray(d.routines) && !routinesTouched) {
+      routinesApplying = true;
+      routines = normalizeRoutines(d.routines); saveRoutinesLocal();
+      routinesApplying = false;
+    }
     // immagini: l'account è la fonte, tranne quelle modificate in questa sessione
-    const isnap = await ref.collection('imgs').get();
-    const remote = {};
-    isnap.docs.forEach(x => { const v = x.data() && x.data().data; if (validImg(v)) remote[x.id] = v; });
     IMG_NAMES.forEach(n => {
       if (imgTouched.has(n)) { imgQueue.add(n); return; }
-      const r = remote[n] || null;
-      if (imgs[n] && imgs[n].length > CLOUD_IMG_MAX) return;   // troppo grande per l'account: resta quella di questo dispositivo
-      if (imgs[n] !== r) { imgs[n] = r; saveImgLocal(n); }
+      const v = r.rImgs[n] || null;
+      if (mode !== 'account' && imgs[n] && imgs[n].length > CLOUD_IMG_MAX) return;   // troppo grande per l'account: resta quella di questo dispositivo
+      if (imgs[n] !== v) { imgs[n] = v; saveImgLocal(n); }
     });
     applyImages();
     paintCustom();
     if (imgQueue.size) flushImgs();
     // missioni: un documento per mese; l'account è la fonte, tranne i mesi modificati in questa sessione
-    const msnap = await ref.collection('m').get();
-    const remoteM = {};
-    msnap.docs.forEach(x => {
-      remoteM[x.id] = normalizeMissions(x.data() && x.data().items).filter(m => monthOf(m) === x.id);
-    });
     const localM = {};
     missions.forEach(m => { (localM[monthOf(m)] = localM[monthOf(m)] || []).push(m); });
     const mergedM = [];
-    new Set([...Object.keys(remoteM), ...Object.keys(localM)]).forEach(ym => {
-      if (missionsTouched.has(ym)) { mergedM.push(...(localM[ym] || [])); monthQueue.add(ym); }
-      else if (ym in remoteM) mergedM.push(...remoteM[ym]);
-      else { mergedM.push(...(localM[ym] || [])); if ((localM[ym] || []).length) monthQueue.add(ym); }
+    new Set([...Object.keys(r.rM), ...Object.keys(localM)]).forEach(ym => {
+      if (missionsTouched.has(ym)) { mergedM.push(...(localM[ym] || [])); monthQueue.add(ym); }   // "device": un mese che c'è solo nell'account si svuota
+      else if (ym in r.rM) mergedM.push(...r.rM[ym]);
+      else if (mode !== 'account') { mergedM.push(...(localM[ym] || [])); if ((localM[ym] || []).length) monthQueue.add(ym); }
     });
     missions = mergedM;
     saveMissionsLocal();
     renderMissionViews();
     if (monthQueue.size) flushMissions();
     render(true);
-    const needUpload = touched || settingsTouched
-      || (!d && (hasProgress(xp) || !isDefaultSettings()))
+    const needUpload = touched || settingsTouched || routinesTouched
+      || (!d && (hasProgress(xp) || !isDefaultSettings() || routines.length > 0))
       || (d && !d.settings && !isDefaultSettings());
     if (needUpload) flush();
+    renderInfo();
   }
+  function accChoose(mode) {
+    const p = accPending;
+    if (!p) return;
+    accPending = null;
+    closeModal();
+    cloudApply(p.ref, p.r, mode);
+    linkUid(p.uid);
+    accMsg(T(mode === 'account' ? 'acc.msg.acc' : 'acc.msg.dev'));
+    paintAccount();
+  }
+  $('acc-keep-acc').addEventListener('click', () => accChoose('account'));
+  $('acc-keep-dev').addEventListener('click', () => accChoose('device'));
 
   async function initCloudInner() {
     // pagina pubblicata come artifact su claude.ai: usa il salvataggio di quella piattaforma
@@ -3330,7 +3153,7 @@
     fbUser = await fbFirstUser();
     paintAccount();
     if (!fbUser) { setSaveState('local'); return; }
-    try { await cloudLoad(fbDb.doc('users/' + fbUser.uid)); }
+    try { await cloudLoad(fbDb.doc('users/' + fbUser.uid), fbUser.uid); }
     catch (e) { console.warn('cloud', e); if (!dbRef) setSaveState('local'); }
     paintAccount();
   }
@@ -3357,8 +3180,7 @@
       const r = await fbAuth.signInWithPopup(provider);
       fbUser = r.user;
       paintAccount();
-      await cloudLoad(fbDb.doc('users/' + fbUser.uid));
-      renderInfo();
+      await cloudLoad(fbDb.doc('users/' + fbUser.uid), fbUser.uid);
       sfx('ok');
     } catch (e) {
       const code = e && e.code || '';

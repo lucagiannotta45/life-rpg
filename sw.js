@@ -3,7 +3,7 @@
    - La pagina: prima si prova la rete (così gli aggiornamenti arrivano da soli),
      e se manca la rete o è lenta si usa la copia salvata.
    - Icone, manifest, CSS e JS: si usa subito la copia salvata e intanto la si aggiorna.
-   - Tutto ciò che viene da altri siti (Google Drive, accesso Google, Calendar) non viene toccato.
+   - Tutto ciò che viene da altri siti (account Google e Firebase, Calendar) non viene toccato.
    - La musica (file audio) va sempre direttamente dalla rete: non viene salvata e quindi non c'è offline.
    I percorsi sono relativi, quindi funziona anche in una sottocartella (…/life-rpg/).
 
@@ -13,7 +13,7 @@
    aspetta la rete per gli asset invece di servire quelli obsoleti, evitando
    disallineamenti tra markup nuovo e logica/stili vecchi. */
 
-const CACHE = 'life-rpg-v20';
+const CACHE = 'life-rpg-v21';
 const PAGE = './index.html';
 const FILES = [
   './', PAGE, './manifest.webmanifest', './icon-192.png', './icon-512.png',
