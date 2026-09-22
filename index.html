@@ -764,6 +764,7 @@
   .mini-star { color: color-mix(in srgb, var(--ink-soft) 45%, transparent); }
   .mini-star.filled { color: var(--gold); }
   .mini-star svg { width: 14px; height: 14px; display: block; }
+  .m-still { margin: 8px 0 -6px; font-size: var(--fs-s); color: var(--ink-soft); }
 </style>
 </head>
 <body>
@@ -1349,6 +1350,8 @@
       "time.at": ", ore {time}",
       "m.pen.late": "Completata in ritardo: la penalità ({loss}) resta.",
       "m.pen.lost": "XP persi il {when}: {loss}.",
+      "m.pen.lost.same": "XP persi: {loss}.",
+      "m.still": "Se la completi ora, ricevi comunque:",
       "m.pen.warn": "Se non la completi entro la data perdi: {loss}.",
       "xp.none": "Nessun XP",
       "xp.none.lower": "nessun XP",
@@ -1360,6 +1363,8 @@
       "aria.undo": "Riapri la missione",
       "aria.late": "Completa in ritardo la missione",
       "aria.undopen": "Annulla la penalità della missione",
+      "btn.resched": "Riprogramma",
+      "aria.resched": "Riprogramma la missione",
       "aria.complete": "Completa la missione",
       "aria.edit": "Modifica la missione",
       "btn.gcal": "Aggiungi a Google Calendar",
@@ -1373,6 +1378,7 @@
       "msg.completed": "Missione completata: {title}. {gain}.",
       "msg.undone": "Missione riaperta: {title}. {loss}.",
       "msg.penrev": "Penalità annullata: {title}. {gain}. La missione è tornata tra quelle da fare, senza data: puoi sceglierne una nuova.",
+      "msg.resched": "{title}: non avevi impostato una penalità, quindi nessun XP da recuperare. La missione è tornata tra quelle da fare, senza data: puoi sceglierne una nuova.",
       "msg.penrev.form": "Penalità annullata. Scegli una nuova data (e, se vuoi, un'ora), oppure chiudi la finestra per lasciare la missione senza data.",
       "msg.created": "Missione creata: {title}.",
       "msg.edited": "Missione modificata: {title}.",
@@ -1408,7 +1414,7 @@
       "r.pause.plan": "Pausa dal {from} al {to}",
       "mf.pause.clear": "Togli pausa",
       "mf.pause.tip": "Nei giorni di pausa la routine non compare e la serie non si interrompe.",
-      "mf.pen.tip.r": "XP che perdi se non la completi nel giorno previsto. Vale al massimo per gli ultimi 2 giorni saltati.",
+      "mf.pen.tip.r": "XP che perdi per ogni giorno previsto in cui non la completi, da quando la routine è iniziata.",
       "mf.err.days": "Scegli almeno un giorno.",
       "mf.err.bonus": "Bonus: giorni tra 2 e 365 e XP tra 1 e {max}, tutti e due.",
       "mf.err.routines": "Puoi avere al massimo {max} routine.",
@@ -1777,6 +1783,8 @@
       "time.at": ", at {time}",
       "m.pen.late": "Completed late: the penalty ({loss}) stays.",
       "m.pen.lost": "XP lost on {when}: {loss}.",
+      "m.pen.lost.same": "XP lost: {loss}.",
+      "m.still": "If you complete it now, you still get:",
       "m.pen.warn": "If you don't complete it by the due date, you lose: {loss}.",
       "xp.none": "No XP",
       "xp.none.lower": "no XP",
@@ -1788,6 +1796,8 @@
       "aria.undo": "Reopen mission",
       "aria.late": "Complete late mission",
       "aria.undopen": "Undo the penalty of mission",
+      "btn.resched": "Reschedule",
+      "aria.resched": "Reschedule mission",
       "aria.complete": "Complete mission",
       "aria.edit": "Edit mission",
       "btn.gcal": "Add to Google Calendar",
@@ -1801,6 +1811,7 @@
       "msg.completed": "Mission completed: {title}. {gain}.",
       "msg.undone": "Mission reopened: {title}. {loss}.",
       "msg.penrev": "Penalty undone: {title}. {gain}. The mission is back in your to-do list, with no date: you can pick a new one.",
+      "msg.resched": "{title}: you hadn't set a penalty, so there's no XP to give back. The mission is back in your to-do list, with no date: you can pick a new one.",
       "msg.penrev.form": "Penalty undone. Pick a new date (and a time, if you like), or close the window to leave the mission with no date.",
       "msg.created": "Mission created: {title}.",
       "msg.edited": "Mission edited: {title}.",
@@ -1836,7 +1847,7 @@
       "r.pause.plan": "Pause from {from} to {to}",
       "mf.pause.clear": "Remove pause",
       "mf.pause.tip": "On paused days the routine doesn't show up and your streak isn't broken.",
-      "mf.pen.tip.r": "XP you lose if you don't complete it on the scheduled day. It applies to the last 2 missed days at most.",
+      "mf.pen.tip.r": "XP you lose for every scheduled day you don't complete it, going back to when the routine started.",
       "mf.err.days": "Choose at least one day.",
       "mf.err.bonus": "Bonus: days between 2 and 365 and XP between 1 and {max}, both filled in.",
       "mf.err.routines": "You can have at most {max} routines.",
@@ -2205,6 +2216,8 @@
       "time.at": ", às {time}",
       "m.pen.late": "Concluída com atraso: a penalidade ({loss}) permanece.",
       "m.pen.lost": "XP perdidos em {when}: {loss}.",
+      "m.pen.lost.same": "XP perdidos: {loss}.",
+      "m.still": "Se você concluir agora, ainda recebe:",
       "m.pen.warn": "Se você não concluir até a data, você perde: {loss}.",
       "xp.none": "Nenhum XP",
       "xp.none.lower": "nenhum XP",
@@ -2216,6 +2229,8 @@
       "aria.undo": "Reabrir a missão",
       "aria.late": "Concluir com atraso a missão",
       "aria.undopen": "Desfazer a penalidade da missão",
+      "btn.resched": "Reagendar",
+      "aria.resched": "Reagendar a missão",
       "aria.complete": "Concluir a missão",
       "aria.edit": "Editar a missão",
       "btn.gcal": "Adicionar ao Google Agenda",
@@ -2229,6 +2244,7 @@
       "msg.completed": "Missão concluída: {title}. {gain}.",
       "msg.undone": "Missão reaberta: {title}. {loss}.",
       "msg.penrev": "Penalidade desfeita: {title}. {gain}. A missão voltou para a lista de missões a fazer, sem data: você pode escolher uma nova.",
+      "msg.resched": "{title}: você não tinha definido uma penalidade, então não há XP para recuperar. A missão voltou para a lista de missões a fazer, sem data: você pode escolher uma nova.",
       "msg.penrev.form": "Penalidade desfeita. Escolha uma nova data (e, se quiser, um horário), ou feche a janela para deixar a missão sem data.",
       "msg.created": "Missão criada: {title}.",
       "msg.edited": "Missão editada: {title}.",
@@ -2264,7 +2280,7 @@
       "r.pause.plan": "Pausa de {from} a {to}",
       "mf.pause.clear": "Tirar pausa",
       "mf.pause.tip": "Nos dias de pausa a rotina não aparece e a sequência não é interrompida.",
-      "mf.pen.tip.r": "XP que você perde se não concluir no dia previsto. Vale no máximo para os últimos 2 dias perdidos.",
+      "mf.pen.tip.r": "XP que você perde por cada dia previsto em que não a concluir, desde que a rotina começou.",
       "mf.err.days": "Escolha pelo menos um dia.",
       "mf.err.bonus": "Bônus: dias entre 2 e 365 e XP entre 1 e {max}, os dois preenchidos.",
       "mf.err.routines": "Você pode ter no máximo {max} rotinas.",
@@ -2918,7 +2934,6 @@
   /* ----- routine: missioni che si ripetono nei giorni scelti ----- */
   const LS_ROU = 'liferpg:routines:v1';
   const MAX_ROUTINES = 30;
-  const GRACE_DAYS = 2;     // le volte saltate contano (con penalità) solo per gli ultimi giorni
   const KEEP_DAYS = 60;     // le routine completate o fallite più vecchie si tolgono dalla cronologia
   function normalizeRoutines(arr) {
     if (!Array.isArray(arr)) return [];
@@ -4447,7 +4462,7 @@
     persist();
     touchMonth(monthOf(m));
     render(true);
-    missionMsg(T('msg.penrev', { title: m.title, gain: gainText(restored) }), 'good');
+    missionMsg(T(hasAny(restored) ? 'msg.penrev' : 'msg.resched', { title: m.title, gain: gainText(restored) }), 'good');
     renderMissionViews();
     sfx('add');
     // si apre la modifica per scegliere una nuova data; se la chiudi, la missione resta senza data
@@ -4485,7 +4500,7 @@
     if (activeModal) return false;   // non interrompere chi sta scrivendo: si riprova dopo
     const today = todayStr();
     const due = missions
-      .filter(m => !m.done && !m.failed && m.due && isLate(m) && hasAny(m.penalty))
+      .filter(m => !m.done && !m.failed && m.due && isLate(m))
       .sort((a, b) => dueKey(a).localeCompare(dueKey(b)) || a.created.localeCompare(b.created));
     if (!due.length) return true;
     const before = STATS.map(s => levelFromXp(xp[s.key]));
@@ -4540,15 +4555,16 @@
         routinesChanged = true;
       }
       if (r.pause && r.pause.until < today) { r.pause = null; routinesChanged = true; }
-      // le volte di oggi; con una penalità anche quelle degli ultimi giorni che non hai aperto l'app
-      for (let k = GRACE_DAYS; k >= 0; k--) {
-        const d = addDaysStr(today, -k);
+      // le volte di oggi e tutte quelle saltate da quando la routine è iniziata: ogni giorno previsto conta,
+      // con o senza penalità (chi non ha messo una penalità perde comunque la serie, ma non XP)
+      const existing = new Set(missions.filter(mm => mm.rid === r.id).map(mm => mm.id));
+      for (let d = r.start, guard = 0; d <= today && guard < 3660; guard++, d = addDaysStr(d, 1)) {
         if (!dayCounts(r, d)) continue;
-        if (k > 0 && !hasAny(r.penalty)) continue;
         const id = occId(r, d);
-        if (missions.some(m => m.id === id) || missions.length >= MAX_MISSIONS) continue;
+        if (existing.has(id) || missions.length >= MAX_MISSIONS) continue;
         missions.push({ id, title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
-          due: d, dueTime: r.time, created: d, done: null, failed: null, rid: r.id });
+          due: d, dueTime: r.time, created: d, done: null, failed: null, rid: r.id, stars: r.stars });
+        existing.add(id);
         months.add(d.slice(0, 7));
         changed = true;
       }
@@ -4559,7 +4575,7 @@
       if (!m.rid) return true;
       const r = routineOf(m);
       let drop = false;
-      if (!m.done && !m.failed) drop = !!r && ((m.due < today && !hasAny(m.penalty)) || inPause(r, m.due) || m.due < r.start);
+      if (!m.done && !m.failed) drop = !!r && (inPause(r, m.due) || m.due < r.start);
       else drop = (m.done || m.failed).date < keepFrom;
       if (drop) { months.add(monthOf(m)); changed = true; }
       return !drop;
@@ -4672,28 +4688,31 @@
     wrap.setAttribute('aria-label', T('m.stars.aria', { d: stars.d, f: stars.f }));
     return wrap;
   }
-  function missionCard(m) {
+  function missionCard(m, hideDate) {
     const failedNow = !!m.failed && !m.done;
     const card = mk('article', 'mission' + (m.done ? ' done' : '') + (failedNow ? ' failed' : ''));
     const head = mk('div', 'm-head');
     head.appendChild(mk('h3', 'm-title', m.title));
-    if (m.done) head.appendChild(mk('span', 'm-date', T('m.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
+    if (hideDate) { /* la data è già il titolo del pannello "Giorno": non ripeterla su ogni scheda */ }
+    else if (m.done) head.appendChild(mk('span', 'm-date', T('m.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
     else if (m.due) {
       const late = isLate(m);
       head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), T(late ? 'm.late.on' : 'm.due.by', { when: dueLabel(m) })));
     }
     card.appendChild(head);
+    if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
     const msl = starsLine(m.stars);
     if (msl) card.appendChild(msl);
-    if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
     if (!m.done && !m.failed && notYet(m)) card.appendChild(mk('p', 'm-lock', T('m.locked', { when: fmtDay(m.due) })));
     const rtn = routineOf(m);
     if (rtn) card.appendChild(mk('p', 'm-routine', !m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
+    if (failedNow) card.appendChild(mk('p', 'm-still', T('m.still')));
     card.appendChild(chips(m.done ? m.done.applied : m.rewards));
     if (m.done && m.failed) {
       card.appendChild(mk('p', 'm-pen', T('m.pen.late', { loss: lossText(m.failed.applied) })));
     } else if (failedNow) {
-      card.appendChild(mk('p', 'm-pen', T('m.pen.lost', { when: fmtDay(m.failed.date), loss: lossText(m.failed.applied) })));
+      const sameDate = m.failed.date === m.due;   // la data qui sopra ("Scaduta il...") è già quella giusta: non ripeterla
+      card.appendChild(mk('p', 'm-pen', T(sameDate ? 'm.pen.lost.same' : 'm.pen.lost', { when: fmtDay(m.failed.date), loss: lossText(m.failed.applied) })));
     } else if (!m.done && m.due && hasAny(m.penalty)) {
       card.appendChild(mk('p', 'm-pen', T('m.pen.warn', { loss: lossText(m.penalty) })));
     }
@@ -4709,7 +4728,10 @@
       act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
     } else if (failedNow) {
       act.appendChild(btn(' add', T('btn.complete'), T('aria.late'), () => completeMission(m.id)));
-      if (!m.rid) act.appendChild(btn('', T('btn.undopen'), T('aria.undopen'), () => revertPenalty(m.id)));
+      if (!m.rid) {
+        const hadPenalty = hasAny(m.penalty);
+        act.appendChild(btn('', T(hadPenalty ? 'btn.undopen' : 'btn.resched'), T(hadPenalty ? 'aria.undopen' : 'aria.resched'), () => revertPenalty(m.id)));
+      }
     } else {
       const cb = btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
       if (notYet(m)) { cb.disabled = true; cb.classList.add('locked'); }   // una missione con la data nel futuro si completa dal giorno stesso
@@ -5043,9 +5065,9 @@
         box.appendChild(card);
       });
     }
-    if (todo.length) { box.appendChild(mk('h4', 'sub', T('mis.todo'))); todo.forEach(m => box.appendChild(missionCard(m))); }
-    if (failed.length) { box.appendChild(mk('h4', 'sub', T('grp.late'))); failed.forEach(m => box.appendChild(missionCard(m))); }
-    if (done.length) { box.appendChild(mk('h4', 'sub', T('mis.done'))); done.forEach(m => box.appendChild(missionCard(m))); }
+    if (todo.length) { box.appendChild(mk('h4', 'sub', T('mis.todo'))); todo.forEach(m => box.appendChild(missionCard(m, true))); }
+    if (failed.length) { box.appendChild(mk('h4', 'sub', T('grp.late'))); failed.forEach(m => box.appendChild(missionCard(m, true))); }
+    if (done.length) { box.appendChild(mk('h4', 'sub', T('mis.done'))); done.forEach(m => box.appendChild(missionCard(m, true))); }
   }
   function moveMonth(delta) {
     const t = new Date(calY, calM + delta, 1);
@@ -5485,9 +5507,9 @@
     head.appendChild(mk('h3', 'm-title', r.title));
     head.appendChild(mk('span', 'm-date', daysText(r) + (r.time ? ' ' + T('r.at', { time: r.time }) : '')));
     card.appendChild(head);
+    if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
     const rsl = starsLine(r.stars);
     if (rsl) card.appendChild(rsl);
-    if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
     card.appendChild(chips(r.rewards));
     card.appendChild(mk('p', 'm-desc', T('r.streak', { n: r.streak || 0 }) + ', ' + T('r.best', { n: r.best || 0 })));
     if (r.bonus) card.appendChild(mk('p', 'm-desc', T('r.bonus', { xp: fmt(r.bonus.xp), n: r.bonus.every })));
