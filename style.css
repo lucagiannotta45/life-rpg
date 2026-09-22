@@ -234,24 +234,23 @@
 
   /* ---------- livello complessivo ---------- */
   /* esagono del livello sopra, poi nome e rango: tutto centrato, sullo stesso asse del grafico */
-  .hero-head { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+  .hero-head { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; margin-top: 36px; }   /* sotto lo stendardo */
   .hero-head > div:last-child { max-width: 100%; }
-  .emblem {
-    position: relative; flex: none; width: 92px; height: 104px;
-    display: grid; place-items: center;
-    background: linear-gradient(180deg, var(--em-b1, #fff2a8), var(--em-b2, #ffcf3a) 42%, var(--em-b3, #c98a00));
-    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  }
-  .emblem::before {
-    content: ""; position: absolute; inset: 6px;
-    background: linear-gradient(180deg, var(--em-pf1, var(--em-f1, var(--win-a))), var(--em-pf2, var(--em-f2, var(--win-c))));
-    clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  }
-  .emblem-inner { position: relative; text-align: center; line-height: 1; }
-  .emblem-lv { display: block; font-size: 24px; color: var(--em-lv, var(--gold)); margin-bottom: 2px; }
-  .emblem-num { display: block; font-size: 48px; color: var(--em-num, var(--ink-strong)); }
-  .emblem-num.bump { animation: bump .5s cubic-bezier(.2, 1.8, .4, 1); }
-  @keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+  /* stendardo del livello: pixel art appesa in alto a destra della finestra, con l'asta alla stessa altezza del titolo */
+  .lv-banner { position: absolute; top: -24px; right: 18px; line-height: 0; transform-origin: 50% 0; }
+  .lv-banner svg, .em-prev svg { display: block; }
+  .bn-K, .bn-L { fill: var(--em-b1, #fff2a8); }
+  .bn-B { fill: var(--em-b2, #ffcf3a); }
+  .bn-D { fill: var(--em-b3, #c98a00); }
+  .bn-R { fill: var(--em-rod, #8a5a00); }
+  .bn-i { fill: var(--em-f1, var(--win-a)); fill-opacity: var(--em-a, 1); }
+  .bn-I { fill: var(--em-fb, var(--win-b)); fill-opacity: var(--em-a, 1); }
+  .bn-t { font-family: var(--font); fill: var(--em-lv, var(--gold)); }
+  .bn-c { fill: var(--em-lv, var(--gold)); }
+  .bn-n { fill: var(--em-num, var(--ink-strong)); }
+  /* quando cambia il livello complessivo lo stendardo ondeggia appeso all'asta */
+  .lv-banner.sway { animation: sway .9s ease-out; }
+  @keyframes sway { 0% { transform: rotate(0); } 20% { transform: rotate(7deg); } 45% { transform: rotate(-5deg); } 70% { transform: rotate(2deg); } 100% { transform: rotate(0); } }
 
   .class-name {
     margin: 0; font-size: 40px; line-height: 1.1; color: var(--ink-strong);
@@ -261,17 +260,11 @@
   .radar-wrap { margin-top: 18px; }
   #radar { display: block; width: 100%; height: auto; max-width: 420px; margin: 0 auto; overflow: visible; }
   .r-ring { fill: none; stroke: color-mix(in srgb, var(--ink-soft) 30%, transparent); stroke-width: 1.5; }
-  .r-ring.outer { stroke: url(#em-grad-b); stroke-width: 5; stroke-linejoin: miter; }
-  .r-bg { fill: url(#em-grad-f); fill-opacity: var(--em-a, 1); }
+  .r-ring.outer { stroke: rgba(242, 245, 255, .7); stroke-width: 2.5; }
   .r-axis { stroke: color-mix(in srgb, var(--ink-soft) 30%, transparent); stroke-width: 1.5; }
   .r-shape { fill: color-mix(in srgb, var(--gold) 30%, transparent); stroke: var(--gold); stroke-width: 1.5; stroke-linejoin: round; }
   .r-name { font: 24px var(--font); fill: var(--ink-strong); }
   .r-lv { font: 24px var(--font); fill: var(--gold); }
-  /* livello complessivo al centro del grafico */
-  .r-em-lv, .r-em-num { paint-order: stroke; stroke: var(--em-halo, var(--win-edge)); stroke-width: 4px; stroke-linejoin: miter; }
-  .r-em-lv { font: 16px var(--font); fill: var(--em-lv, var(--gold)); }
-  .r-em-num { font: 32px var(--font); fill: var(--em-num, var(--ink-strong)); }
-  .r-em-num.bump { animation: bump .5s cubic-bezier(.2, 1.8, .4, 1); transform-box: fill-box; transform-origin: center; }
 
   /* ---------- statistiche ---------- */
   .rows { display: grid; gap: 0; }
@@ -661,7 +654,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .fill { transition: none; }
-    .float, .lu, .lu-card, .emblem-num.bump, .r-em-num.bump { animation: none !important; }
+    .float, .lu, .lu-card, .lv-banner.sway { animation: none !important; }
     .lu-burst { display: none; }
     .btn { transition: none; }
   }
@@ -670,8 +663,6 @@
     #view-stats .win { padding-top: 22px; padding-bottom: 12px; }
     .row { padding-left: 4px; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; }
     .ico { width: 48px; height: 48px; }
-    .emblem { width: 78px; height: 88px; }
-    .emblem-num { font-size: 40px; }
     .class-name { font-size: 32px; }
   }
 
@@ -745,10 +736,6 @@
   /* esagono del livello: anteprima piccola accanto al titolo */
   .em-head { display: flex; align-items: center; justify-content: flex-start; gap: 12px; margin: 0 0 2px; }
   #settings .em-head .label { margin: 0; }
-  #settings .em-head .emblem { width: 52px; height: 60px; }
-  #settings .em-head .emblem::before { inset: 4px; }
-  #settings .em-head .emblem-lv { font-size: 14px; margin-bottom: 0; }
-  #settings .em-head .emblem-num { font-size: 26px; }
   /* sfondo: "Adattamento" con un po' d'aria sopra */
   #fit-wrap { margin-top: 18px; }
   /* bordi delle finestre: 2 x 2 invece di 3 + 1 */

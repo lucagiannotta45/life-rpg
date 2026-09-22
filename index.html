@@ -47,6 +47,7 @@
   <section class="screen solo" id="view-char" role="tabpanel" aria-labelledby="vt-char">
     <section class="win hero" aria-labelledby="t-profile">
       <h2 class="win-title" id="t-profile" data-i18n="view.char">Personaggio</h2>
+      <div class="lv-banner" id="lv-banner" role="img" aria-label="Livello complessivo"></div>
       <div class="hero-head">
         <div>
           <p class="player-name" id="player-name"></p>
@@ -54,7 +55,7 @@
         </div>
       </div>
       <div class="radar-wrap">
-        <svg id="radar" viewBox="0 0 360 384" role="img" aria-label="Grafico a esagono delle sei statistiche"></svg>
+        <svg id="radar" viewBox="0 0 360 384" role="img" aria-label="Grafico a esagono delle sei statistiche" data-i18n-aria="radar.aria"></svg>
       </div>
     </section>
   </section>
@@ -206,8 +207,8 @@
 
       <div class="field">
         <div class="em-head">
-          <p class="label" id="l-em" data-i18n="look.em">Esagono del livello</p>
-          <div class="emblem" aria-hidden="true"><div class="emblem-inner"><span class="emblem-lv" data-i18n="lv">Lv</span><span class="emblem-num">42</span></div></div>
+          <p class="label" id="l-em" data-i18n="look.em">Stendardo del livello</p>
+          <span class="em-prev" id="em-prev" aria-hidden="true"></span>
         </div>
         <div class="em-box">
           <div class="em-controls">

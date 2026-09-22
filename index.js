@@ -682,6 +682,91 @@
     const size = px ? ` data-px="${px}" data-cols="${w}" data-rows="${h}" width="${+(w * snapCell(px)).toFixed(4)}" height="${+(h * snapCell(px)).toFixed(4)}"` : '';
     return `<svg viewBox="0 0 ${w} ${h}"${size} fill="currentColor" shape-rendering="crispEdges" aria-hidden="true">${r}</svg>`;
   }
+  // numeri disegnati a pixel con le stesse forme del font dell'app (griglia 6 x 9 per cifra), così restano nitidi a qualsiasi dimensione dello schermo
+  const DIGITS = {
+    '0': ['..X...', '.X.X..', 'X...X.', 'X...X.', 'X...X.', 'X...X.', 'X...X.', '.X.X..', '..X...'],
+    '1': ['...X..', '.XXX..', '...X..', '...X..', '...X..', '...X..', '...X..', '...X..', '...X..'],
+    '2': ['.XXX..', 'X...X.', 'X...X.', '....X.', '...X..', '..X...', '.X....', 'X.....', 'XXXXX.'],
+    '3': ['.XXX..', 'X...X.', 'X...X.', '....X.', '..XX..', '....X.', 'X...X.', 'X...X.', '.XXX..'],
+    '4': ['..XX..', '.X.X..', '.X.X..', 'X..X..', 'X..X..', 'X..X..', 'XXXXX.', '...X..', '...X..'],
+    '5': ['XXXXX.', 'X.....', 'X.....', 'X.....', 'XXXX..', '....X.', '....X.', 'X...X.', '.XXX..'],
+    '6': ['.XXX..', 'X...X.', 'X.....', 'X.....', 'XXXX..', 'X...X.', 'X...X.', 'X...X.', '.XXX..'],
+    '7': ['XXXXX.', '....X.', '....X.', '...X..', '...X..', '..X...', '..X...', '.X....', '.X....'],
+    '8': ['.XXX..', 'X...X.', 'X...X.', 'X...X.', '.XXX..', 'X...X.', 'X...X.', 'X...X.', '.XXX..'],
+    '9': ['.XXX..', 'X...X.', 'X...X.', 'X...X.', '.XXXX.', '....X.', '....X.', 'X...X.', '.XXX..'],
+    '+': ['......', '..X...', '..X...', '..X...', 'XXXXX.', '..X...', '..X...', '..X...', '......'],
+  };
+  function digitsSvg(str) {
+    const rows = Array.from({ length: 9 }, (_, r) => [...str].map(ch => (DIGITS[ch] || DIGITS['0'])[r]).join(''));
+    // toglie le colonne vuote ai lati, così il numero sta al centro del badge
+    const cols = rows[0].length;
+    const used = c => rows.some(row => row[c] === 'X');
+    let from = 0, to = cols - 1;
+    while (from < to && !used(from)) from++;
+    while (to > from && !used(to)) to--;
+    return iconSvg(rows.map(row => row.slice(from, to + 1)));
+  }
+
+  /* ----- stendardo del livello (pixel art, in alto a destra nella scheda Personaggio) ----- */
+  // griglia 21 x 29: riga 0 l'asta, poi il drappo largo 19 con bordo doppio e la coda di rondine a scalini.
+  // Lettere: K pomelli, R asta, L bordo chiaro, B bordo, D bordo scuro, i interno chiaro, I interno.
+  const BANNER = (() => {
+    const W = 21, H = 29, L = 1, T = 1, R = 19, B = 27, CX = (L + R) / 2;
+    const inside = (x, y) => x >= L && x <= R && y >= T && y <= B && !(B - y <= 4 && Math.abs(x - CX) <= 4 - (B - y));
+    const out = (x, y) => ({ u: !inside(x, y - 1), d: !inside(x, y + 1), l: !inside(x - 1, y), r: !inside(x + 1, y) });
+    const edge = (x, y) => { const o = out(x, y); return o.u || o.d || o.l || o.r; };
+    const rows = [];
+    for (let y = 0; y < H; y++) {
+      let row = '';
+      for (let x = 0; x < W; x++) {
+        if (y === 0) { row += (x === 0 || x === W - 1) ? 'K' : 'R'; continue; }
+        if (!inside(x, y)) { row += '.'; continue; }
+        if (edge(x, y)) {
+          const o = out(x, y);
+          row += ((o.d || o.r) && !(o.u || o.l)) || (o.d && o.l) ? 'D' : 'L';
+        } else if ([[0, -1], [0, 1], [-1, 0], [1, 0]].some(([dx, dy]) => inside(x + dx, y + dy) && edge(x + dx, y + dy))) row += 'B';
+        else row += y === T + 2 ? 'i' : 'I';
+      }
+      rows.push(row);
+    }
+    return { W, H, CX, rows };
+  })();
+  const CROWN = ['X...X...X', 'XX.XXX.XX', 'XXXXXXXXX', 'XXXXXXXXX', '.XXXXXXX.', '.........', 'XXXXXXXXX'];
+  // rettangoli di una griglia: un rettangolo per ogni tratto orizzontale dello stesso segno (meno elementi)
+  function pixRuns(rows, x0, y0, pick) {
+    let r = '';
+    rows.forEach((row, y) => {
+      let x = 0;
+      while (x < row.length) {
+        const c = row[x], cls = pick(c);
+        let e = x + 1;
+        while (e < row.length && row[e] === c) e++;
+        if (cls) r += `<rect class="${cls}" x="${x0 + x}" y="${y0 + y}" width="${e - x}" height="1"/>`;
+        x = e;
+      }
+    });
+    return r;
+  }
+  function bannerSvg(level, px) {
+    const { W, H, CX, rows } = BANNER;
+    let body = pixRuns(rows, 0, 0, c => c === '.' ? '' : 'bn-' + c);
+    if (level >= MAX_LEVEL) {   // livello massimo: "MAX" e una corona al posto del numero
+      body += `<text class="bn-t" x="${CX + 0.5}" y="9" text-anchor="middle" font-size="6">MAX</text>`;
+      body += pixRuns(CROWN, Math.round(CX - (CROWN[0].length - 1) / 2), 12, c => c === 'X' ? 'bn-c' : '');
+    } else {
+      const str = String(Math.max(0, level));
+      let dr = Array.from({ length: 9 }, (_, r) => [...str].map(ch => (DIGITS[ch] || DIGITS['0'])[r]).join(''));
+      const used = c => dr.some(row => row[c] === 'X');
+      let from = 0, to = dr[0].length - 1;
+      while (from < to && !used(from)) from++;
+      while (to > from && !used(to)) to--;
+      dr = dr.map(row => row.slice(from, to + 1));
+      // centrato sulla colonna di mezzo; con una larghezza pari si sposta di mezzo pixel a destra (l'1 pesa a destra)
+      body += `<text class="bn-t" x="${CX + 0.5}" y="9" text-anchor="middle" font-size="6">${T('lv')}</text>`;
+      body += pixRuns(dr, Math.ceil(CX - (dr[0].length - 1) / 2), 11, c => c === 'X' ? 'bn-n' : '');
+    }
+    return `<svg viewBox="0 0 ${W} ${H - 1}" data-px="${px}" data-cols="${W}" data-rows="${H - 1}" width="${+(W * snapCell(px)).toFixed(4)}" height="${+((H - 1) * snapCell(px)).toFixed(4)}" shape-rendering="crispEdges" aria-hidden="true">${body}</svg>`;
+  }
   // se cambia lo zoom o lo schermo, le icone si ricalcolano
   window.addEventListener('resize', () => {
     document.querySelectorAll('svg[data-px]').forEach(sv => {
@@ -724,15 +809,6 @@
   };
   const ptsStr = arr => arr.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
 
-  // l'esagono grande è anche l'esagono del livello: interno e bordo con i colori scelti in Aspetto
-  const defs = el('defs', {});
-  const grad = (id, stops) => {
-    const g = el('linearGradient', { id, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
-    stops.forEach(([o, c]) => el('stop', { offset: o, style: 'stop-color: ' + c }, g));
-  };
-  grad('em-grad-b', [['0', 'var(--em-b1, #fff2a8)'], ['0.42', 'var(--em-b2, #ffcf3a)'], ['1', 'var(--em-b3, #c98a00)']]);
-  grad('em-grad-f', [['0', 'var(--em-f1, var(--win-a))'], ['1', 'var(--em-f2, var(--win-c))']]);
-  el('polygon', { class: 'r-bg', points: ptsStr(STATS.map((_, i) => pt(i, R))) });
   [0.25, 0.5, 0.75, 1].forEach(f => {
     el('polygon', { class: 'r-ring' + (f === 1 ? ' outer' : ''), points: ptsStr(STATS.map((_, i) => pt(i, R * f))) });
   });
@@ -740,13 +816,7 @@
     const p = pt(i, R);
     el('line', { class: 'r-axis', x1: CX, y1: CY, x2: p[0].toFixed(1), y2: p[1].toFixed(1) });
   });
-  // livello complessivo al centro del grafico (la media delle sei statistiche sta nel mezzo):
-  // solo la scritta, senza sfondo, così non copre mai la forma; il contorno delle lettere la rende leggibile
   const shape = el('polygon', { class: 'r-shape', points: '' });
-  const emLv = el('text', { class: 'r-em-lv', x: CX, y: CY - 8, 'text-anchor': 'middle' });
-  emLv.textContent = T('lv');
-  const emNum = el('text', { class: 'r-em-num', id: 'overall', x: CX, y: CY + 20, 'text-anchor': 'middle' });
-  emNum.textContent = '0';
   const labelLv = [], radarNames = [];
   // ordine delle statistiche nell'esagono, dalla cima in senso orario (l'elenco delle statistiche resta com'è)
   const RADAR_IDX = ['Intelletto', 'Vigore', 'Vitalita', 'Creativita', 'Legami', 'Animo'].map(k => STATS.findIndex(x => x.key === k));
@@ -806,14 +876,15 @@
     });
 
     const ov = overallOf(levels);
-    const ovEl = $('overall');
-    ovEl.textContent = ov;
-    if (animate && lastOverall !== null && ov !== lastOverall && !reduce) {
-      ovEl.classList.remove('bump'); void ovEl.offsetWidth; ovEl.classList.add('bump');
+    const bn = $('lv-banner');
+    bn.innerHTML = bannerSvg(ov, 3);
+    bn.setAttribute('aria-label', T('emblem.aria') + ': ' + ov);
+    const prev = $('em-prev');
+    if (prev) prev.innerHTML = bannerSvg(42, 2);   // anteprima nelle impostazioni
+    if (animate && lastOverall !== null && ov !== lastOverall && !reduce) {   // cambia livello: lo stendardo ondeggia
+      bn.classList.remove('sway'); void bn.offsetWidth; bn.classList.add('sway');
     }
     lastOverall = ov;
-    emLv.textContent = T('lv');
-    radar.setAttribute('aria-label', T('radar.aria') + '. ' + T('emblem.aria') + ': ' + ov);
     $('class-name').textContent = heroClass();
 
     // Scala relativa: il bordo esterno è la decina successiva al livello più alto (minimo 10)
@@ -1300,7 +1371,7 @@
   /* ================= personalizzazione ================= */
   const rootStyle = document.documentElement.style;
   const WIN_VARS = ['--win-a', '--win-b', '--win-c', '--win-edge', '--win-glow', '--ink-soft', '--track', '--btn'];
-  const EM_VARS = ['--em-b1', '--em-b2', '--em-b3', '--em-f1', '--em-f2', '--em-num', '--em-lv', '--em-halo', '--em-a', '--em-pf1', '--em-pf2'];
+  const EM_VARS = ['--em-b1', '--em-b2', '--em-b3', '--em-f1', '--em-f2', '--em-num', '--em-lv', '--em-a', '--em-rod', '--em-fb'];
 
   function luminance(hex) {
     const n = parseInt(hex.slice(1), 16);
@@ -1354,7 +1425,7 @@
   function themeFillHex() {
     return settings.winColor ? winBase(settings.winColor) : '#3049cf';
   }
-  // esagono del livello (è l'esagono grande del grafico): bordo (di solito dorato),
+  // stendardo del livello: bordo (di solito dorato),
   // interno (di solito come le finestre) e trasparenza dell'interno (0 = pieno, 100 = invisibile)
   function applyEmblem() {
     EM_VARS.forEach(v => rootStyle.removeProperty(v));
@@ -1370,6 +1441,7 @@
       rootStyle.setProperty('--em-b1', b1);
       rootStyle.setProperty('--em-b2', border);
       rootStyle.setProperty('--em-b3', b3);
+      rootStyle.setProperty('--em-rod', mixHex(border, '#000000', 0.6));
       lv = fillDark ? b1 : b3;
     } else if (fill && !fillDark) {
       lv = '#8a5a00';
@@ -1377,16 +1449,10 @@
     if (fill) {
       rootStyle.setProperty('--em-f1', fill);
       rootStyle.setProperty('--em-f2', mixHex(fill, '#000000', 0.55));
+      rootStyle.setProperty('--em-fb', mixHex(fill, '#000000', 0.45));
       rootStyle.setProperty('--em-num', fillDark ? '#ffffff' : '#12172e');
-      if (!fillDark) rootStyle.setProperty('--em-halo', mixHex(seen, '#ffffff', 0.5));   // contorno chiaro per il testo scuro
     }
     if (lv) rootStyle.setProperty('--em-lv', lv);
-    // anteprima nelle impostazioni: l'interno già mescolato con il colore della finestra
-    if (a > 0) {
-      const f = fill || themeFillHex(), base = themeFillHex();
-      rootStyle.setProperty('--em-pf1', mixHex(f, base, a));
-      rootStyle.setProperty('--em-pf2', mixHex(mixHex(f, '#000000', 0.55), mixHex(base, '#000000', 0.55), a));
-    }
   }
   // trasparenza delle finestre: 0 = opache, 100 = completamente trasparenti.
   // Con la trasparenza si aggiunge uno sfocato (fino a 6px verso il 60%) che poi scompare,
@@ -2465,30 +2531,6 @@
   }, true));
   document.addEventListener('visibilitychange', () => { if (document.hidden) musicStop(true); else musicSync(); });
   paintMusic();
-  // numeri disegnati a pixel con le stesse forme del font dell'app (griglia 6 x 9 per cifra), così restano nitidi a qualsiasi dimensione dello schermo
-  const DIGITS = {
-    '0': ['..X...', '.X.X..', 'X...X.', 'X...X.', 'X...X.', 'X...X.', 'X...X.', '.X.X..', '..X...'],
-    '1': ['...X..', '.XXX..', '...X..', '...X..', '...X..', '...X..', '...X..', '...X..', '...X..'],
-    '2': ['.XXX..', 'X...X.', 'X...X.', '....X.', '...X..', '..X...', '.X....', 'X.....', 'XXXXX.'],
-    '3': ['.XXX..', 'X...X.', 'X...X.', '....X.', '..XX..', '....X.', 'X...X.', 'X...X.', '.XXX..'],
-    '4': ['..XX..', '.X.X..', '.X.X..', 'X..X..', 'X..X..', 'X..X..', 'XXXXX.', '...X..', '...X..'],
-    '5': ['XXXXX.', 'X.....', 'X.....', 'X.....', 'XXXX..', '....X.', '....X.', 'X...X.', '.XXX..'],
-    '6': ['.XXX..', 'X...X.', 'X.....', 'X.....', 'XXXX..', 'X...X.', 'X...X.', 'X...X.', '.XXX..'],
-    '7': ['XXXXX.', '....X.', '....X.', '...X..', '...X..', '..X...', '..X...', '.X....', '.X....'],
-    '8': ['.XXX..', 'X...X.', 'X...X.', 'X...X.', '.XXX..', 'X...X.', 'X...X.', 'X...X.', '.XXX..'],
-    '9': ['.XXX..', 'X...X.', 'X...X.', 'X...X.', '.XXXX.', '....X.', '....X.', 'X...X.', '.XXX..'],
-    '+': ['......', '..X...', '..X...', '..X...', 'XXXXX.', '..X...', '..X...', '..X...', '......'],
-  };
-  function digitsSvg(str) {
-    const rows = Array.from({ length: 9 }, (_, r) => [...str].map(ch => (DIGITS[ch] || DIGITS['0'])[r]).join(''));
-    // toglie le colonne vuote ai lati, così il numero sta al centro del badge
-    const cols = rows[0].length;
-    const used = c => rows.some(row => row[c] === 'X');
-    let from = 0, to = cols - 1;
-    while (from < to && !used(from)) from++;
-    while (to > from && !used(to)) to--;
-    return iconSvg(rows.map(row => row.slice(from, to + 1)));
-  }
   function renderMissions() {
     const pending = missions.filter(m => !m.done);
     const todo = pending.filter(m => !m.failed).sort((a, b) =>
