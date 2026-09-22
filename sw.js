@@ -13,7 +13,7 @@
    aspetta la rete per gli asset invece di servire quelli obsoleti, evitando
    disallineamenti tra markup nuovo e logica/stili vecchi. */
 
-const CACHE = 'life-rpg-v27';
+const CACHE = 'life-rpg-v28';
 const PAGE = './index.html';
 const FILES = [
   './', PAGE, './manifest.webmanifest', './icon-192.png', './icon-512.png',

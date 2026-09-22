@@ -3099,12 +3099,13 @@
       openModal($('accmodal'), $('acc-keep-acc'));
       return;
     }
-    cloudApply(ref, r, 'merge');
+    cloudApply(ref, r, 'merge', !!uid && linkedUid() !== uid);
     if (uid) linkUid(uid);
   }
   // mode: 'merge' = unisce (l'account vince, tranne ciò che hai cambiato in questa sessione);
   //       'account' = tiene solo i dati dell'account; 'device' = tiene solo quelli di questo dispositivo
-  function cloudApply(ref, r, mode) {
+  // firstLink: primo collegamento di questo dispositivo all'account (un'immagine che manca nell'account non va tolta)
+  function cloudApply(ref, r, mode, firstLink) {
     const d = r.d;
     dbRef = ref;
     setSaveState('account');
@@ -3130,6 +3131,8 @@
     IMG_NAMES.forEach(n => {
       if (imgTouched.has(n)) { imgQueue.add(n); return; }
       const v = r.rImgs[n] || null;
+      // primo collegamento: l'account non ha questa immagine, il dispositivo sì → si tiene e si carica nell'account
+      if (firstLink && mode === 'merge' && !v && imgs[n]) { if (imgs[n].length <= CLOUD_IMG_MAX) imgQueue.add(n); return; }
       if (mode !== 'account' && imgs[n] && imgs[n].length > CLOUD_IMG_MAX) return;   // troppo grande per l'account: resta quella di questo dispositivo
       if (imgs[n] !== v) { imgs[n] = v; saveImgLocal(n); }
     });
