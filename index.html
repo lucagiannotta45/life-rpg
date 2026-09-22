@@ -57,6 +57,7 @@
       <div class="radar-wrap">
         <svg id="radar" viewBox="0 0 360 384" role="img" aria-label="Grafico a esagono delle sei statistiche" data-i18n-aria="radar.aria"></svg>
       </div>
+      <div class="fr-open-row"><button type="button" class="btn small" id="btn-friends">Amici</button></div>
     </section>
   </section>
 
@@ -404,6 +405,49 @@
     <div class="modal-actions">
       <button type="button" class="btn add" id="r-new" data-i18n="r.new">Nuova routine</button>
       <button type="button" class="btn ghost" id="r-close" data-i18n="btn.close">Chiudi</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="fmodal" hidden>
+  <div class="win modal-win" role="dialog" aria-modal="true" aria-labelledby="t-fr">
+    <h2 class="win-title" id="t-fr" data-i18n="fr.title">Amici</h2>
+    <div id="fr-noacc" hidden>
+      <p data-i18n="fr.needacc">Per aggiungere amici serve l'accesso con Google.</p>
+      <div class="modal-actions"><button type="button" class="btn" id="fr-goacc" data-i18n="fr.goacc">Vai all'accesso</button></div>
+    </div>
+    <div id="fr-main">
+      <div class="field">
+        <p class="label" data-i18n="fr.code.h">Il tuo codice amico</p>
+        <div class="fr-code-row"><span class="fr-code" id="fr-code">…</span><button type="button" class="btn small" id="fr-copy" data-i18n="fr.copy">Copia</button></div>
+        <p class="tip" data-i18n="fr.code.tip">Dallo ai tuoi amici: con questo codice possono mandarti una richiesta.</p>
+      </div>
+      <div class="field">
+        <label class="label" for="fr-in" data-i18n="fr.add.h">Aggiungi un amico</label>
+        <div class="fr-add">
+          <input class="text-in" id="fr-in" type="text" maxlength="12" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Codice amico" data-i18n-ph="fr.add.ph">
+          <button type="button" class="btn small add" id="fr-add" data-i18n="fr.add.btn">Invia richiesta</button>
+        </div>
+      </div>
+      <p class="msg" id="fr-msg" role="status" aria-live="polite"></p>
+      <div id="fr-req-box" hidden><h4 class="sub" data-i18n="fr.req.h">Richieste ricevute</h4><div class="fr-list" id="fr-req"></div></div>
+      <h4 class="sub" data-i18n="fr.list.h">I tuoi amici</h4>
+      <div class="fr-list" id="fr-list"></div>
+      <div id="fr-out-box" hidden><h4 class="sub" data-i18n="fr.out.h">Richieste inviate</h4><div class="fr-list" id="fr-out"></div></div>
+    </div>
+    <div class="modal-actions"><button type="button" class="btn" id="fr-close" data-i18n="btn.close">Chiudi</button></div>
+  </div>
+</div>
+
+<div class="modal" id="fpmodal" hidden>
+  <div class="win modal-win fp-win" role="dialog" aria-modal="true" aria-labelledby="fp-name">
+    <div class="lv-tab" id="fp-tab" role="img"></div>
+    <div class="hero-head"><div><p class="player-name" id="fp-name"></p><p class="class-name" id="fp-class"></p></div></div>
+    <div class="radar-wrap"><svg id="fp-radar" viewBox="0 0 360 384" aria-hidden="true"></svg></div>
+    <p class="tip fp-upd" id="fp-upd"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn small sub" id="fp-remove">Rimuovi amico</button>
+      <button type="button" class="btn" id="fp-close" data-i18n="btn.close">Chiudi</button>
     </div>
   </div>
 </div>

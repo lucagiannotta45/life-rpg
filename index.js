@@ -149,9 +149,9 @@
 
   // Il ruolo del personaggio: { ns, id, lv }. "ns" è il gruppo dei testi (tier, cls, pair, triple, quad, quint),
   // "id" il nome interno e "lv" il livello da cui dipende il grado. Serve sia al nome mostrato sia al brano musicale.
-  function heroRole() {
-    // ordine per XP (a parità di XP vince la prima nell'elenco)
-    const order = STATS.map((s, i) => ({ s, i, xp: xp[s.key], lv: levelFromXp(xp[s.key]) }))
+  function heroRole(x = xp) {
+    // ordine per XP (a parità di XP vince la prima nell'elenco); x: gli XP di chi guardiamo (di solito i tuoi)
+    const order = STATS.map((s, i) => ({ s, i, xp: x[s.key], lv: levelFromXp(x[s.key]) }))
       .sort((a, b) => b.xp - a.xp || a.i - b.i);
     const levels = order.map(o => o.lv);
     const maxLv = Math.max(...levels), minLv = Math.min(...levels);
@@ -174,8 +174,8 @@
     const missing = STATS.find(s => !lead.some(o => o.s.key === s.key));
     return { ns: 'quint', id: QUINTS[missing.key], lv: avg };           // cinque forti e una sola lacuna
   }
-  function heroClass() {
-    const r = heroRole();
+  function heroClass(x = xp) {
+    const r = heroRole(x);
     const name = T(r.ns + '.' + r.id);
     return r.ns === 'tier' ? name : withGrade(name, r.lv);
   }
@@ -505,6 +505,9 @@
   let touched = false;
   let dbRef = null, writing = false, again = false;
   let fbAuth = null, fbDb = null, fbUser = null, accBusy = false;   // account Firebase (vedi la sezione "account")
+  let accPending = null;                                            // scelta "quali dati tenere" in attesa
+  let myCode = '', codeJob = null, pubTimer = 0, lastPub = '';     // amici: il tuo codice e l'ultimo profilo pubblicato
+  let friends = { rows: [], profs: {}, loaded: false };
   let downloadsCap = null;
 
   // Alcuni browser non lasciano salvare dati quando si apre un file HTML dal dispositivo
@@ -854,6 +857,7 @@
     const scaleMax = Math.min(MAX_LEVEL, Math.max(10, Math.ceil(Math.max(...fracs) / 10) * 10));
     const ratios = fracs.map(f => f / scaleMax);
     if (animate) animateRadar(ratios); else { radarCur = ratios; drawRadar(ratios); }
+    schedulePublish();
   }
 
   /* ================= effetti ================= */
@@ -1162,7 +1166,7 @@
     if (blur > 0) rootStyle.setProperty('--win-bf', 'blur(' + blur + 'px)');
     else rootStyle.removeProperty('--win-bf');
   }
-  function applyName() { $('player-name').textContent = settings.name.trim(); }
+  function applyName() { $('player-name').textContent = settings.name.trim(); schedulePublish(); }
   // titolo in alto: testo a scelta (vuoto = "Life RPG") oppure nascosto
   function applyTitle() {
     const el = $('app-title');
@@ -1271,6 +1275,7 @@
     renderMissionViews();
     renderInfo();
     paintAccount();
+    paintFriendsBtn();
     paintFormRepeat();
     if (!rmodal.hidden) renderRoutines();
   }
@@ -3051,7 +3056,6 @@
   // carica i dati dall'account (ref = documento del giocatore) e li unisce a quelli di questo dispositivo.
   // uid: l'account Firebase; se il dispositivo non è ancora collegato e sia l'account sia il dispositivo
   // hanno dati diversi, prima si chiede quali tenere.
-  let accPending = null;
   async function cloudLoad(ref, uid) {
     const r = await cloudFetch(ref);
     if (uid && linkedUid() !== uid && accountHasData(r) && deviceHasData() && !sameData(r)) {
@@ -3117,6 +3121,7 @@
       || (d && !d.settings && !isDefaultSettings());
     if (needUpload) flush();
     renderInfo();
+    if (fbUser && ref !== null) { schedulePublish(true); checkFriendRequests(); }
   }
   function accChoose(mode) {
     const p = accPending;
@@ -3158,6 +3163,231 @@
     paintAccount();
   }
 
+  /* ================= amici ================= */
+  // Ogni giocatore ha un codice amico (8 caratteri) e un profilo pubblico: nome, livello complessivo,
+  // XP delle sei statistiche (da cui l'app dell'amico ricalcola titolo e grafico nella sua lingua).
+  // Il profilo lo leggono solo gli amici (regole su Firebase). Le missioni non escono mai dall'account.
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // niente 0/O e 1/I, che si confondono
+  const fmtCode = c => c ? c.slice(0, 4) + '-' + c.slice(4) : '';
+  const cleanCode = t => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const pairOf = (a, b) => a < b ? a + '_' + b : b + '_' + a;
+  function genCode() {
+    const b = new Uint32Array(8);
+    crypto.getRandomValues(b);
+    return [...b].map(v => CODE_CHARS[v % CODE_CHARS.length]).join('');
+  }
+  // il tuo codice: se non c'è ancora se ne crea uno libero (se è già preso da qualcuno le regole rifiutano e si riprova)
+  function ensureCode() {
+    if (myCode) return Promise.resolve(myCode);
+    if (codeJob) return codeJob;
+    const uid = fbUser.uid;
+    codeJob = (async () => {
+      const ps = await fbDb.doc('profiles/' + uid).get();
+      if (ps.exists && ps.data().code) return (myCode = ps.data().code);
+      for (let i = 0; i < 6; i++) {
+        const c = genCode();
+        try { await fbDb.doc('friendCodes/' + c).set({ uid }); return (myCode = c); } catch (e) { /* codice già usato */ }
+      }
+      throw new Error('code');
+    })().finally(() => { codeJob = null; });
+    return codeJob;
+  }
+  // profilo pubblico: si riscrive solo se è cambiato qualcosa che gli amici vedono
+  function schedulePublish(now) {
+    if (!fbUser || !dbRef || accPending) return;
+    clearTimeout(pubTimer);
+    pubTimer = setTimeout(publishProfile, now ? 0 : 1500);
+  }
+  async function publishProfile() {
+    if (!fbUser || !dbRef) return;
+    try {
+      const code = await ensureCode();
+      const pub = { name: settings.name.trim().slice(0, 30), level: overallOf(STATS.map(s => levelFromXp(xp[s.key]))), stats: { ...xp }, code };
+      const sig = JSON.stringify(pub);
+      if (sig === lastPub) return;
+      await fbDb.doc('profiles/' + fbUser.uid).set({ ...pub, updated: Date.now() });
+      lastPub = sig;
+      if (!$('fmodal').hidden) paintFriendsHead();
+    } catch (e) { console.warn('profile', e); }
+  }
+  function friendsReset() {
+    myCode = ''; lastPub = ''; clearTimeout(pubTimer);
+    friends = { rows: [], profs: {}, loaded: false };
+    paintFriendsBtn();
+  }
+  const otherOf = f => f.members.find(m => m !== fbUser.uid);
+  function incoming() { return friends.rows.filter(f => f.status === 'pending' && f.requestedBy !== fbUser.uid); }
+  function paintFriendsBtn() {
+    const n = fbUser && friends.loaded ? incoming().length : 0;
+    $('btn-friends').textContent = n ? T('fr.btn.n', { n }) : T('fr.btn');
+  }
+  async function loadFriends() {
+    const q = await fbDb.collection('friendships').where('members', 'array-contains', fbUser.uid).get();
+    const rows = q.docs.map(d => ({ id: d.id, ...d.data() }));
+    const acc = rows.filter(f => f.status === 'accepted');
+    const profs = {};
+    await Promise.all(acc.map(async f => {
+      const uid = otherOf(f);
+      try { const p = await fbDb.doc('profiles/' + uid).get(); if (p.exists) profs[uid] = p.data(); } catch (e) { /* profilo non leggibile */ }
+    }));
+    friends = { rows, profs, loaded: true };
+    paintFriendsBtn();
+  }
+  async function checkFriendRequests() {
+    try { await loadFriends(); } catch (e) { console.warn('friends', e); }
+  }
+  function frMsg(t, kind) { const e = $('fr-msg'); e.textContent = t || ''; e.className = 'msg' + (kind ? ' ' + kind : ''); }
+  const friendName = p => (p && p.name) || T('fr.noname');
+  function paintFriendsHead() { $('fr-code').textContent = myCode ? fmtCode(myCode) : '…'; }
+  function renderFriends() {
+    paintFriendsHead();
+    const mkBtn = (cls, text, fn, label) => {
+      const b = mk('button', 'btn small' + cls, text); b.type = 'button';
+      if (label) b.setAttribute('aria-label', label);
+      b.addEventListener('click', fn); return b;
+    };
+    // richieste ricevute
+    const req = $('fr-req'); req.textContent = '';
+    incoming().forEach(f => {
+      const row = mk('div', 'fr-row');
+      row.appendChild(mk('span', 'fr-who', T('fr.from', { name: f.fromName || T('fr.noname') })));
+      const act = mk('div', 'fr-act');
+      act.append(mkBtn(' add', T('fr.accept'), () => frAct(() => fbDb.doc('friendships/' + f.id).update({ status: 'accepted' }), T('fr.msg.accepted'))),
+                 mkBtn('', T('fr.decline'), () => frAct(() => fbDb.doc('friendships/' + f.id).delete(), '')));
+      row.appendChild(act); req.appendChild(row);
+    });
+    $('fr-req-box').hidden = !incoming().length;
+    // amici
+    const list = $('fr-list'); list.textContent = '';
+    const acc = friends.rows.filter(f => f.status === 'accepted')
+      .map(f => ({ f, uid: otherOf(f), p: friends.profs[otherOf(f)] }))
+      .sort((a, b) => friendName(a.p).localeCompare(friendName(b.p)));
+    if (!acc.length) list.appendChild(mk('p', 'empty', T('fr.empty')));
+    acc.forEach(({ uid, p }) => {
+      const b = mk('button', 'fr-friend');
+      b.type = 'button';
+      b.append(mk('span', 'fr-who', friendName(p)), mk('span', 'fr-lv', p ? T('lv') + ' ' + p.level : ''));
+      b.setAttribute('aria-label', T('fr.open', { name: friendName(p) }));
+      b.addEventListener('click', () => openFriendProfile(uid));
+      list.appendChild(b);
+    });
+    // richieste inviate, ancora in attesa
+    const out = $('fr-out'); out.textContent = '';
+    const mine = friends.rows.filter(f => f.status === 'pending' && f.requestedBy === fbUser.uid);
+    mine.forEach(f => {
+      const row = mk('div', 'fr-row');
+      row.appendChild(mk('span', 'fr-who', T('fr.pending.to', { code: fmtCode(f.toCode || '') })));
+      row.appendChild(mkBtn('', T('fr.cancel'), () => frAct(() => fbDb.doc('friendships/' + f.id).delete(), '')));
+      out.appendChild(row);
+    });
+    $('fr-out-box').hidden = !mine.length;
+    paintFriendsBtn();
+  }
+  // esegue un'operazione sugli amici, poi ricarica l'elenco
+  async function frAct(job, okText) {
+    frMsg(T('fr.msg.wait'));
+    try { await job(); await loadFriends(); renderFriends(); frMsg(okText, okText ? 'good' : ''); if (okText) sfx('ok'); }
+    catch (e) { console.warn('friends', e); frMsg(T('fr.msg.err'), 'bad'); sfx('err'); }
+  }
+  async function addFriend() {
+    const code = cleanCode($('fr-in').value);
+    if (code.length !== 8) { frMsg(T('fr.msg.invalid'), 'bad'); sfx('err'); return; }
+    if (code === myCode) { frMsg(T('fr.msg.self'), 'bad'); sfx('err'); return; }
+    frMsg(T('fr.msg.wait'));
+    try {
+      const cs = await fbDb.doc('friendCodes/' + code).get();
+      if (!cs.exists) { frMsg(T('fr.msg.notfound'), 'bad'); sfx('err'); return; }
+      const uid = cs.data().uid, me = fbUser.uid;
+      if (uid === me) { frMsg(T('fr.msg.self'), 'bad'); return; }
+      await loadFriends();
+      const ex = friends.rows.find(f => f.members.includes(uid));
+      if (ex && ex.status === 'accepted') { frMsg(T('fr.msg.already')); renderFriends(); return; }
+      if (ex && ex.requestedBy === me) { frMsg(T('fr.msg.pending')); renderFriends(); return; }
+      $('fr-in').value = '';
+      if (ex) { await frAct(() => fbDb.doc('friendships/' + ex.id).update({ status: 'accepted' }), T('fr.msg.accepted')); return; }   // ti aveva già scritto lui
+      await frAct(() => fbDb.doc('friendships/' + pairOf(me, uid)).set({
+        members: [me, uid], requestedBy: me, status: 'pending', created: Date.now(),
+        fromName: settings.name.trim().slice(0, 30), fromCode: myCode, toCode: code,
+      }), T('fr.msg.sent'));
+    } catch (e) { console.warn('friends', e); frMsg(T('fr.msg.err'), 'bad'); sfx('err'); }
+  }
+  async function openFriends(afterMsg) {
+    frMsg('');
+    const on = !!(fbUser && dbRef);
+    $('fr-noacc').hidden = on; $('fr-main').hidden = !on;
+    openModal($('fmodal'), on ? $('fr-in') : $('fr-goacc'));
+    if (!on) return;
+    renderFriends();
+    frMsg(T('fr.msg.wait'));
+    try { await ensureCode(); await publishProfile(); await loadFriends(); renderFriends(); frMsg(afterMsg || ''); }
+    catch (e) { console.warn('friends', e); frMsg(T('fr.msg.err'), 'bad'); }
+  }
+  $('btn-friends').addEventListener('click', () => openFriends());
+  $('fr-close').addEventListener('click', closeModal);
+  $('fmodal').addEventListener('click', e => { if (e.target === $('fmodal')) closeModal(); });
+  $('fr-add').addEventListener('click', addFriend);
+  $('fr-in').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addFriend(); } });
+  $('fr-copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(fmtCode(myCode)); frMsg(T('fr.msg.copied'), 'good'); }
+    catch (e) { frMsg(fmtCode(myCode)); }
+  });
+  $('fr-goacc').addEventListener('click', () => { closeModal(); openSettings('data'); });
+
+  // profilo di un amico: la sua scheda Personaggio in sola lettura
+  let fpUid = '', fpArmTimer = 0;
+  function radarMarkup(x) {
+    const fr = STATS.map(s => fracLevel(x[s.key]));
+    const top = Math.min(MAX_LEVEL, Math.max(10, Math.ceil(Math.max(...fr) / 10) * 10));
+    let h = '';
+    [0.25, 0.5, 0.75, 1].forEach(f => { h += `<polygon class="r-ring${f === 1 ? ' outer' : ''}" points="${ptsStr(STATS.map((_, i) => pt(i, R * f)))}"/>`; });
+    STATS.forEach((_, i) => { const p = pt(i, R); h += `<line class="r-axis" x1="${CX}" y1="${CY}" x2="${p[0].toFixed(1)}" y2="${p[1].toFixed(1)}"/>`; });
+    h += `<polygon class="r-shape" points="${ptsStr(RADAR_IDX.map((k, i) => pt(i, R * Math.min(1, Math.max(fr[k] / top, 0.03)))))}"/>`;
+    RADAR_IDX.forEach((si, i) => {
+      const s = STATS[si], p = pt(i, LR);
+      let dyName = -6, dyLv = 16;
+      if (i === 0) { dyName = -22; dyLv = 0; }
+      if (i === 3) { dyName = 8; dyLv = 30; }
+      const dx = (i === 1 || i === 2) ? 18 : (i === 4 || i === 5) ? -18 : 0;
+      const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+      h += `<text class="r-name" x="${(p[0] + dx).toFixed(1)}" y="${(p[1] + dyName).toFixed(1)}" text-anchor="middle">${esc(s.name)}</text>`;
+      h += `<text class="r-lv" x="${(p[0] + dx).toFixed(1)}" y="${(p[1] + dyLv).toFixed(1)}" text-anchor="middle">${esc(T('lv') + ' ' + levelFromXp(x[s.key]))}</text>`;
+    });
+    return h;
+  }
+  function openFriendProfile(uid) {
+    const p = friends.profs[uid];
+    if (!p) { frMsg(T('fr.msg.err'), 'bad'); return; }
+    fpUid = uid;
+    const x = normalize(p.stats);
+    const ov = overallOf(STATS.map(s => levelFromXp(x[s.key])));
+    $('fp-tab').innerHTML = levelTabSvg(ov, 3);
+    $('fp-tab').setAttribute('aria-label', T('lv') + ' ' + ov);
+    $('fp-name').textContent = friendName(p);
+    $('fp-class').textContent = heroClass(x);
+    $('fp-radar').innerHTML = radarMarkup(x);
+    $('fp-upd').textContent = p.updated ? T('fr.updated', { when: new Date(p.updated).toLocaleDateString(locale(), { day: 'numeric', month: 'long' }) }) : '';
+    fpArm(false);
+    closeModal();
+    openModal($('fpmodal'), $('fp-close'));
+  }
+  function fpArm(on) {
+    clearTimeout(fpArmTimer);
+    const b = $('fp-remove');
+    b.dataset.armed = on ? '1' : '';
+    b.textContent = on ? T('fr.remove.confirm') : T('fr.remove');
+    if (on) fpArmTimer = setTimeout(() => fpArm(false), 4000);
+  }
+  function backToFriends(msg) { closeModal(); openFriends(msg); }
+  $('fp-close').addEventListener('click', () => backToFriends());
+  $('fpmodal').addEventListener('click', e => { if (e.target === $('fpmodal')) backToFriends(); });
+  $('fp-remove').addEventListener('click', async () => {
+    const b = $('fp-remove');
+    if (!b.dataset.armed) { fpArm(true); return; }
+    fpArm(false);
+    try { await fbDb.doc('friendships/' + pairOf(fbUser.uid, fpUid)).delete(); } catch (e) { console.warn('friends', e); }
+    backToFriends(T('fr.msg.removed'));
+  });
+
   // riquadro "Account" nella scheda Dati delle impostazioni
   function paintAccount() {
     const box = $('acc-box');
@@ -3196,6 +3426,7 @@
     accBusy = true; paintAccount();
     try { await fbAuth.signOut(); } catch (e) { console.warn('auth', e); }
     fbUser = null; dbRef = null;
+    friendsReset();
     setSaveState('local');
     accMsg(T('acc.bye'));
     accBusy = false; paintAccount(); renderInfo();

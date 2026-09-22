@@ -766,3 +766,25 @@
 
   /* scelta al primo accesso: i due pulsanti uno sotto l'altro, larghi uguali */
   .acc-actions { flex-direction: column; align-items: stretch; }
+
+  /* ---------- amici ---------- */
+  .fr-open-row { display: flex; justify-content: center; margin-top: 14px; }
+  .fr-code-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .fr-code { font-size: 40px; line-height: 1; color: var(--gold); letter-spacing: 2px; text-shadow: 2px 2px 0 var(--win-edge); }
+  .fr-add { display: flex; gap: 10px; flex-wrap: wrap; }
+  .fr-add .text-in { flex: 1 1 180px; width: auto; text-transform: uppercase; }
+  .fr-list { display: grid; gap: 8px; margin: 8px 0 16px; }
+  .fr-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    padding: 10px 12px; border: 2px solid var(--win-line); border-radius: 8px; background: color-mix(in srgb, var(--win-c) 60%, transparent); }
+  .fr-act { display: flex; gap: 8px; }
+  .fr-who { min-width: 0; overflow-wrap: anywhere; }
+  .fr-friend { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; cursor: pointer;
+    padding: 10px 12px; font: 24px/1.2 var(--font); color: var(--ink); text-align: left;
+    border: 2px solid var(--win-line); border-radius: 8px; background: color-mix(in srgb, var(--win-c) 60%, transparent); }
+  .fr-friend:hover { filter: brightness(1.15); }
+  .fr-friend:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  .fr-lv { color: var(--gold); white-space: nowrap; }
+  /* profilo di un amico: la stessa scheda del Personaggio, in una finestra */
+  .fp-win { padding-top: 36px; }
+  .fp-win .radar-wrap { margin-top: 10px; }
+  .fp-upd { text-align: center; }
