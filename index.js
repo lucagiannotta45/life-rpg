@@ -707,29 +707,22 @@
     return iconSvg(rows.map(row => row.slice(from, to + 1)));
   }
 
-  /* ----- stendardo del livello (pixel art, in alto a destra nella scheda Personaggio) ----- */
-  // griglia 21 x 29: riga 0 l'asta, poi il drappo largo 19 con bordo doppio e la coda di rondine a scalini.
-  // Lettere: K pomelli, R asta, L bordo chiaro, B bordo, D bordo scuro, i interno chiaro, I interno.
-  const BANNER = (() => {
-    const W = 21, H = 29, L = 1, T = 1, R = 19, B = 27, CX = (L + R) / 2;
-    const inside = (x, y) => x >= L && x <= R && y >= T && y <= B && !(B - y <= 4 && Math.abs(x - CX) <= 4 - (B - y));
-    const out = (x, y) => ({ u: !inside(x, y - 1), d: !inside(x, y + 1), l: !inside(x - 1, y), r: !inside(x + 1, y) });
-    const edge = (x, y) => { const o = out(x, y); return o.u || o.d || o.l || o.r; };
-    const rows = [];
-    for (let y = 0; y < H; y++) {
+  /* ----- medaglione del livello (pixel art, appoggiato sull'angolo in alto a destra della scheda Personaggio) ----- */
+  // cerchio di 23 pixel: bordo doppio (L chiaro in alto a sinistra, D scuro in basso a destra, B oro pieno) e interno I
+  const MEDAL = (() => {
+    const D = 23, R = D / 2, C = (D - 1) / 2, rows = [];
+    for (let y = 0; y < D; y++) {
       let row = '';
-      for (let x = 0; x < W; x++) {
-        if (y === 0) { row += (x === 0 || x === W - 1) ? 'K' : 'R'; continue; }
-        if (!inside(x, y)) { row += '.'; continue; }
-        if (edge(x, y)) {
-          const o = out(x, y);
-          row += ((o.d || o.r) && !(o.u || o.l)) || (o.d && o.l) ? 'D' : 'L';
-        } else if ([[0, -1], [0, 1], [-1, 0], [1, 0]].some(([dx, dy]) => inside(x + dx, y + dy) && edge(x + dx, y + dy))) row += 'B';
-        else row += y === T + 2 ? 'i' : 'I';
+      for (let x = 0; x < D; x++) {
+        const dx = x - C, dy = y - C, d = Math.hypot(dx, dy);
+        if (d > R - 0.25) row += '.';
+        else if (d > R - 1.25) row += dx + dy < -0.5 ? 'L' : dx + dy > 0.5 ? 'D' : (dy < 0 ? 'L' : 'D');
+        else if (d > R - 2.25) row += 'B';
+        else row += 'I';
       }
       rows.push(row);
     }
-    return { W, H, CX, rows };
+    return { W: D, H: D, CX: C, rows };
   })();
   const CROWN = ['X...X...X', 'XX.XXX.XX', 'XXXXXXXXX', 'XXXXXXXXX', '.XXXXXXX.', '.........', 'XXXXXXXXX'];
   // rettangoli di una griglia: un rettangolo per ogni tratto orizzontale dello stesso segno (meno elementi)
@@ -747,12 +740,12 @@
     });
     return r;
   }
-  function bannerSvg(level, px) {
-    const { W, H, CX, rows } = BANNER;
+  function medalSvg(level, px) {
+    const { W, H, CX, rows } = MEDAL;
     let body = pixRuns(rows, 0, 0, c => c === '.' ? '' : 'bn-' + c);
     if (level >= MAX_LEVEL) {   // livello massimo: "MAX" e una corona al posto del numero
-      body += `<text class="bn-t" x="${CX + 0.5}" y="9" text-anchor="middle" font-size="6">MAX</text>`;
-      body += pixRuns(CROWN, Math.round(CX - (CROWN[0].length - 1) / 2), 12, c => c === 'X' ? 'bn-c' : '');
+      body += `<text class="bn-t" x="${CX + 0.5}" y="7.6" text-anchor="middle" font-size="6">MAX</text>`;
+      body += pixRuns(CROWN, Math.round(CX - (CROWN[0].length - 1) / 2), 10, c => c === 'X' ? 'bn-c' : '');
     } else {
       const str = String(Math.max(0, level));
       let dr = Array.from({ length: 9 }, (_, r) => [...str].map(ch => (DIGITS[ch] || DIGITS['0'])[r]).join(''));
@@ -762,10 +755,10 @@
       while (to > from && !used(to)) to--;
       dr = dr.map(row => row.slice(from, to + 1));
       // centrato sulla colonna di mezzo; con una larghezza pari si sposta di mezzo pixel a destra (l'1 pesa a destra)
-      body += `<text class="bn-t" x="${CX + 0.5}" y="9" text-anchor="middle" font-size="6">${T('lv')}</text>`;
-      body += pixRuns(dr, Math.ceil(CX - (dr[0].length - 1) / 2), 11, c => c === 'X' ? 'bn-n' : '');
+      body += `<text class="bn-t" x="${CX + 0.5}" y="7.6" text-anchor="middle" font-size="6">${T('lv')}</text>`;
+      body += pixRuns(dr, Math.ceil(CX - (dr[0].length - 1) / 2), 9, c => c === 'X' ? 'bn-n' : '');
     }
-    return `<svg viewBox="0 0 ${W} ${H - 1}" data-px="${px}" data-cols="${W}" data-rows="${H - 1}" width="${+(W * snapCell(px)).toFixed(4)}" height="${+((H - 1) * snapCell(px)).toFixed(4)}" shape-rendering="crispEdges" aria-hidden="true">${body}</svg>`;
+    return `<svg viewBox="0 0 ${W} ${H}" data-px="${px}" data-cols="${W}" data-rows="${H}" width="${+(W * snapCell(px)).toFixed(4)}" height="${+(H * snapCell(px)).toFixed(4)}" shape-rendering="crispEdges" aria-hidden="true">${body}</svg>`;
   }
   // se cambia lo zoom o lo schermo, le icone si ricalcolano
   window.addEventListener('resize', () => {
@@ -876,13 +869,13 @@
     });
 
     const ov = overallOf(levels);
-    const bn = $('lv-banner');
-    bn.innerHTML = bannerSvg(ov, 3);
+    const bn = $('lv-medal');
+    bn.innerHTML = medalSvg(ov, 3);
     bn.setAttribute('aria-label', T('emblem.aria') + ': ' + ov);
     const prev = $('em-prev');
-    if (prev) prev.innerHTML = bannerSvg(42, 2);   // anteprima nelle impostazioni
-    if (animate && lastOverall !== null && ov !== lastOverall && !reduce) {   // cambia livello: lo stendardo ondeggia
-      bn.classList.remove('sway'); void bn.offsetWidth; bn.classList.add('sway');
+    if (prev) prev.innerHTML = medalSvg(42, 2);   // anteprima nelle impostazioni
+    if (animate && lastOverall !== null && ov !== lastOverall && !reduce) {   // cambia livello: il medaglione gira come una moneta
+      bn.classList.remove('flip'); void bn.offsetWidth; bn.classList.add('flip');
     }
     lastOverall = ov;
     $('class-name').textContent = heroClass();
@@ -911,9 +904,7 @@
     $('burst').innerHTML = '';
   }
   // ups: [{ s, from, to }] statistiche salite di livello; ovFrom/ovTo: livello complessivo
-  function showLevelUp(ups, ovFrom, ovTo, missionTitle) {
-    const mEl = $('lu-mission');
-    if (missionTitle) { mEl.textContent = missionTitle; mEl.hidden = false; } else mEl.hidden = true;
+  function showLevelUp(ups, ovFrom, ovTo) {
     const listEl = $('lu-list');
     listEl.textContent = '';
     ups.forEach(u => {
@@ -1371,7 +1362,7 @@
   /* ================= personalizzazione ================= */
   const rootStyle = document.documentElement.style;
   const WIN_VARS = ['--win-a', '--win-b', '--win-c', '--win-edge', '--win-glow', '--ink-soft', '--track', '--btn'];
-  const EM_VARS = ['--em-b1', '--em-b2', '--em-b3', '--em-f1', '--em-f2', '--em-num', '--em-lv', '--em-a', '--em-rod', '--em-fb'];
+  const EM_VARS = ['--em-b1', '--em-b2', '--em-b3', '--em-f1', '--em-f2', '--em-num', '--em-lv', '--em-a', '--em-fb'];
 
   function luminance(hex) {
     const n = parseInt(hex.slice(1), 16);
@@ -1425,7 +1416,7 @@
   function themeFillHex() {
     return settings.winColor ? winBase(settings.winColor) : '#3049cf';
   }
-  // stendardo del livello: bordo (di solito dorato),
+  // medaglione del livello: bordo (di solito dorato),
   // interno (di solito come le finestre) e trasparenza dell'interno (0 = pieno, 100 = invisibile)
   function applyEmblem() {
     EM_VARS.forEach(v => rootStyle.removeProperty(v));
@@ -1441,7 +1432,6 @@
       rootStyle.setProperty('--em-b1', b1);
       rootStyle.setProperty('--em-b2', border);
       rootStyle.setProperty('--em-b3', b3);
-      rootStyle.setProperty('--em-rod', mixHex(border, '#000000', 0.6));
       lv = fillDark ? b1 : b3;
     } else if (fill && !fillDark) {
       lv = '#8a5a00';
@@ -2065,7 +2055,7 @@
     STATS.forEach(s => { if (applied[s.key] > 0) floatText(s.key, '+' + fmt(applied[s.key]), false); });
     missionMsg(T(Object.keys(bonus).length ? 'msg.completed.bonus' : 'msg.completed', { title: m.title, gain: gainText(applied), n: rs ? rs.n : 0 }), 'good');
     renderMissionViews();
-    if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after), m.title); sfx('up'); } else sfx(Object.keys(bonus).length ? 'bonus' : 'add');
+    if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after)); sfx('up'); } else sfx(Object.keys(bonus).length ? 'bonus' : 'add');
   }
   function undoMission(id) {
     const m = missions.find(x => x.id === id);

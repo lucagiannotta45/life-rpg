@@ -234,23 +234,21 @@
 
   /* ---------- livello complessivo ---------- */
   /* esagono del livello sopra, poi nome e rango: tutto centrato, sullo stesso asse del grafico */
-  .hero-head { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; margin-top: 36px; }   /* sotto lo stendardo */
+  .hero-head { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; margin-top: 14px; }   /* sotto il medaglione */
   .hero-head > div:last-child { max-width: 100%; }
-  /* stendardo del livello: pixel art appesa in alto a destra della finestra, con l'asta alla stessa altezza del titolo */
-  .lv-banner { position: absolute; top: -24px; right: 18px; line-height: 0; transform-origin: 50% 0; }
-  .lv-banner svg, .em-prev svg { display: block; }
+  /* medaglione del livello: pixel art appoggiata sull'angolo in alto a destra della finestra, come una spilla */
+  .lv-medal { position: absolute; top: -30px; right: 16px; line-height: 0; }
+  .lv-medal svg, .em-prev svg { display: block; }
   .bn-K, .bn-L { fill: var(--em-b1, #fff2a8); }
   .bn-B { fill: var(--em-b2, #ffcf3a); }
   .bn-D { fill: var(--em-b3, #c98a00); }
-  .bn-R { fill: var(--em-rod, #8a5a00); }
-  .bn-i { fill: var(--em-f1, var(--win-a)); fill-opacity: var(--em-a, 1); }
   .bn-I { fill: var(--em-fb, var(--win-b)); fill-opacity: var(--em-a, 1); }
   .bn-t { font-family: var(--font); fill: var(--em-lv, var(--gold)); }
   .bn-c { fill: var(--em-lv, var(--gold)); }
   .bn-n { fill: var(--em-num, var(--ink-strong)); }
-  /* quando cambia il livello complessivo lo stendardo ondeggia appeso all'asta */
-  .lv-banner.sway { animation: sway .9s ease-out; }
-  @keyframes sway { 0% { transform: rotate(0); } 20% { transform: rotate(7deg); } 45% { transform: rotate(-5deg); } 70% { transform: rotate(2deg); } 100% { transform: rotate(0); } }
+  /* quando cambia il livello complessivo il medaglione gira su se stesso come una moneta */
+  .lv-medal.flip { animation: flip .7s ease-in-out; }
+  @keyframes flip { from { transform: rotateY(0); } to { transform: rotateY(360deg); } }
 
   .class-name {
     margin: 0; font-size: 40px; line-height: 1.1; color: var(--ink-strong);
@@ -350,7 +348,6 @@
     margin: 0; font-size: 48px; line-height: 1;
     color: var(--gold); text-shadow: 4px 4px 0 #8a4b00, 7px 7px 0 var(--win-edge);
   }
-  .lu-mission { margin: 14px auto 0; max-width: 520px; font-size: 32px; line-height: 1.1; color: var(--ink-strong); overflow-wrap: anywhere; }
   .lu-line { margin: 12px 0 0; font-size: 40px; line-height: 1.1; }
   .lu-name { text-shadow: 2px 2px 0 var(--track); }
   .lu-to { color: var(--ink-strong); }
@@ -654,7 +651,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .fill { transition: none; }
-    .float, .lu, .lu-card, .lv-banner.sway { animation: none !important; }
+    .float, .lu, .lu-card, .lv-medal.flip { animation: none !important; }
     .lu-burst { display: none; }
     .btn { transition: none; }
   }
