@@ -233,13 +233,14 @@
     { id: 'allunga', name: 'Allunga', size: '100% 100%' },
   ];
   const HEX = /^#[0-9a-f]{6}$/i;
-  const defaultSettings = () => ({ name: '', titleText: '', titleShow: true, frame: 'semplice', frameV: 2, bgFit: 'adatta', winColor: null, inkColor: null, softColor: null, accentColor: null, nameColor: null, titleColor: null, trans: 0, colors: {}, lang: 'it' });
+  const defaultSettings = () => ({ name: '', titleText: '', titleShow: true, frame: 'semplice', frameV: 2, bgFit: 'adatta', winColor: null, inkColor: null, softColor: null, accentColor: null, nameColor: null, titleColor: null, trans: 0, colors: {}, shareBg: false, lang: 'it' });
   function normalizeSettings(o) {
     const s = defaultSettings();
     if (!o || typeof o !== 'object') return s;
     if (typeof o.name === 'string') s.name = o.name.replace(/\s+/g, ' ').trim().slice(0, 16);
     if (typeof o.titleText === 'string') s.titleText = o.titleText.replace(/\s+/g, ' ').trim().slice(0, 24);
     if (o.titleShow === false) s.titleShow = false;
+    if (o.shareBg === true) s.shareBg = true;
     if (LANGS.some(l => l.id === o.lang)) s.lang = o.lang;
     if (typeof o.winColor === 'string' && HEX.test(o.winColor)) {
       s.winColor = o.winColor.toLowerCase();
@@ -506,7 +507,7 @@
   let dbRef = null, writing = false, again = false;
   let fbAuth = null, fbDb = null, fbUser = null, accBusy = false;   // account Firebase (vedi la sezione "account")
   let accPending = null;                                            // scelta "quali dati tenere" in attesa
-  let myCode = '', codeJob = null, pubTimer = 0, lastPub = '';     // amici: il tuo codice e l'ultimo profilo pubblicato
+  let myCode = '', codeJob = null, pubTimer = 0, lastPub = '', lastBg;   // amici: il tuo codice e l'ultimo profilo pubblicato
   let friends = { rows: [], profs: {}, loaded: false };
   let downloadsCap = null;
 
@@ -1227,6 +1228,7 @@
   }
   const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   function applyImages() {
+    schedulePublish();
     const el = $('bg-img');
     let bg = imgs.bg;
     if (bg && isGif(bg) && reduceMotion()) bg = stillOf(bg);
@@ -1285,6 +1287,7 @@
   function changed(soon) {
     settingsTouched = true;
     saveSettingsLocal();
+    schedulePublish();
     clearTimeout(setTimer);
     if (soon) setTimer = setTimeout(flush, 600); else flush();
   }
@@ -1348,6 +1351,11 @@
       settings.titleShow = !settings.titleShow;
       applyTitle(); paintCustom(); changed();
     });
+    // sfondo visibile agli amici
+    $('btn-share-bg').addEventListener('click', () => {
+      settings.shareBg = !settings.shareBg;
+      paintCustom(); changed();
+    });
     // nome
     $('in-name').addEventListener('input', e => {
       settings.name = e.target.value.slice(0, 16);
@@ -1409,6 +1417,9 @@
     $('in-title').value = settings.titleText;
     $('btn-title-show').setAttribute('aria-pressed', String(settings.titleShow));
     $('btn-title-show').textContent = settings.titleShow ? T('look.title.shown') : T('look.title.hidden');
+    $('btn-share-bg').setAttribute('aria-pressed', String(settings.shareBg));
+    $('btn-share-bg').textContent = settings.shareBg ? T('look.sharebg.on') : T('look.sharebg.off');
+    $('share-bg-big').hidden = !(settings.shareBg && imgs.bg && imgs.bg.length > CLOUD_IMG_MAX);
     $('in-trans').value = settings.trans;
     $('trans-val').textContent = settings.trans + '%';
     $('in-win').value = settings.winColor || '#3049cf';
@@ -3202,7 +3213,17 @@
     if (!fbUser || !dbRef) return;
     try {
       const code = await ensureCode();
-      const pub = { name: settings.name.trim().slice(0, 30), level: overallOf(STATS.map(s => levelFromXp(xp[s.key]))), stats: { ...xp }, code };
+      const bg = settings.shareBg && imgs.bg && imgs.bg.length <= CLOUD_IMG_MAX ? imgs.bg : null;
+      const look = { bg: !!bg };
+      ['winColor', 'inkColor', 'softColor', 'accentColor', 'nameColor'].forEach(k => { if (settings[k]) look[k] = settings[k]; });
+      const pub = { name: settings.name.trim().slice(0, 30), level: overallOf(STATS.map(s => levelFromXp(xp[s.key]))), stats: { ...xp }, look, code };
+      // sfondo: solo se l'hai scelto tu; se lo spegni o lo togli, sparisce anche per gli amici
+      if (bg !== lastBg) {
+        const bref = fbDb.doc('profileBg/' + fbUser.uid);
+        if (bg) await bref.set({ data: bg, updated: Date.now() });
+        else await bref.delete();
+        lastBg = bg;
+      }
       const sig = JSON.stringify(pub);
       if (sig === lastPub) return;
       await fbDb.doc('profiles/' + fbUser.uid).set({ ...pub, updated: Date.now() });
@@ -3211,7 +3232,7 @@
     } catch (e) { console.warn('profile', e); }
   }
   function friendsReset() {
-    myCode = ''; lastPub = ''; clearTimeout(pubTimer);
+    myCode = ''; lastPub = ''; lastBg = undefined; clearTimeout(pubTimer);
     friends = { rows: [], profs: {}, loaded: false };
     paintFriendsBtn();
   }
@@ -3354,6 +3375,29 @@
     });
     return h;
   }
+  // i colori dell'amico, come variabili CSS valide solo dentro la finestra del suo profilo
+  const FP_VARS = ['--win-a', '--win-b', '--win-c', '--win-edge', '--win-glow', '--ink-soft', '--track', '--btn', '--ink', '--ink-strong', '--gold', '--name-color'];
+  function applyFriendLook(el, look) {
+    FP_VARS.forEach(v => el.style.removeProperty(v));
+    const ok = c => typeof c === 'string' && HEX.test(c) ? c.toLowerCase() : null;
+    const L = look || {};
+    const win = ok(L.winColor);
+    if (win) {
+      const a = winBase(win), dk = mixHex(a, '#000000', 0.70);
+      el.style.setProperty('--win-a', a);
+      el.style.setProperty('--win-b', mixHex(a, '#000000', 0.45));
+      el.style.setProperty('--win-c', dk);
+      el.style.setProperty('--win-edge', dk);
+      el.style.setProperty('--win-glow', mixHex(a, '#ffffff', 0.45));
+      el.style.setProperty('--ink-soft', mixHex(a, '#ffffff', 0.72));
+      el.style.setProperty('--track', mixHex(a, '#000000', 0.82));
+      el.style.setProperty('--btn', mixHex(a, '#ffffff', 0.06));
+    }
+    if (ok(L.inkColor)) { el.style.setProperty('--ink', ok(L.inkColor)); el.style.setProperty('--ink-strong', ok(L.inkColor)); }
+    if (ok(L.accentColor)) el.style.setProperty('--gold', ok(L.accentColor));
+    if (ok(L.nameColor)) el.style.setProperty('--name-color', ok(L.nameColor));
+    if (ok(L.softColor)) el.style.setProperty('--ink-soft', ok(L.softColor));
+  }
   function openFriendProfile(uid) {
     const p = friends.profs[uid];
     if (!p) { frMsg(T('fr.msg.err'), 'bad'); return; }
@@ -3367,8 +3411,20 @@
     $('fp-radar').innerHTML = radarMarkup(x);
     $('fp-upd').textContent = p.updated ? T('fr.updated', { when: new Date(p.updated).toLocaleDateString(locale(), { day: 'numeric', month: 'long' }) }) : '';
     fpArm(false);
+    const win = $('fpmodal').querySelector('.fp-win');
+    applyFriendLook(win, p.look);
+    win.classList.remove('has-bg'); win.style.removeProperty('--fp-bg');
     closeModal();
     openModal($('fpmodal'), $('fp-close'));
+    // lo sfondo (se l'amico lo condivide) arriva dopo: la scheda si vede subito
+    if (p.look && p.look.bg) {
+      fbDb.doc('profileBg/' + uid).get().then(b => {
+        const d = b.exists && b.data().data;
+        if (fpUid !== uid || !validImg(d)) return;
+        win.style.setProperty('--fp-bg', 'url("' + d + '")');
+        win.classList.add('has-bg');
+      }).catch(e => console.warn('friend bg', e));
+    }
   }
   function fpArm(on) {
     clearTimeout(fpArmTimer);
