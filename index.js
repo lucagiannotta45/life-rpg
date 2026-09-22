@@ -234,7 +234,7 @@
     { id: 'allunga', name: 'Allunga', size: '100% 100%' },
   ];
   const HEX = /^#[0-9a-f]{6}$/i;
-  const defaultSettings = () => ({ name: '', titleText: '', titleShow: true, frame: 'semplice', frameV: 2, bgFit: 'adatta', winColor: null, inkColor: null, softColor: null, accentColor: null, nameColor: null, titleColor: null, trans: 0, emblem: { border: null, fill: null }, colors: {}, lang: 'it' });
+  const defaultSettings = () => ({ name: '', titleText: '', titleShow: true, frame: 'semplice', frameV: 2, bgFit: 'adatta', winColor: null, inkColor: null, softColor: null, accentColor: null, nameColor: null, titleColor: null, trans: 0, emblem: { border: null, fill: null, alpha: 0 }, colors: {}, lang: 'it' });
   function normalizeSettings(o) {
     const s = defaultSettings();
     if (!o || typeof o !== 'object') return s;
@@ -258,6 +258,7 @@
     if (o.emblem && typeof o.emblem === 'object') {
       if (typeof o.emblem.border === 'string' && HEX.test(o.emblem.border)) s.emblem.border = o.emblem.border.toLowerCase();
       if (typeof o.emblem.fill === 'string' && HEX.test(o.emblem.fill)) s.emblem.fill = o.emblem.fill.toLowerCase();
+      if (Number.isFinite(Number(o.emblem.alpha))) s.emblem.alpha = Math.min(100, Math.max(0, Math.round(Number(o.emblem.alpha))));
     }
     for (const st of STATS) {
       if (o.colors && typeof o.colors[st.key] === 'string' && HEX.test(o.colors[st.key])) s.colors[st.key] = o.colors[st.key].toLowerCase();
@@ -723,6 +724,15 @@
   };
   const ptsStr = arr => arr.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
 
+  // l'esagono grande è anche l'esagono del livello: interno e bordo con i colori scelti in Aspetto
+  const defs = el('defs', {});
+  const grad = (id, stops) => {
+    const g = el('linearGradient', { id, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    stops.forEach(([o, c]) => el('stop', { offset: o, style: 'stop-color: ' + c }, g));
+  };
+  grad('em-grad-b', [['0', 'var(--em-b1, #fff2a8)'], ['0.42', 'var(--em-b2, #ffcf3a)'], ['1', 'var(--em-b3, #c98a00)']]);
+  grad('em-grad-f', [['0', 'var(--em-f1, var(--win-a))'], ['1', 'var(--em-f2, var(--win-c))']]);
+  el('polygon', { class: 'r-bg', points: ptsStr(STATS.map((_, i) => pt(i, R))) });
   [0.25, 0.5, 0.75, 1].forEach(f => {
     el('polygon', { class: 'r-ring' + (f === 1 ? ' outer' : ''), points: ptsStr(STATS.map((_, i) => pt(i, R * f))) });
   });
@@ -730,7 +740,13 @@
     const p = pt(i, R);
     el('line', { class: 'r-axis', x1: CX, y1: CY, x2: p[0].toFixed(1), y2: p[1].toFixed(1) });
   });
+  // livello complessivo al centro del grafico (la media delle sei statistiche sta nel mezzo):
+  // solo la scritta, senza sfondo, così non copre mai la forma; il contorno delle lettere la rende leggibile
   const shape = el('polygon', { class: 'r-shape', points: '' });
+  const emLv = el('text', { class: 'r-em-lv', x: CX, y: CY - 8, 'text-anchor': 'middle' });
+  emLv.textContent = T('lv');
+  const emNum = el('text', { class: 'r-em-num', id: 'overall', x: CX, y: CY + 20, 'text-anchor': 'middle' });
+  emNum.textContent = '0';
   const labelLv = [], radarNames = [];
   // ordine delle statistiche nell'esagono, dalla cima in senso orario (l'elenco delle statistiche resta com'è)
   const RADAR_IDX = ['Intelletto', 'Vigore', 'Vitalita', 'Creativita', 'Legami', 'Animo'].map(k => STATS.findIndex(x => x.key === k));
@@ -796,6 +812,8 @@
       ovEl.classList.remove('bump'); void ovEl.offsetWidth; ovEl.classList.add('bump');
     }
     lastOverall = ov;
+    emLv.textContent = T('lv');
+    radar.setAttribute('aria-label', T('radar.aria') + '. ' + T('emblem.aria') + ': ' + ov);
     $('class-name').textContent = heroClass();
 
     // Scala relativa: il bordo esterno è la decina successiva al livello più alto (minimo 10)
@@ -1282,7 +1300,7 @@
   /* ================= personalizzazione ================= */
   const rootStyle = document.documentElement.style;
   const WIN_VARS = ['--win-a', '--win-b', '--win-c', '--win-edge', '--win-glow', '--ink-soft', '--track', '--btn'];
-  const EM_VARS = ['--em-b1', '--em-b2', '--em-b3', '--em-f1', '--em-f2', '--em-num', '--em-lv'];
+  const EM_VARS = ['--em-b1', '--em-b2', '--em-b3', '--em-f1', '--em-f2', '--em-num', '--em-lv', '--em-halo', '--em-a', '--em-pf1', '--em-pf2'];
 
   function luminance(hex) {
     const n = parseInt(hex.slice(1), 16);
@@ -1331,16 +1349,21 @@
     if (settings.titleColor) rootStyle.setProperty('--title-color', settings.titleColor);
     if (settings.softColor) rootStyle.setProperty('--ink-soft', settings.softColor);
   }
-  function applyPalette() { applyTheme(); applyTextColors(); }
+  function applyPalette() { applyTheme(); applyTextColors(); applyEmblem(); }   // l'esagono si mescola col colore delle finestre
   // colore predefinito dell'interno dell'esagono: quello delle finestre
   function themeFillHex() {
     return settings.winColor ? winBase(settings.winColor) : '#3049cf';
   }
-  // esagono del livello: bordo (di solito dorato) e interno (di solito come le finestre)
+  // esagono del livello (è l'esagono grande del grafico): bordo (di solito dorato),
+  // interno (di solito come le finestre) e trasparenza dell'interno (0 = pieno, 100 = invisibile)
   function applyEmblem() {
     EM_VARS.forEach(v => rootStyle.removeProperty(v));
-    const { border, fill } = settings.emblem;
-    const fillDark = fill ? luminance(fill) < 0.4 : true;
+    const { border, fill, alpha } = settings.emblem;
+    const a = (alpha || 0) / 100;
+    // il colore che si vede davvero: l'interno mescolato con la finestra dietro, secondo la trasparenza
+    const seen = fill ? mixHex(fill, themeFillHex(), a) : null;
+    const fillDark = seen ? luminance(seen) < 0.4 : true;
+    if (a > 0) rootStyle.setProperty('--em-a', String(1 - a));
     let lv = null;
     if (border) {
       const b1 = mixHex(border, '#ffffff', 0.55), b3 = mixHex(border, '#000000', 0.4);
@@ -1355,8 +1378,15 @@
       rootStyle.setProperty('--em-f1', fill);
       rootStyle.setProperty('--em-f2', mixHex(fill, '#000000', 0.55));
       rootStyle.setProperty('--em-num', fillDark ? '#ffffff' : '#12172e');
+      if (!fillDark) rootStyle.setProperty('--em-halo', mixHex(seen, '#ffffff', 0.5));   // contorno chiaro per il testo scuro
     }
     if (lv) rootStyle.setProperty('--em-lv', lv);
+    // anteprima nelle impostazioni: l'interno già mescolato con il colore della finestra
+    if (a > 0) {
+      const f = fill || themeFillHex(), base = themeFillHex();
+      rootStyle.setProperty('--em-pf1', mixHex(f, base, a));
+      rootStyle.setProperty('--em-pf2', mixHex(mixHex(f, '#000000', 0.55), mixHex(base, '#000000', 0.55), a));
+    }
   }
   // trasparenza delle finestre: 0 = opache, 100 = completamente trasparenti.
   // Con la trasparenza si aggiunge uno sfocato (fino a 6px verso il 60%) che poi scompare,
@@ -1552,6 +1582,11 @@
     });
     $('em-b-reset').addEventListener('click', () => { settings.emblem.border = null; applyEmblem(); paintCustom(); changed(); });
     $('em-f-reset').addEventListener('click', () => { settings.emblem.fill = null; applyEmblem(); paintCustom(); changed(); });
+    $('in-em-a').addEventListener('input', e => {
+      settings.emblem.alpha = Math.min(100, Math.max(0, Math.round(Number(e.target.value)) || 0));
+      $('em-a-val').textContent = settings.emblem.alpha + '%';
+      applyEmblem(); changed(true);
+    });
     // titolo in alto
     $('in-title').addEventListener('input', e => {
       settings.titleText = e.target.value.slice(0, 24);
@@ -1647,6 +1682,8 @@
     $('in-em-f').value = settings.emblem.fill || themeFillHex();
     $('em-b-reset').hidden = !settings.emblem.border;
     $('em-f-reset').hidden = !settings.emblem.fill;
+    $('in-em-a').value = settings.emblem.alpha || 0;
+    $('em-a-val').textContent = (settings.emblem.alpha || 0) + '%';
     STATS.forEach(s => {
       const c = cs[s.key], col = statColor(s.key);
       c.item.style.setProperty('--c', col);

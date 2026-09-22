@@ -244,7 +244,7 @@
   }
   .emblem::before {
     content: ""; position: absolute; inset: 6px;
-    background: linear-gradient(180deg, var(--em-f1, var(--win-a)), var(--em-f2, var(--win-c)));
+    background: linear-gradient(180deg, var(--em-pf1, var(--em-f1, var(--win-a))), var(--em-pf2, var(--em-f2, var(--win-c))));
     clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
   }
   .emblem-inner { position: relative; text-align: center; line-height: 1; }
@@ -261,11 +261,17 @@
   .radar-wrap { margin-top: 18px; }
   #radar { display: block; width: 100%; height: auto; max-width: 420px; margin: 0 auto; overflow: visible; }
   .r-ring { fill: none; stroke: color-mix(in srgb, var(--ink-soft) 30%, transparent); stroke-width: 1.5; }
-  .r-ring.outer { stroke: rgba(242, 245, 255, .7); stroke-width: 2.5; }
+  .r-ring.outer { stroke: url(#em-grad-b); stroke-width: 5; stroke-linejoin: miter; }
+  .r-bg { fill: url(#em-grad-f); fill-opacity: var(--em-a, 1); }
   .r-axis { stroke: color-mix(in srgb, var(--ink-soft) 30%, transparent); stroke-width: 1.5; }
   .r-shape { fill: color-mix(in srgb, var(--gold) 30%, transparent); stroke: var(--gold); stroke-width: 1.5; stroke-linejoin: round; }
   .r-name { font: 24px var(--font); fill: var(--ink-strong); }
   .r-lv { font: 24px var(--font); fill: var(--gold); }
+  /* livello complessivo al centro del grafico */
+  .r-em-lv, .r-em-num { paint-order: stroke; stroke: var(--em-halo, var(--win-edge)); stroke-width: 4px; stroke-linejoin: miter; }
+  .r-em-lv { font: 16px var(--font); fill: var(--em-lv, var(--gold)); }
+  .r-em-num { font: 32px var(--font); fill: var(--em-num, var(--ink-strong)); }
+  .r-em-num.bump { animation: bump .5s cubic-bezier(.2, 1.8, .4, 1); transform-box: fill-box; transform-origin: center; }
 
   /* ---------- statistiche ---------- */
   .rows { display: grid; gap: 0; }
@@ -442,6 +448,7 @@
   @media (max-width: 369px) { .cs-row .hex { display: none; } }
   .em-box { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
   .em-controls { flex: 1 1 240px; }
+  .em-a-label { display: block; margin: 14px 0 6px; font-size: 24px; color: var(--ink-soft); }
   .modal-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 
   /* ---------- immagini personalizzate ---------- */
@@ -654,7 +661,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .fill { transition: none; }
-    .float, .lu, .lu-card, .emblem-num.bump { animation: none !important; }
+    .float, .lu, .lu-card, .emblem-num.bump, .r-em-num.bump { animation: none !important; }
     .lu-burst { display: none; }
     .btn { transition: none; }
   }

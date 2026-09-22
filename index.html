@@ -48,16 +48,13 @@
     <section class="win hero" aria-labelledby="t-profile">
       <h2 class="win-title" id="t-profile" data-i18n="view.char">Personaggio</h2>
       <div class="hero-head">
-        <div class="emblem" role="img" aria-label="Livello complessivo" data-i18n-aria="emblem.aria">
-          <div class="emblem-inner"><span class="emblem-lv" data-i18n="lv">Lv</span><span class="emblem-num" id="overall">0</span></div>
-        </div>
         <div>
           <p class="player-name" id="player-name"></p>
           <p class="class-name" id="class-name">Avventuriero</p>
         </div>
       </div>
       <div class="radar-wrap">
-        <svg id="radar" viewBox="0 0 360 384" role="img" aria-label="Grafico a esagono delle sei statistiche" data-i18n-aria="radar.aria"></svg>
+        <svg id="radar" viewBox="0 0 360 384" role="img" aria-label="Grafico a esagono delle sei statistiche"></svg>
       </div>
     </section>
   </section>
@@ -224,6 +221,8 @@
               <input type="color" id="in-em-f" value="#3049cf">
               <button type="button" class="btn small reset" id="em-f-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
             </div>
+            <label class="em-a-label" for="in-em-a"><span data-i18n="look.em.a">Trasparenza dell'interno</span>: <span id="em-a-val">0%</span></label>
+            <input type="range" id="in-em-a" min="0" max="100" step="5" value="0">
           </div>
         </div>
       </div>
