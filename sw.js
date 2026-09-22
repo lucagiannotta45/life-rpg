@@ -2,14 +2,23 @@
    Tiene una copia dell'app sul dispositivo, così si apre anche senza internet.
    - La pagina: prima si prova la rete (così gli aggiornamenti arrivano da soli),
      e se manca la rete o è lenta si usa la copia salvata.
-   - Icone e manifest: si usa subito la copia salvata e intanto la si aggiorna.
+   - Icone, manifest, CSS e JS: si usa subito la copia salvata e intanto la si aggiorna.
    - Tutto ciò che viene da altri siti (Google Drive, accesso Google, Calendar) non viene toccato.
    - La musica (file audio) va sempre direttamente dalla rete: non viene salvata e quindi non c'è offline.
-   I percorsi sono relativi, quindi funziona anche in una sottocartella (…/life-rpg/). */
+   I percorsi sono relativi, quindi funziona anche in una sottocartella (…/life-rpg/).
 
-const CACHE = 'life-rpg-v1';
+   Nota sugli aggiornamenti: quando una release cambia insieme index.html e
+   index.js/style.css/i18n.js, incrementa CACHE (es. 'life-rpg-v2'). Così
+   activate() cancella la cache vecchia e il primo reload dopo l'update
+   aspetta la rete per gli asset invece di servire quelli obsoleti, evitando
+   disallineamenti tra markup nuovo e logica/stili vecchi. */
+
+const CACHE = 'life-rpg-v2';
 const PAGE = './index.html';
-const FILES = ['./', PAGE, './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const FILES = [
+  './', PAGE, './manifest.webmanifest', './icon-192.png', './icon-512.png',
+  './style.css', './i18n.js', './index.js',
+];
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
@@ -55,7 +64,9 @@ async function assetRequest(event) {
   const req = event.request;
   const cache = await caches.open(CACHE);
   const cached = await cache.match(req);
-  const update = fetch(req).then(res => {
+  // cache: 'no-cache' forza il browser a rivalidare con la rete invece di
+  // rispondere con la sua cache HTTP interna, così l'aggiornamento è reale
+  const update = fetch(req, { cache: 'no-cache' }).then(res => {
     if (res && res.ok) cache.put(req, res.clone());
     return res;
   }).catch(() => null);
