@@ -1908,7 +1908,7 @@
   const notYet = m => !m.done && !m.failed && !!m.due && m.due > todayStr();
   function completeMission(id) {
     const m = missions.find(x => x.id === id);
-    if (!m || m.done) return;
+    if (!m || m.done || m.failed) return;   // scaduta: non si completa più (si può solo riprogrammare)
     if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(m.due) }), 'bad'); sfx('err'); return; }
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
@@ -2235,7 +2235,9 @@
     const rtn = routineOf(m);
     if (rtn) card.appendChild(mk('p', 'm-routine', !m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
     if (failedNow) card.appendChild(mk('p', 'm-still', T('m.still')));
-    card.appendChild(chips(m.done ? m.done.applied : m.rewards));
+    const chipBox = chips(m.done ? m.done.applied : m.rewards);
+    if (failedNow) chipBox.classList.add('missed');   // ricompensa che non arriverà più
+    card.appendChild(chipBox);
     if (m.done && m.failed) {
       card.appendChild(mk('p', 'm-pen', T('m.pen.late', { loss: lossText(m.failed.applied) })));
     } else if (failedNow) {
@@ -2255,7 +2257,6 @@
     if (m.done) {
       act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
     } else if (failedNow) {
-      act.appendChild(btn(' add', T('btn.complete'), T('aria.late'), () => completeMission(m.id)));
       if (!m.rid) {
         const hadPenalty = hasAny(m.penalty);
         act.appendChild(btn('', T(hadPenalty ? 'btn.undopen' : 'btn.resched'), T(hadPenalty ? 'aria.undopen' : 'aria.resched'), () => revertPenalty(m.id)));
@@ -2273,7 +2274,7 @@
         act.appendChild(a);
       }
     }
-    card.appendChild(act);
+    if (act.childElementCount) card.appendChild(act);   // una routine fallita non ha pulsanti
     return card;
   }
 
@@ -2295,7 +2296,6 @@
       box.appendChild(more);
     }
   }
-  // avviso sotto l'intestazione: missioni che scadono oggi e missioni già scadute (senza penalità)
   let curView = 'char';
 
   /* ================= musica ================= */
@@ -2407,19 +2407,6 @@
   }, true));
   document.addEventListener('visibilitychange', () => { if (document.hidden) musicStop(true); else musicSync(); });
   paintMusic();
-  function updateNotice() {
-    const box = $('due-notice');
-    const today = todayStr();
-    let dueToday = 0, late = 0;
-    missions.forEach(m => {
-      if (m.done || m.failed || !m.due) return;
-      if (isLate(m)) late++; else if (m.due === today) dueToday++;
-    });
-    box.textContent = '';
-    if (dueToday) box.appendChild(mk('span', null, TN('ntf.today', dueToday)));
-    if (late) box.appendChild(mk('span', null, TN('ntf.late', late)));
-    box.hidden = curView === 'missions' || !(dueToday || late);
-  }
   // numeri disegnati a pixel con le stesse forme del font dell'app (griglia 6 x 9 per cifra), così restano nitidi a qualsiasi dimensione dello schermo
   const DIGITS = {
     '0': ['..X...', '.X.X..', 'X...X.', 'X...X.', 'X...X.', 'X...X.', 'X...X.', '.X.X..', '..X...'],
@@ -2484,7 +2471,6 @@
     done.slice(0, doneShown).forEach(m => dl.appendChild(missionCard(m)));
     $('m-more').hidden = done.length <= doneShown;
     $('m-more').textContent = T('mis.more.n', { n: done.length - doneShown });
-    updateNotice();
     const nb = $('nav-badge');
     const nbTxt = todo.length > 99 ? '99+' : String(todo.length);
     nb.dataset.n = nbTxt;
@@ -2612,7 +2598,6 @@
     const prevView = curView;
     curView = name;
     musicSync(name === 'char' && prevView !== 'char');
-    updateNotice();
     Object.entries(VIEWS).forEach(([n, [t, v]]) => {
       $(v).hidden = n !== name;
       $(t).setAttribute('aria-selected', String(n === name));
@@ -2644,7 +2629,6 @@
       $(VIEWS[to][0]).focus();
     });
   });
-  $('due-notice').addEventListener('click', () => { goView('missions'); $('vt-missions').focus(); });
   $('m-new').addEventListener('click', () => openMissionForm(null, null));
   $('day-new').addEventListener('click', () => openMissionForm(null, selDate));
   $('m-more').addEventListener('click', () => { doneShown += PAGE; renderMissions(); });
