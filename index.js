@@ -2014,7 +2014,7 @@
     sfx('add');
     // si apre la modifica per scegliere una nuova data; se la chiudi, la missione resta senza data
     openMissionForm(m.id);
-    mfMsg(T('msg.penrev.form'));
+    mfMsg(T(hasAny(restored) ? 'msg.penrev.form' : 'msg.resched.form'));
     $('mf-date').focus();
   }
   function showPenalties(list, before, after, ovBefore, ovAfter) {

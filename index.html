@@ -238,7 +238,7 @@
         <div id="fit-wrap" hidden>
           <p class="label" id="l-fit" data-i18n="look.fit">Adattamento</p>
           <div class="seg" id="seg-fit" role="radiogroup" aria-labelledby="l-fit"></div>
-          <p class="tip" data-i18n="fit.tip">Adatta mostra tutta l'immagine e riempie le bande con una copia sfocata. Riempi copre lo schermo tagliando i bordi. Allunga la deforma per riempirlo.</p>
+          <p class="tip" data-i18n="fit.tip">Adatta mostra tutta l'immagine e riempie le bande con una copia sfocata. Riempi copre lo schermo tagliando i bordi. Allunga la deforma per riempire lo schermo.</p>
         </div>
       </div>
 
@@ -379,10 +379,10 @@
           <label for="mf-bonus-xp" data-i18n="mf.bonus.xp">XP in più per ogni statistica</label>
           <input class="xp-in" id="mf-bonus-xp" type="number" min="1" step="1" inputmode="numeric" placeholder="50" autocomplete="off">
         </div>
-        <p class="tip" data-i18n="mf.bonus.tip">Se completi la routine in tempo per tanti giorni di fila, ricevi il bonus. Lascia vuoto per non averlo.</p>
+        <p class="tip" data-i18n="mf.bonus.tip">Se completi la routine in tempo per quel numero di giorni di fila, ricevi il bonus. Lascia vuoto se non lo vuoi.</p>
         <p class="label" data-i18n="mf.pause.h">Pausa (per esempio le vacanze)</p>
         <div class="inline">
-          <label for="mf-pause-from" data-i18n="mf.pause.from">Dal (vuoto: da oggi)</label>
+          <label for="mf-pause-from" data-i18n="mf.pause.from">Dal (se vuoto, da oggi)</label>
           <input class="text-in date" id="mf-pause-from" type="date">
         </div>
         <div class="inline">
@@ -416,7 +416,7 @@
     <div class="field">
       <p class="label" data-i18n="mf.pen">Penalità (facoltativa)</p>
       <div class="xp-grid" id="mf-pen"></div>
-      <p class="tip" id="mf-pen-tip">XP che perdi se non la completi entro la data. Serve una data. Si perdono una sola volta, appena scade.</p>
+      <p class="tip" id="mf-pen-tip">XP che perdi se non la completi entro la data, quindi serve una data. Li perdi una sola volta, appena la missione scade.</p>
     </div>
 
     <p class="data-msg" id="mf-msg" role="status" aria-live="polite"></p>
