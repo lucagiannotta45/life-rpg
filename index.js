@@ -504,6 +504,7 @@
   let xp = loadLocal();
   let touched = false;
   let dbRef = null, writing = false, again = false;
+  let fbAuth = null, fbDb = null, fbUser = null, accBusy = false;   // account Firebase (vedi la sezione "account")
   let downloadsCap = null;
 
   // Google Drive: stato del collegamento (le funzioni sono più sotto, nella sezione dedicata).
@@ -1519,6 +1520,7 @@
     renderMissionViews();
     renderInfo();
     paintDrive();
+    paintAccount();
     paintFormRepeat();
     if (!rmodal.hidden) renderRoutines();
   }
@@ -3229,68 +3231,153 @@
   wireDrops();
   render(false);
 
-  async function initCloudInner() {
-    if (!window.claude || typeof window.claude.use !== 'function') { setSaveState('local'); return; }
+  /* ================= account (Firebase) ================= */
+  // Accesso con Google e salvataggio nel database Firestore del progetto "life-rpg".
+  // Questi valori non sono segreti: finiscono comunque nel codice pubblico dell'app.
+  // Chi può leggere o scrivere cosa lo decidono le regole di sicurezza su Firebase.
+  const FIREBASE_CONFIG = {
+    apiKey: 'AIzaSyBUytbsbm5MH1lUttO9Cbw8ILAH2DRF1qM',
+    authDomain: 'life-rpg-1a118.firebaseapp.com',
+    projectId: 'life-rpg-1a118',
+    storageBucket: 'life-rpg-1a118.firebasestorage.app',
+    messagingSenderId: '742342774863',
+    appId: '1:742342774863:web:ee6e00c69eae4da001da3a',
+  };
+  // l'accesso funziona solo da un indirizzo web (https o localhost), non aprendo il file dal dispositivo
+  function fbUsable() { return !!window.firebase && (location.protocol === 'https:' || location.hostname === 'localhost'); }
+  function fbInit() {
+    if (fbAuth || !fbUsable()) return !!fbAuth;
     try {
-      const [db, user, dl] = await Promise.all([
-        window.claude.use('db'), window.claude.use('user'), window.claude.use('downloads'),
-      ]);
-      downloadsCap = dl || null;
-      const uid = user ? await user.id() : null;
-      if (!db || !uid) { setSaveState('local'); return; }
-      const ref = db.doc('data/users/' + uid + '/rpg');
-      const snap = await ref.get();
-      dbRef = ref;
-      setSaveState('account');
-      const d = snap.exists ? snap.data() : null;
-      if (d && !touched) { xp = normalize(d.xp); saveLocal(); }
-      if (d && d.settings && !settingsTouched) {
-        settings = mergeSettings(d.settings);
-        saveSettingsLocal();
-        applyAll();
-        paintCustom();
-      }
-      // immagini: l'account è la fonte, tranne quelle modificate in questa sessione
-      const isnap = await ref.collection('imgs').get();
-      const remote = {};
-      isnap.docs.forEach(x => { const v = x.data() && x.data().data; if (validImg(v)) remote[x.id] = v; });
-      IMG_NAMES.forEach(n => {
-        if (imgTouched.has(n)) { imgQueue.add(n); return; }
-        const r = remote[n] || null;
-        if (imgs[n] && imgs[n].length > CLOUD_IMG_MAX) return;   // troppo grande per l'account: resta quella di questo dispositivo
-        if (imgs[n] !== r) { imgs[n] = r; saveImgLocal(n); }
-      });
-      applyImages();
-      paintCustom();
-      if (imgQueue.size) flushImgs();
-      // missioni: un documento per mese; l'account è la fonte, tranne i mesi modificati in questa sessione
-      const msnap = await ref.collection('m').get();
-      const remoteM = {};
-      msnap.docs.forEach(x => {
-        remoteM[x.id] = normalizeMissions(x.data() && x.data().items).filter(m => monthOf(m) === x.id);
-      });
-      const localM = {};
-      missions.forEach(m => { (localM[monthOf(m)] = localM[monthOf(m)] || []).push(m); });
-      const mergedM = [];
-      new Set([...Object.keys(remoteM), ...Object.keys(localM)]).forEach(ym => {
-        if (missionsTouched.has(ym)) { mergedM.push(...(localM[ym] || [])); monthQueue.add(ym); }
-        else if (ym in remoteM) mergedM.push(...remoteM[ym]);
-        else { mergedM.push(...(localM[ym] || [])); if ((localM[ym] || []).length) monthQueue.add(ym); }
-      });
-      missions = mergedM;
-      saveMissionsLocal();
-      renderMissionViews();
-      if (monthQueue.size) flushMissions();
-      render(true);
-      const needUpload = touched || settingsTouched
-        || (!d && (hasProgress(xp) || !isDefaultSettings()))
-        || (d && !d.settings && !isDefaultSettings());
-      if (needUpload) flush();
-    } catch (e) {
-      console.warn('cloud', e);
-      if (!dbRef) setSaveState('local');
-    }
+      const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
+      fbAuth = app.auth();
+      fbDb = app.firestore();
+      return true;
+    } catch (e) { console.warn('firebase', e); return false; }
   }
+  // al primo avvio Firebase ritrova da solo l'accesso fatto in precedenza (anche offline)
+  function fbFirstUser() { return new Promise(res => { const off = fbAuth.onAuthStateChanged(u => { off(); res(u); }); }); }
+
+  // carica i dati dall'account (ref = documento del giocatore) e li unisce a quelli di questo dispositivo
+  async function cloudLoad(ref) {
+    const snap = await ref.get();
+    dbRef = ref;
+    setSaveState('account');
+    const d = snap.exists ? snap.data() : null;
+    if (d && !touched) { xp = normalize(d.xp); saveLocal(); }
+    if (d && d.settings && !settingsTouched) {
+      settings = mergeSettings(d.settings);
+      saveSettingsLocal();
+      applyAll();
+      paintCustom();
+    }
+    // immagini: l'account è la fonte, tranne quelle modificate in questa sessione
+    const isnap = await ref.collection('imgs').get();
+    const remote = {};
+    isnap.docs.forEach(x => { const v = x.data() && x.data().data; if (validImg(v)) remote[x.id] = v; });
+    IMG_NAMES.forEach(n => {
+      if (imgTouched.has(n)) { imgQueue.add(n); return; }
+      const r = remote[n] || null;
+      if (imgs[n] && imgs[n].length > CLOUD_IMG_MAX) return;   // troppo grande per l'account: resta quella di questo dispositivo
+      if (imgs[n] !== r) { imgs[n] = r; saveImgLocal(n); }
+    });
+    applyImages();
+    paintCustom();
+    if (imgQueue.size) flushImgs();
+    // missioni: un documento per mese; l'account è la fonte, tranne i mesi modificati in questa sessione
+    const msnap = await ref.collection('m').get();
+    const remoteM = {};
+    msnap.docs.forEach(x => {
+      remoteM[x.id] = normalizeMissions(x.data() && x.data().items).filter(m => monthOf(m) === x.id);
+    });
+    const localM = {};
+    missions.forEach(m => { (localM[monthOf(m)] = localM[monthOf(m)] || []).push(m); });
+    const mergedM = [];
+    new Set([...Object.keys(remoteM), ...Object.keys(localM)]).forEach(ym => {
+      if (missionsTouched.has(ym)) { mergedM.push(...(localM[ym] || [])); monthQueue.add(ym); }
+      else if (ym in remoteM) mergedM.push(...remoteM[ym]);
+      else { mergedM.push(...(localM[ym] || [])); if ((localM[ym] || []).length) monthQueue.add(ym); }
+    });
+    missions = mergedM;
+    saveMissionsLocal();
+    renderMissionViews();
+    if (monthQueue.size) flushMissions();
+    render(true);
+    const needUpload = touched || settingsTouched
+      || (!d && (hasProgress(xp) || !isDefaultSettings()))
+      || (d && !d.settings && !isDefaultSettings());
+    if (needUpload) flush();
+  }
+
+  async function initCloudInner() {
+    // pagina pubblicata come artifact su claude.ai: usa il salvataggio di quella piattaforma
+    if (window.claude && typeof window.claude.use === 'function') {
+      try {
+        const [db, user, dl] = await Promise.all([
+          window.claude.use('db'), window.claude.use('user'), window.claude.use('downloads'),
+        ]);
+        downloadsCap = dl || null;
+        const uid = user ? await user.id() : null;
+        if (!db || !uid) { setSaveState('local'); return; }
+        await cloudLoad(db.doc('data/users/' + uid + '/rpg'));
+      } catch (e) {
+        console.warn('cloud', e);
+        if (!dbRef) setSaveState('local');
+      }
+      return;
+    }
+    // app sul sito: account Firebase, se hai già fatto l'accesso
+    if (!fbInit()) { setSaveState('local'); paintAccount(); return; }
+    fbUser = await fbFirstUser();
+    paintAccount();
+    if (!fbUser) { setSaveState('local'); return; }
+    try { await cloudLoad(fbDb.doc('users/' + fbUser.uid)); }
+    catch (e) { console.warn('cloud', e); if (!dbRef) setSaveState('local'); }
+    paintAccount();
+  }
+
+  // riquadro "Account" nella scheda Dati delle impostazioni
+  function paintAccount() {
+    const box = $('acc-box');
+    if (!box) return;
+    const usable = fbUsable();
+    box.hidden = !!(window.claude && typeof window.claude.use === 'function');   // su claude.ai l'account è già quello della piattaforma
+    $('acc-in').hidden = !usable || !!fbUser;
+    $('acc-out').hidden = !fbUser;
+    $('acc-in').disabled = $('acc-out').disabled = accBusy;
+    const who = fbUser ? (fbUser.email || fbUser.displayName || '') : '';
+    $('acc-status').textContent = !usable ? T('acc.unavail') : fbUser ? T('acc.as', { who }) : T('acc.off');
+  }
+  function accMsg(t) { $('acc-msg').textContent = t || ''; }
+  $('acc-in').addEventListener('click', async () => {
+    if (accBusy || !fbInit()) return;
+    accBusy = true; accMsg(''); paintAccount();
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    try {
+      const r = await fbAuth.signInWithPopup(provider);
+      fbUser = r.user;
+      paintAccount();
+      await cloudLoad(fbDb.doc('users/' + fbUser.uid));
+      renderInfo();
+      sfx('ok');
+    } catch (e) {
+      const code = e && e.code || '';
+      if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') {
+        try { await fbAuth.signInWithRedirect(provider); return; } catch (e2) { console.warn('auth', e2); }
+      }
+      if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') { accMsg(T('acc.err')); console.warn('auth', e); }
+    }
+    accBusy = false; paintAccount();
+  });
+  $('acc-out').addEventListener('click', async () => {
+    if (accBusy || !fbAuth) return;
+    accBusy = true; paintAccount();
+    try { await fbAuth.signOut(); } catch (e) { console.warn('auth', e); }
+    fbUser = null; dbRef = null;
+    setSaveState('local');
+    accMsg(T('acc.bye'));
+    accBusy = false; paintAccount(); renderInfo();
+  });
   async function initCloud() {
     try { await initCloudInner(); }
     finally { penaltyReady = true; checkPenalties(); }

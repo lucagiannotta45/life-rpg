@@ -256,6 +256,16 @@
     </div>
 
     <div role="tabpanel" id="pane-data" aria-labelledby="tab-data" hidden>
+      <div class="field" id="acc-box">
+        <p class="label" data-i18n="acc.h">Account</p>
+        <p data-i18n="acc.desc">Accedi con Google per salvare i progressi nel tuo account e ritrovarli su ogni dispositivo.</p>
+        <p class="data-msg" id="acc-status" role="status" aria-live="polite"></p>
+        <div class="data-actions">
+          <button type="button" class="btn" id="acc-in" data-i18n="acc.signin">Accedi con Google</button>
+          <button type="button" class="btn ghost" id="acc-out" hidden data-i18n="acc.signout">Esci</button>
+        </div>
+        <p class="data-msg" id="acc-msg" role="status" aria-live="polite"></p>
+      </div>
       <div class="field" id="drive-box" hidden>
         <p class="label" data-i18n="drive.h">Google Drive</p>
         <p data-i18n="drive.desc">Salva una copia dei tuoi dati nel tuo Google Drive, in una cartella nascosta usata solo da questa app. Così li ritrovi anche se cancelli i dati del browser o cambi telefono.</p>
@@ -428,6 +438,9 @@
 </div>
 
 
+<script src="firebase/firebase-app-compat.js" defer></script>
+<script src="firebase/firebase-auth-compat.js" defer></script>
+<script src="firebase/firebase-firestore-compat.js" defer></script>
 <script src="i18n.js" defer></script>
 <script src="index.js" defer></script>
 </body>
