@@ -3052,7 +3052,7 @@
     // dati
     b = section('data', T('info.data.h'));
     p(b, dbRef ? T('info.data.cloud') : storageOk ? T('info.data.local') : T('info.data.nostorage'));
-    p(b, T('info.data.p3'));
+    p(b, T(dbRef ? 'info.data.p3' : 'info.data.p3.local'));   // con l'account il backup è una copia di sicurezza, senza è l'unico modo di trasferire i dati
   }
 
   /* ================= avvio ================= */
