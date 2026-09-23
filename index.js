@@ -3044,6 +3044,11 @@
     p(b, T('info.mis.p5'));
     p(b, T('info.mis.p6'));
 
+    // amici
+    b = section('friends', T('info.fr.h'));
+    p(b, T('info.fr.p1'));
+    p(b, T('info.fr.p2'));
+
     // dati
     b = section('data', T('info.data.h'));
     p(b, dbRef ? T('info.data.cloud') : storageOk ? T('info.data.local') : T('info.data.nostorage'));

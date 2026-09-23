@@ -151,7 +151,7 @@
         <div class="img-actions">
           <button type="button" class="btn small toggle" id="btn-title-show" aria-pressed="true">Titolo mostrato</button>
         </div>
-        <p class="tip" data-i18n="look.title.tip">Se lasci il campo vuoto resta “Life RPG”. Puoi anche nasconderlo del tutto.</p>
+        <p class="tip" data-i18n="look.title.tip">Se lasci il campo vuoto, compare “Life RPG”. Puoi anche nasconderlo del tutto.</p>
       </div>
 
       <div class="field">
@@ -181,7 +181,7 @@
           <input type="color" id="in-title-color" value="#ffd54a">
           <button type="button" class="btn small reset" id="title-color-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
         </div>
-        <p class="tip" data-i18n="look.c.tip">Il nome e il titolo Life RPG usano di base il colore dei titoli e dei numeri.</p>
+        <p class="tip" data-i18n="look.c.tip">Di base, il tuo nome e il titolo in alto usano il colore di “Titoli e numeri”.</p>
       </div>
 
       <div class="field">
@@ -234,7 +234,7 @@
       <div class="field">
         <p class="label" id="l-lang" data-i18n="lang.label">Lingua</p>
         <div class="seg" id="seg-lang" role="radiogroup" aria-labelledby="l-lang"></div>
-        <p class="tip" data-i18n="lang.tip">Cambia la lingua di tutta la pagina.</p>
+        <p class="tip" data-i18n="lang.tip">Cambia la lingua di tutta l'app.</p>
       </div>
     </div>
 
@@ -246,12 +246,12 @@
       </div>
       <div class="field">
         <p class="label" data-i18n="sound.menu.label">Suoni dei menu</p>
-        <p data-i18n="sound.menu.desc">Suoni leggeri quando cambi schermata, apri o chiudi una finestra, salvi o elimini. Seguono l'interruttore qui sopra: se spegni tutto il suono, restano spenti. Vale solo per questo dispositivo.</p>
+        <p data-i18n="sound.menu.desc">Suoni leggeri quando cambi schermata, apri o chiudi una finestra, salvi o elimini. Dipendono dall'interruttore qui sopra: se spegni gli effetti sonori, si spengono anche questi. Vale solo per questo dispositivo.</p>
         <button type="button" class="btn small toggle" id="btn-menu-sound" aria-pressed="true">Suoni dei menu accesi</button>
       </div>
       <div class="field">
         <p class="label" data-i18n="music.label">Musica</p>
-        <p data-i18n="music.desc">Una musica di sottofondo che si ripete. Nella scheda Personaggio suona al volume scelto, nelle altre si abbassa da sola. Parte al primo tocco. Vale solo per questo dispositivo.</p>
+        <p data-i18n="music.desc">Una musica di sottofondo che cambia secondo il tuo titolo. Nella scheda Personaggio suona al volume scelto, nelle altre si abbassa da sola. Parte al primo tocco. Vale solo per questo dispositivo.</p>
         <button type="button" class="btn small toggle" id="btn-music" aria-pressed="true">Musica accesa</button>
       </div>
       <div class="field">
@@ -273,7 +273,7 @@
       </div>
       <div class="field">
         <p class="label" data-i18n="data.label">Salvataggio</p>
-        <p data-i18n="data.desc">Il backup contiene progressi, missioni, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. “Azzera tutto” cancella i progressi e le missioni, ma non l'aspetto.</p>
+        <p data-i18n="data.desc">Il backup contiene progressi, missioni, routine, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. “Azzera tutto” cancella progressi, missioni e routine, ma non l'aspetto.</p>
         <div class="data-actions">
           <button type="button" class="btn" id="btn-export" data-i18n="data.export">Esporta salvataggio</button>
           <button type="button" class="btn" id="btn-import" data-i18n="data.import">Importa salvataggio</button>
@@ -408,7 +408,7 @@
 <div class="modal" id="rmodal" hidden>
   <div class="win modal-win wide" role="dialog" aria-modal="true" aria-labelledby="t-rmodal">
     <h2 class="win-title" id="t-rmodal" data-i18n="r.h">Routine</h2>
-    <p class="tip" id="r-empty" data-i18n="r.empty">Non hai ancora routine.</p>
+    <p class="tip" id="r-empty" data-i18n="r.empty">Non hai ancora routine. Una routine è una missione che compare da sola nei giorni che scegli.</p>
     <div class="mlist" id="r-list"></div>
     <div class="modal-actions">
       <button type="button" class="btn add" id="r-new" data-i18n="r.new">Nuova routine</button>
@@ -474,7 +474,7 @@
 
 <div class="modal" id="pmodal" hidden>
   <div class="win modal-win wide" role="alertdialog" aria-modal="true" aria-labelledby="t-pen" aria-describedby="pen-sum">
-    <h2 class="win-title" id="t-pen" data-i18n="pen.title">Missioni scadute</h2>
+    <h2 class="win-title" id="t-pen" data-i18n="pen.title">Missioni fallite</h2>
     <p id="pen-sum"></p>
     <div class="mlist" id="pen-list"></div>
     <div id="pen-drops"></div>
