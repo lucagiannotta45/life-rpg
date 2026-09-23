@@ -747,7 +747,7 @@
   .stars { display: flex; gap: 2px; }
   .star-btn { background: none; border: none; padding: 3px; margin: 0; cursor: pointer; line-height: 0;
     color: color-mix(in srgb, var(--ink-soft) 45%, transparent); }
-  .star-btn svg { width: 30px; height: 30px; display: block; }
+  .star-btn svg { display: block; }   /* misura data dal disegno a pixel (9 × 3 px), così i pixel restano regolari */
   .star-btn.filled { color: var(--gold); }
   .star-btn:hover { color: var(--gold); }
   .star-btn:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; border-radius: 4px; }
@@ -757,12 +757,11 @@
   .xp-counter.warn { color: var(--bad); }
 
   /* ---------- durata/difficoltà nell'elenco (sola lettura, piccole) ---------- */
-  .m-stars { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 0; font-size: var(--fs-s); color: var(--ink-soft); }
-  .m-stars-row { display: flex; align-items: center; gap: 6px; }
+  .m-stars { display: grid; grid-template-columns: max-content auto; justify-content: start; align-items: center; gap: 2px 10px; margin: 6px 0 0; font-size: var(--fs-s); color: var(--ink-soft); }
   .mini-stars { display: inline-flex; gap: 1px; vertical-align: -2px; }
   .mini-star { color: color-mix(in srgb, var(--ink-soft) 45%, transparent); }
   .mini-star.filled { color: var(--gold); }
-  .mini-star svg { width: 14px; height: 14px; display: block; }
+  .mini-star svg { display: block; }   /* 9 × 2 px */
   .m-still { margin: 8px 0 -6px; font-size: var(--fs-s); color: var(--ink-soft); }
   .chips.missed { opacity: .5; }
 

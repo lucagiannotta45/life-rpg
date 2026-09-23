@@ -2031,12 +2031,9 @@
   function starsLine(stars) {
     if (!stars) return null;   // missione creata prima di questo sistema: niente da mostrare
     const wrap = mk('div', 'm-stars');
-    const row = (label, n) => {
-      const r = mk('span', 'm-stars-row');
-      r.append(label + ' ', miniStars(n));
-      return r;
-    };
-    wrap.append(row(T('mf.reward.dur'), stars.d), row(T('mf.reward.dif'), stars.f));
+    // due file in una griglia: le stelle di Durata e di Difficoltà partono dallo stesso punto
+    wrap.append(mk('span', 'm-stars-lbl', T('mf.reward.dur')), miniStars(stars.d),
+                mk('span', 'm-stars-lbl', T('mf.reward.dif')), miniStars(stars.f));
     wrap.setAttribute('aria-label', T('m.stars.aria', { d: stars.d, f: stars.f }));
     return wrap;
   }
@@ -2533,13 +2530,14 @@
     inp.addEventListener('input', paintXpCounter);
   });
   let mfDur = 0, mfDif = 0, mfLegacyTotal = null;   // 0 = nessuna stella scelta; mfLegacyTotal: missione com'era prima di questo sistema
-  const starRows = ['...X...', '...X...', '..XXX..', 'XXXXXXX', '.XXXXX.', '.X...X.', 'X.....X'];
+  // stella a pixel 9×9 (usata nella finestra e nei riepiloghi); si disegna sempre a pixel interi
+  const starRows = ['....X....', '....X....', '...XXX...', 'XXXXXXXXX', '.XXXXXXX.', '..XXXXX..', '..XXXXX..', '.XXX.XXX.', '.X.....X.'];
   function buildStars(box, onSet) {
     const btns = [];
     for (let n = 1; n <= 5; n++) {
       const b = mk('button', 'star-btn');
       b.type = 'button'; b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', 'false'); b.setAttribute('aria-label', String(n));
-      b.innerHTML = iconSvg(starRows, 4);
+      b.innerHTML = iconSvg(starRows, 3);
       b.addEventListener('click', () => onSet(n));
       box.appendChild(b);
       btns.push(b);
