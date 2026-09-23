@@ -1099,11 +1099,12 @@
   function resetArm(on) {
     clearTimeout(armTimer);
     resetBtn.dataset.armed = on ? '1' : '';
-    resetBtn.textContent = on ? T('data.reset.confirm') : T('data.reset');
+    resetBtn.textContent = on ? T('btn.confirm') : T('data.reset');
+    if (on) resetBtn.setAttribute('aria-label', T('data.reset.confirm')); else resetBtn.removeAttribute('aria-label');
     if (on) armTimer = setTimeout(() => resetArm(false), 4000);
   }
   resetBtn.addEventListener('click', () => {
-    if (!resetBtn.dataset.armed) { resetArm(true); dataMsg(T('data.msg.armed')); return; }
+    if (!resetBtn.dataset.armed) { resetArm(true); return; }   // solo "Azzera tutto" → "Conferma", nello stesso punto
     resetArm(false);
     xp = blank(); touched = true; persist(); render(true);
     const months = new Set(missions.map(monthOf));
@@ -1508,7 +1509,8 @@
     clearTimeout(custArmTimer);
     const b = $('btn-custom-reset');
     b.dataset.armed = on ? '1' : '';
-    b.textContent = on ? T('look.reset.confirm') : T('look.reset');
+    b.textContent = on ? T('btn.confirm') : T('look.reset');
+    if (on) b.setAttribute('aria-label', T('look.reset.confirm')); else b.removeAttribute('aria-label');
     if (on) custArmTimer = setTimeout(() => custResetArm(false), 4000);
   }
 
@@ -2620,7 +2622,8 @@
     clearTimeout(mfArmTimer);
     const b = $('mf-del');
     b.dataset.armed = on ? '1' : '';
-    b.textContent = on ? T('btn.delete.confirm') : T('btn.delete');
+    b.textContent = on ? T('btn.confirm') : T('btn.delete');
+    if (on) b.setAttribute('aria-label', T('btn.delete.confirm')); else b.removeAttribute('aria-label');
     if (on) mfArmTimer = setTimeout(() => mfDelArm(false), 4000);
   }
   function mfMsg(t) { $('mf-msg').textContent = t; }
@@ -2798,7 +2801,7 @@
   function deleteRoutine() {
     const r = routines.find(x => x.id === editingRid);
     if (!r) return;
-    if (!$('mf-del').dataset.armed) { mfDelArm(true); mfMsg(T('mf.del.confirm')); return; }
+    if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
     const months = new Set();
     missions = missions.filter(m => {
       if (m.rid === r.id && !m.done && !m.failed) { months.add(monthOf(m)); return false; }
@@ -2884,7 +2887,8 @@
     clearTimeout(selArmTimer);
     document.querySelectorAll('.sel-bar [data-sel="del"]').forEach(b => {
       b.dataset.armed = on ? '1' : '';
-      b.textContent = on ? T('sel.del.confirm', { n: sel.ids.size }) : T('sel.del', { n: sel.ids.size });
+      b.textContent = on ? T('btn.confirm') : T('sel.del', { n: sel.ids.size });
+      if (on) b.setAttribute('aria-label', T('sel.del.confirm', { n: sel.ids.size })); else b.removeAttribute('aria-label');
     });
     if (on) selArmTimer = setTimeout(() => selArm(false), 4000);
   }
@@ -2948,7 +2952,7 @@
     if (editingRid) { deleteRoutine(); return; }
     const m = editingId ? missions.find(x => x.id === editingId) : null;
     if (!m || m.done) return;
-    if (!$('mf-del').dataset.armed) { mfDelArm(true); mfMsg(T('mf.del.confirm')); return; }
+    if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
     missions = missions.filter(x => x !== m);
     touchMonth(monthOf(m));
     sfx('del');
@@ -3686,7 +3690,8 @@
     clearTimeout(fpArmTimer);
     const b = $('fp-remove');
     b.dataset.armed = on ? '1' : '';
-    b.textContent = on ? T('fr.remove.confirm') : T('fr.remove');
+    b.textContent = on ? T('btn.confirm') : T('fr.remove');
+    if (on) b.setAttribute('aria-label', T('fr.remove.confirm')); else b.removeAttribute('aria-label');
     if (on) fpArmTimer = setTimeout(() => fpArm(false), 4000);
   }
   function backToFriends(msg) { closeModal(); openFriends(msg); }
