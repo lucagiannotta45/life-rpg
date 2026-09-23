@@ -2601,17 +2601,36 @@
     $('mf-rep').textContent = formRepeat ? T('mf.rep.on') : T('mf.rep.off');
     $('mf-rep').setAttribute('aria-pressed', String(formRepeat));
     $('mf-rep-box').hidden = !formRepeat;
-    $('mf-date-field').hidden = formRepeat;
+    $('mf-date-col').hidden = formRepeat;   // una routine non ha data, solo l'ora
     $('mf-pen-tip').textContent = formRepeat ? T('mf.pen.tip.r') : T('mf.pen.tip');
+    $('mf-pen-on').textContent = penOn ? T('mf.pen.on') : T('mf.pen.off');   // (anche quando cambi lingua)
     paintDayChips();
   }
   function setFormRepeat(on) { formRepeat = on; paintFormRepeat(); syncTime(); }
-  // l'ora ha senso solo con una data (o in una routine)
+  // l'ora ha senso solo con una data (o in una routine): senza, il campo e la spiegazione non si vedono
   function syncTime() {
-    const has = formRepeat || !!$('mf-date').value;
-    $('mf-time').disabled = !has;
-    $('mf-notime').disabled = !has;
+    const hasDate = !!$('mf-date').value, has = formRepeat || hasDate;
     if (!has) $('mf-time').value = '';
+    $('mf-time-col').hidden = !has;
+    $('mf-time-tip').hidden = !has;
+    $('mf-dt-grid').classList.toggle('two', !formRepeat && has);
+    $('mf-nodate').hidden = formRepeat || !hasDate;
+    $('mf-notime').hidden = !$('mf-time').value;
+  }
+  // penalità: interruttore; spento = nessuna penalità (i numeri scritti restano, se lo riaccendi prima di salvare)
+  let penOn = false;
+  function setPenOn(on, fromUser) {
+    penOn = on;
+    $('mf-pen-on').setAttribute('aria-pressed', String(on));
+    $('mf-pen-on').textContent = on ? T('mf.pen.on') : T('mf.pen.off');
+    $('mf-pen-box').hidden = !on;
+    if (on && fromUser && !formRepeat && !$('mf-date').value) mfMsg(T('mf.err.pendate'));   // promemoria subito, non al salvataggio
+    else if (fromUser) mfMsg('');
+  }
+  // descrizione: si apre quando serve (aperta già se la missione ne ha una)
+  function setDescOpen(open) {
+    $('mf-desc-box').hidden = !open;
+    $('mf-desc-add').hidden = open;
   }
   function openMissionForm(id, dateStr) {
     const m0 = id ? missions.find(x => x.id === id) : null;
@@ -2634,6 +2653,8 @@
     $('mf-date').value = m ? (m.due || '') : (dateStr || '');
     $('mf-time').value = m && m.dueTime ? m.dueTime : '';
     syncTime();
+    setPenOn(!!(m && m.penalty && STATS.some(s => m.penalty[s.key] > 0)));
+    setDescOpen(!!(m && m.desc));
     $('mf-del').hidden = !m;
     mfDelArm(false);
     mfMsg('');
@@ -2666,6 +2687,8 @@
     $('mf-pause-from').value = r && r.pause ? r.pause.from : '';
     $('mf-pause-until').value = r && r.pause ? r.pause.until : '';
     syncTime();
+    setPenOn(!!(r && r.penalty && STATS.some(s => r.penalty[s.key] > 0)));
+    setDescOpen(!!(r && r.desc));
     $('mf-del').hidden = !r;
     mfDelArm(false);
     mfMsg('');
@@ -2771,7 +2794,7 @@
     const penalty = {};
     let anyPen = false;
     for (const s of STATS) {
-      const raw = penInputs[s.key].value.trim();
+      const raw = penOn ? penInputs[s.key].value.trim() : '';   // interruttore spento: nessuna penalità
       const n = raw === '' ? 0 : Number(raw);
       if (!Number.isInteger(n) || n < 0 || n > MAX_XP) {
         return fail(T('mf.err.pen', { max: fmt(MAX_XP) }), penInputs[s.key]);
@@ -2903,9 +2926,11 @@
   $('r-close').addEventListener('click', closeModal);
   rmodal.addEventListener('click', e => { if (e.target === rmodal) closeModal(); });
   $('mf-del').addEventListener('click', deleteMission);
-  $('mf-nodate').addEventListener('click', () => { $('mf-date').value = ''; syncTime(); });
-  $('mf-notime').addEventListener('click', () => { $('mf-time').value = ''; });
-  ['input', 'change'].forEach(t => $('mf-date').addEventListener(t, syncTime));
+  $('mf-nodate').addEventListener('click', () => { $('mf-date').value = ''; syncTime(); $('mf-date').focus(); });
+  $('mf-notime').addEventListener('click', () => { $('mf-time').value = ''; syncTime(); $('mf-time').focus(); });
+  ['input', 'change'].forEach(t => { $('mf-date').addEventListener(t, syncTime); $('mf-time').addEventListener(t, syncTime); });
+  $('mf-pen-on').addEventListener('click', () => setPenOn(!penOn, true));
+  $('mf-desc-add').addEventListener('click', () => { setDescOpen(true); $('mf-desc').focus(); });
   mform.addEventListener('click', e => { if (e.target === mform) closeModal(); });
   mform.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type !== 'date') { e.preventDefault(); submitMission(); }

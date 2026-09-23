@@ -307,30 +307,28 @@
     </div>
 
     <div class="field">
-      <label class="label" for="mf-desc" data-i18n="mf.desc">Descrizione</label>
-      <textarea class="text-in area" id="mf-desc" maxlength="500" rows="3" placeholder="Facoltativa" data-i18n-ph="mf.desc.ph"></textarea>
+      <button type="button" class="btn small ghost" id="mf-desc-add" data-i18n="mf.desc.add">+ Aggiungi descrizione</button>
+      <div id="mf-desc-box" hidden>
+        <label class="label" for="mf-desc" data-i18n="mf.desc">Descrizione</label>
+        <textarea class="text-in area" id="mf-desc" maxlength="500" rows="3" placeholder="Facoltativa" data-i18n-ph="mf.desc.ph"></textarea>
+      </div>
     </div>
 
     <div class="field">
       <p class="label" data-i18n="mf.reward.h">Ricompensa</p>
       <div class="reward-stars">
-        <div class="star-group">
-          <p class="stars-label" id="mf-dur-lbl" data-i18n="mf.reward.dur">Durata</p>
-          <div class="stars" id="mf-dur" role="radiogroup" aria-labelledby="mf-dur-lbl"></div>
-        </div>
-        <div class="star-group">
-          <p class="stars-label" id="mf-dif-lbl" data-i18n="mf.reward.dif">Difficoltà</p>
-          <div class="stars" id="mf-dif" role="radiogroup" aria-labelledby="mf-dif-lbl"></div>
-        </div>
+        <p class="stars-label" id="mf-dur-lbl" data-i18n="mf.reward.dur">Durata</p>
+        <div class="stars" id="mf-dur" role="radiogroup" aria-labelledby="mf-dur-lbl"></div>
+        <p class="stars-label" id="mf-dif-lbl" data-i18n="mf.reward.dif">Difficoltà</p>
+        <div class="stars" id="mf-dif" role="radiogroup" aria-labelledby="mf-dif-lbl"></div>
       </div>
-      <p class="tip" data-i18n="mf.reward.tip">La durata e la difficoltà decidono insieme quanti XP hai a disposizione in totale.</p>
       <p class="xp-total" id="mf-xp-total"></p>
       <div class="xp-grid" id="mf-xp"></div>
       <p class="xp-counter" id="mf-xp-counter" role="status" aria-live="polite"></p>
     </div>
 
     <div class="field" id="mf-rep-field">
-      <div id="mf-rep-toggle">
+      <div class="sw-row" id="mf-rep-toggle">
         <p class="label" data-i18n="mf.rep.label">Ripetizione</p>
         <button type="button" class="btn small toggle" id="mf-rep" aria-pressed="false">Non si ripete</button>
       </div>
@@ -368,27 +366,33 @@
       </div>
     </div>
 
-    <div class="field" id="mf-date-field">
-      <label class="label" for="mf-date" data-i18n="mf.date">Data (facoltativa)</label>
-      <div class="inline">
-        <input class="text-in date" id="mf-date" type="date">
-        <button type="button" class="btn small" id="mf-nodate" data-i18n="mf.nodate">Togli data</button>
+    <div class="field" id="mf-dt-field">
+      <div class="dt-grid" id="mf-dt-grid">
+        <div id="mf-date-col">
+          <label class="label" for="mf-date" data-i18n="mf.date">Data (facoltativa)</label>
+          <input class="text-in date" id="mf-date" type="date">
+        </div>
+        <div id="mf-time-col">
+          <label class="label" for="mf-time" data-i18n="mf.time">Ora (facoltativa)</label>
+          <input class="text-in date" id="mf-time" type="time">
+        </div>
       </div>
-    </div>
-
-    <div class="field">
-      <label class="label" for="mf-time" data-i18n="mf.time">Ora (facoltativa)</label>
-      <div class="inline">
-        <input class="text-in date" id="mf-time" type="time">
+      <div class="dt-actions">
+        <button type="button" class="btn small" id="mf-nodate" data-i18n="mf.nodate">Togli data</button>
         <button type="button" class="btn small" id="mf-notime" data-i18n="mf.notime">Togli ora</button>
       </div>
-      <p class="tip" data-i18n="mf.time.tip">Si usa l'orologio del tuo dispositivo. Senza ora, la scadenza è a fine giornata.</p>
+      <p class="tip" id="mf-time-tip" data-i18n="mf.time.tip">Si usa l'orologio del tuo dispositivo. Senza ora, la scadenza è a fine giornata.</p>
     </div>
 
     <div class="field">
-      <p class="label" data-i18n="mf.pen">Penalità (facoltativa)</p>
+      <div class="sw-row">
+        <p class="label" data-i18n="mf.pen">Penalità</p>
+        <button type="button" class="btn small toggle" id="mf-pen-on" aria-pressed="false">Nessuna penalità</button>
+      </div>
+      <div id="mf-pen-box" hidden>
       <div class="xp-grid" id="mf-pen"></div>
       <p class="tip" id="mf-pen-tip">XP che perdi se non la completi entro la data, quindi serve una data. Li perdi una sola volta, appena la missione scade.</p>
+      </div>
     </div>
 
     <p class="data-msg" id="mf-msg" role="status" aria-live="polite"></p>

@@ -369,7 +369,7 @@
   /* nella scheda Aspetto lo sfondo dietro è più chiaro, così si vedono subito le modifiche */
   #settings[data-tab="look"] { background: rgba(0, 0, 0, .28); }
   .modal-win.wide { width: min(640px, 100%); }
-  .modal-win p:not(.player-name):not(.class-name) { margin: 0 0 14px; color: var(--ink-soft); font-size: 24px; }   /* nome e ruolo (profilo di un amico) restano come nella scheda Personaggio */
+  .modal-win p:where(:not(.player-name, .class-name)) { margin: 0 0 14px; color: var(--ink-soft); font-size: 24px; }   /* nome e ruolo (profilo di un amico) restano come nella scheda Personaggio */
   .data-actions { display: grid; gap: 12px; margin-bottom: 14px; }
   .data-actions .btn { width: 100%; }
   #json-box {
@@ -589,9 +589,11 @@
   .text-in.area { min-height: 110px; font: 24px/1.3 var(--font); resize: vertical; }
   .text-in.date { width: auto; min-width: 220px; font-size: 24px; height: 48px; min-height: 48px; padding-top: 0; padding-bottom: 0; }
   .text-in { color-scheme: dark; }
-  .xp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 16px; }
-  .xp-row { display: flex; align-items: center; gap: 10px; }
-  .xp-row label { flex: 1; min-width: 0; font-size: 24px; color: var(--c); }
+  .xp-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  @media (min-width: 700px) { .xp-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }   /* schermi larghi: tutte e sei in una riga */
+  .xp-row { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 0; }
+  .xp-row label { min-width: 0; font-size: 24px; color: var(--c); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .xp-grid .xp-in { width: 100%; text-align: center; }
   .xp-in {
     width: 116px; min-height: 48px; padding: 6px 10px; text-align: right;
     font: 24px/1 var(--font); color: var(--ink-strong);
@@ -740,8 +742,8 @@
   @media (max-width: 340px) { #settings .tabs button { letter-spacing: -0.6px; } }
 
   /* ---------- ricompensa a stelle (Durata × Difficoltà) ---------- */
-  .reward-stars { display: flex; gap: 26px; flex-wrap: wrap; margin: 4px 0 2px; }
-  .star-group .stars-label { margin: 0 0 6px; font-size: var(--fs-s); color: var(--ink-soft); }
+  .reward-stars { display: grid; grid-template-columns: max-content auto; align-items: center; gap: 2px 14px; margin: 2px 0 6px; }
+  .reward-stars .stars-label { margin: 0; font-size: var(--fs-s); color: var(--ink-soft); }
   .stars { display: flex; gap: 2px; }
   .star-btn { background: none; border: none; padding: 3px; margin: 0; cursor: pointer; line-height: 0;
     color: color-mix(in srgb, var(--ink-soft) 45%, transparent); }
@@ -794,3 +796,17 @@
     background: linear-gradient(color-mix(in srgb, var(--win-c) 55%, transparent), color-mix(in srgb, var(--win-c) 80%, transparent)), var(--fp-bg) center / cover no-repeat;
   }
   .modal-win:focus { outline: none; }   /* il fuoco va sulla finestra solo per i lettori di schermo */
+  /* finestra Nuova missione / routine: sezioni un po' più raccolte */
+  #mform .field { margin-bottom: 16px; }
+  #mform .xp-total { margin: 6px 0 8px; }
+  /* data e ora affiancate (con l'ora solo quando c'è una data); i pulsanti "Togli…" sotto, solo se servono */
+  .dt-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .dt-grid.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .dt-grid .text-in.date { min-width: 0; width: 100%; }
+  .dt-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .dt-actions:has(.btn:not([hidden])) { margin-top: 10px; }
+  /* etichetta a sinistra, interruttore a destra (Ripetizione, Penalità) */
+  .sw-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; }
+  .sw-row .label { margin: 0; }
+  #mf-pen-box { margin-top: 12px; }
+  #mf-desc-add { margin: 0; }
