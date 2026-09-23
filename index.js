@@ -3206,6 +3206,7 @@
     p(b, T('info.mis.p2'));
     p(b, T('info.mis.p3'));
     p(b, T('info.mis.p4'));
+    p(b, T('info.mis.p7'));
     p(b, T('info.mis.p5'));
     p(b, T('info.mis.p6'));
 
