@@ -411,6 +411,7 @@
         desc: typeof m.desc === 'string' ? m.desc.trim().slice(0, 500) : '',
         rewards, penalty: normalizeRewards(m.penalty), due: validDate(m.due) ? m.due : null,
         from: validDate(m.from) ? m.from : null,   // disponibile dal: prima non si può completare
+        fromTime: validDate(m.from) && validTime(m.fromTime) ? m.fromTime : null,
         dueTime: validDate(m.due) && validTime(m.dueTime) ? m.dueTime : null,
         created: m.created, done: null, failed: null, stars: normalizeStars(rewards, m.stars),
       };
@@ -1666,6 +1667,13 @@
   const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
   // istante (in millisecondi) dopo il quale la missione è scaduta, con l'orologio del dispositivo:
   // alla fine dell'ora scelta (minuto compreso) oppure, senza ora, alla fine del giorno
+  // istante da cui la missione si può completare (senza ora: da mezzanotte)
+  function startMs(m) {
+    if (!m.from) return -Infinity;
+    const d = parseDate(m.from);
+    if (m.fromTime) { const [hh, mm] = m.fromTime.split(':').map(Number); d.setHours(hh, mm, 0, 0); }
+    return d.getTime();
+  }
   function dueEndMs(m) {
     if (!m.due) return Infinity;
     const d = parseDate(m.due);
@@ -1679,6 +1687,7 @@
   const fmtDay = (s, long) => cap1(parseDate(s).toLocaleDateString(locale(),
     long ? { weekday: 'long', day: 'numeric', month: 'long' } : { day: 'numeric', month: 'short' }));
   const dueLabel = m => fmtDay(m.due) + (m.dueTime ? T('time.at', { time: m.dueTime }) : '');
+  const fromLabel = m => fmtDay(m.from) + (m.fromTime ? T('time.at', { time: m.fromTime }) : '');
   const mk = (tag, cls, text) => {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
@@ -1730,8 +1739,8 @@
 
   // completare e annullare
   // ancora non completabile: la data è nel futuro
-  const availOf = m => m.rid ? m.due : m.from;   // da quando si può completare (una routine: solo il suo giorno)
-  const notYet = m => !m.done && !m.failed && !!availOf(m) && availOf(m) > todayStr();
+  // non ancora completabile: una missione prima della sua disponibilità (giorno e ora), una routine prima del suo giorno
+  const notYet = m => !m.done && !m.failed && (m.rid ? !!m.due && m.due > todayStr() : !!m.from && Date.now() < startMs(m));
   function completeMission(id) {
     const m = missions.find(x => x.id === id);
     if (!m || m.done || m.failed) return;   // scaduta: non si completa più (si può solo riprogrammare)
@@ -1742,7 +1751,7 @@
       checkPenalties();
       return;
     }
-    if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(availOf(m)) }), 'bad', true); sfx('err'); return; }
+    if (notYet(m)) { missionMsg(T('m.locked', { when: m.rid ? fmtDay(m.due) : fromLabel(m) }), 'bad', true); sfx('err'); return; }
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
     const applied = {};
@@ -2062,21 +2071,21 @@
     wrap.setAttribute('aria-label', T('m.stars.aria', { d: stars.d, f: stars.f }));
     return wrap;
   }
-  function missionCard(m, hideDate) {
+  // inCal: scheda del pannello "Giorno" del calendario, in sola lettura
+  function missionCard(m, inCal) {
     const failedNow = !!m.failed && !m.done;
     const card = mk('article', 'mission' + (m.done ? ' done' : '') + (failedNow ? ' failed' : ''));
     card.dataset.id = m.id;
     const head = mk('div', 'm-head');
     head.appendChild(mk('h3', 'm-title', m.title));
-    if (hideDate) { /* la data è già il titolo del pannello "Giorno": non ripeterla su ogni scheda */ }
-    else if (m.done) head.appendChild(mk('span', 'm-date', T('m.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
+    if (m.done) head.appendChild(mk('span', 'm-date', T('m.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
     else if (m.due) {
       const late = isLate(m);
       const txt = late ? T('m.late.on', { when: dueLabel(m) })
-        : m.from && !m.rid && m.from > todayStr() ? T('m.range', { from: fmtDay(m.from), to: dueLabel(m) })
+        : !m.rid && notYet(m) ? T('m.range', { from: fromLabel(m), to: dueLabel(m) })
         : T('m.due.by', { when: dueLabel(m) });
       head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), txt));
-    } else if (m.from && m.from > todayStr()) head.appendChild(mk('span', 'm-date', T('m.from', { when: fmtDay(m.from) })));
+    } else if (notYet(m)) head.appendChild(mk('span', 'm-date', T('m.from', { when: fromLabel(m) })));
     card.appendChild(head);
     const rtn = routineOf(m);
     if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
@@ -2103,7 +2112,11 @@
       b.addEventListener('click', fn);
       return b;
     };
-    if (m.done) {
+    if (inCal) {
+      // calendario: niente azioni sulla missione, solo Google Calendar (se serve) e il collegamento alla scheda Missioni
+      if (!m.done && !failedNow && (m.rid ? !!rtn : !!m.due)) act.appendChild(gcalLink(m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m), m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title));
+      act.appendChild(btn('', T('btn.goto'), T('aria.goto'), () => goToMission(m.id)));
+    } else if (m.done) {
       act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
     } else if (failedNow) {
       if (!m.rid) {
@@ -2114,14 +2127,6 @@
       const cb = btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
       if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }   // data nel futuro: si completa dal giorno stesso; scaduta: mai più
       act.append(cb, btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
-      if (m.rid ? !!rtn : !!m.due) {
-        const a = mk('a', 'btn small gcal', T('btn.gcal'));
-        a.href = m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m);   // per una routine: un evento che si ripete
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        a.setAttribute('aria-label', m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title);
-        act.appendChild(a);
-      }
     }
     if (act.childElementCount) card.appendChild(act);   // una routine fallita non ha pulsanti
     return card;
@@ -2420,6 +2425,30 @@
     renderDay();
     if (focus) { const b = $('cal-grid').querySelector('[data-date="' + ds + '"]'); if (b) b.focus(); }
   }
+  // collegamento "Aggiungi a Google Calendar" (per una routine: un evento che si ripete)
+  function gcalLink(href, label) {
+    const a = mk('a', 'btn small gcal', T('btn.gcal'));
+    a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.setAttribute('aria-label', label);
+    return a;
+  }
+  // dal calendario alla scheda Missioni, sulla missione (aprendo il gruppo se era dietro "Mostra altre")
+  function goToMission(id) {
+    showView('missions');
+    const find = () => $('view-missions').querySelector('.mission[data-id="' + id + '"]');
+    let card = find();
+    if (!card) {
+      doneShown = 1e9;
+      ['late', 'routine', 'today', 'soon', 'later', 'nodate', 'failed'].forEach(k => { shownBy[k] = 1e9; });
+      renderMissions();
+      card = find();
+    }
+    if (!card) return;
+    card.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+    card.tabIndex = -1;
+    card.focus({ preventScroll: true });
+    card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
+  }
   function renderDay() {
     $('day-title').textContent = fmtDay(selDate, true) + (selDate === todayStr() ? T('day.today') : '');
     const box = $('day-list');
@@ -2441,6 +2470,9 @@
         card.appendChild(routineTag(T('m.routine')));
         if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
         card.appendChild(chips(r.rewards));
+        const act = mk('div', 'm-actions');
+        act.appendChild(gcalLink(gcalRoutineUrl(r), T('aria.gcal.routine') + ' ' + r.title));
+        card.appendChild(act);
         box.appendChild(card);
       });
     }
@@ -2463,9 +2495,12 @@
     clearTimeout(expiryTimer);
     const now = Date.now();
     const next = missions.reduce((mn, m) => {
-      if (m.done || m.failed || !m.due) return mn;
+      if (m.done || m.failed) return mn;
+      const st = startMs(m);
+      if (st > now) mn = Math.min(mn, st);   // diventa disponibile
+      if (!m.due) return mn;
       const e = dueEndMs(m);
-      return e > now ? Math.min(mn, e) : mn;
+      return e > now ? Math.min(mn, e) : mn;   // scade
     }, Infinity);
     if (next === Infinity) return;
     expiryTimer = setTimeout(() => { renderMissionViews(); checkPenalties(); }, Math.min(next - now + 50, 3600000));   // al massimo un'ora: si ricontrolla
@@ -2540,7 +2575,7 @@
   const mform = $('mform');
   const xpInputs = {}, penInputs = {};
   let editingId = null, mfArmTimer = 0;
-  let formRepeat = false, editingRid = null, routinesBack = false, editingDue = null, editingFrom = null;
+  let formRepeat = false, editingRid = null, routinesBack = false, editingDue = null, editingFrom = null, editingFromTime = null;
   const dayBtns = [];
   const formLabels = [];   // etichette dei nomi delle statistiche, da aggiornare cambiando lingua
   const formRows = [];     // righe ricompensa e penalità: prendono i colori scelti nelle impostazioni
@@ -2629,7 +2664,7 @@
     if (on) b.setAttribute('aria-label', T('btn.delete.confirm')); else b.removeAttribute('aria-label');
     if (on) mfArmTimer = setTimeout(() => mfDelArm(false), 4000);
   }
-  function mfMsg(t) { $('mf-msg').textContent = t; }
+  function mfMsg(t) { $('mf-msg').textContent = t; }   // (in rosso: sono errori)
   // giorni della settimana della routine (lunedì per primo)
   WD_ALL.forEach(d => {
     const b = mk('button');
@@ -2644,8 +2679,9 @@
     $('mf-rep').textContent = formRepeat ? T('mf.rep.on') : T('mf.rep.off');
     $('mf-rep').setAttribute('aria-pressed', String(formRepeat));
     $('mf-rep-box').hidden = !formRepeat;
-    $('mf-date-col').hidden = formRepeat;   // una routine non ha scadenza né disponibilità, solo l'ora
-    $('mf-from-col').hidden = formRepeat;
+    $('mf-from-block').hidden = formRepeat;   // una routine non ha disponibilità né scadenza: solo l'ora di scadenza
+    $('mf-date').hidden = formRepeat;
+    $('mf-due-lbl').textContent = formRepeat ? T('mf.time') : T('mf.date');
     $('mf-dt-tip').hidden = formRepeat;
     $('mf-pen-tip').textContent = formRepeat ? T('mf.pen.tip.r') : T('mf.pen.tip');
     $('mf-pen-on').textContent = penOn ? T('mf.pen.on') : T('mf.pen.off');   // (anche quando cambi lingua)
@@ -2653,15 +2689,21 @@
   }
   function setFormRepeat(on) { formRepeat = on; paintFormRepeat(); syncTime(); }
   // l'ora ha senso solo con una data (o in una routine): senza, il campo e la spiegazione non si vedono
+  // l'ora compare solo dopo il giorno (nelle routine c'è solo l'ora); i "Togli" solo se c'è qualcosa da togliere
   function syncTime() {
-    const hasDate = !!$('mf-date').value, has = formRepeat || hasDate;
-    if (!has) $('mf-time').value = '';
-    $('mf-time-col').hidden = !has;
-    $('mf-time-tip').hidden = !has;
-    $('mf-dt-grid').classList.toggle('two', !formRepeat);
-    $('mf-nodate').hidden = formRepeat || !hasDate;
-    $('mf-nofrom').hidden = formRepeat || !$('mf-from').value;
+    const hasDue = !!$('mf-date').value, dueTimeOk = formRepeat || hasDue;
+    const hasFrom = !formRepeat && !!$('mf-from').value;
+    if (!dueTimeOk) $('mf-time').value = '';
+    if (!hasFrom) $('mf-from-time').value = '';
+    $('mf-time').hidden = !dueTimeOk;
+    $('mf-from-time').hidden = !hasFrom;
+    $('mf-date').parentElement.classList.toggle('two', !formRepeat && hasDue);
+    $('mf-from').parentElement.classList.toggle('two', hasFrom);
+    $('mf-nodate').hidden = formRepeat || !hasDue;
     $('mf-notime').hidden = !$('mf-time').value;
+    $('mf-nofrom').hidden = !hasFrom;
+    $('mf-nofromtime').hidden = !$('mf-from-time').value;
+    $('mf-time-tip').hidden = !(dueTimeOk || hasFrom);
   }
   // penalità: interruttore; spento = nessuna penalità (i numeri scritti restano, se lo riaccendi prima di salvare)
   let penOn = false;
@@ -2684,6 +2726,7 @@
     editingId = id; editingRid = null; routinesBack = false;
     editingDue = m0 ? m0.due : null;
     editingFrom = m0 ? m0.from : null;
+    editingFromTime = m0 ? m0.fromTime : null;
     $('mf-rep-field').hidden = !!m0;          // una missione già creata non diventa routine
     $('mf-rep-toggle').hidden = false;
     setFormRepeat(false);
@@ -2700,6 +2743,7 @@
     $('mf-from').min = todayStr();
     $('mf-date').value = m ? (m.due || '') : (dateStr || '');
     $('mf-from').value = m && !m.rid ? (m.from || '') : '';
+    $('mf-from-time').value = m && !m.rid && m.fromTime ? m.fromTime : '';
     $('mf-time').value = m && m.dueTime ? m.dueTime : '';
     syncTime();
     setPenOn(!!(m && m.penalty && STATS.some(s => m.penalty[s.key] > 0)));
@@ -2871,19 +2915,22 @@
     const fromRaw = $('mf-from').value;
     if (fromRaw && !validDate(fromRaw)) return fail(T('mf.err.date'), $('mf-from'));
     if (fromRaw && fromRaw < todayStr() && !(editingId && fromRaw === editingFrom)) return fail(T('mf.err.past'), $('mf-from'));
-    if (fromRaw && due && fromRaw > due) return fail(T('mf.err.from'), $('mf-from'));
-    const from = fromRaw || null;
+    const fromTimeRaw = fromRaw ? $('mf-from-time').value : '';
+    if (fromTimeRaw && !validTime(fromTimeRaw)) return fail(T('mf.err.time'), $('mf-from-time'));
+    const from = fromRaw || null, fromTime = fromTimeRaw || null;
+    // la disponibilità deve iniziare prima della scadenza (giorno e ora)
+    if (from && due && startMs({ from, fromTime }) >= dueEndMs({ due, dueTime })) return fail(T('mf.err.from'), $('mf-from'));
     let m = editingId ? missions.find(x => x.id === editingId) : null;
     if (m) {
       if (m.done) return fail(T('mf.err.done'), null);
-      Object.assign(m, { title, desc, rewards, penalty, due, dueTime, from, stars });
+      Object.assign(m, { title, desc, rewards, penalty, due, dueTime, from, fromTime, stars });
     } else {
       const created = todayStr();
       if (missions.filter(x => monthOf(x) === created.slice(0, 7)).length >= MAX_PER_MONTH) {
         return fail(T('mf.err.month', { max: MAX_PER_MONTH }), null);
       }
       if (missions.length >= MAX_MISSIONS) return fail(T('mf.err.total'), null);
-      m = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title, desc, rewards, penalty, due, dueTime, from, created, done: null, failed: null, stars };
+      m = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title, desc, rewards, penalty, due, dueTime, from, fromTime, created, done: null, failed: null, stars };
       missions.push(m);
     }
     touchMonth(monthOf(m));
@@ -3033,12 +3080,6 @@
     b.setAttribute('aria-label', T('aria.edit') + ' ' + r.title);
     b.addEventListener('click', () => { closeModal(); routinesBack = true; openRoutineForm(r.id); });
     act.appendChild(b);
-    const g = mk('a', 'btn small gcal', T('btn.gcal'));
-    g.href = gcalRoutineUrl(r);
-    g.target = '_blank';
-    g.rel = 'noopener noreferrer';
-    g.setAttribute('aria-label', T('aria.gcal.routine') + ' ' + r.title);
-    act.appendChild(g);
     card.appendChild(act);
     return card;
   }
@@ -3056,7 +3097,8 @@
   $('mf-del').addEventListener('click', deleteMission);
   $('mf-nodate').addEventListener('click', () => { $('mf-date').value = ''; syncTime(); $('mf-date').focus(); });
   $('mf-nofrom').addEventListener('click', () => { $('mf-from').value = ''; syncTime(); $('mf-from').focus(); });
-  ['input', 'change'].forEach(t => $('mf-from').addEventListener(t, syncTime));
+  $('mf-nofromtime').addEventListener('click', () => { $('mf-from-time').value = ''; syncTime(); $('mf-from-time').focus(); });
+  ['input', 'change'].forEach(t => { $('mf-from').addEventListener(t, syncTime); $('mf-from-time').addEventListener(t, syncTime); });
   $('mf-notime').addEventListener('click', () => { $('mf-time').value = ''; syncTime(); $('mf-time').focus(); });
   ['input', 'change'].forEach(t => { $('mf-date').addEventListener(t, syncTime); $('mf-time').addEventListener(t, syncTime); });
   $('mf-pen-on').addEventListener('click', () => setPenOn(!penOn, true));

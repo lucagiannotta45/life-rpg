@@ -808,15 +808,14 @@
   #mform .field { margin-bottom: 16px; }
   #mform .xp-total { margin: 6px 0 8px; }
   /* data e ora affiancate (con l'ora solo quando c'è una data); i pulsanti "Togli…" sotto, solo se servono */
-  /* disponibile dal | scadenza, e sotto la scadenza la sua ora (nelle routine c'è solo l'ora) */
-  .dt-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .dt-grid.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "from due" ". time"; }
-  .dt-grid.two #mf-from-col { grid-area: from; }
-  .dt-grid.two #mf-date-col { grid-area: due; }
-  .dt-grid.two #mf-time-col { grid-area: time; }
-  .dt-grid .text-in.date { min-width: 0; width: 100%; }
+  /* date della missione: due blocchi (Disponibile dal, Scadenza), ognuno con giorno e ora affiancati */
+  .dt-pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .dt-pair.two { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }   /* il giorno un po' più largo dell'ora */
+  .dt-pair .text-in.date { min-width: 0; width: 100%; }
+  #mf-from-block { margin-bottom: 12px; }
   .dt-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-  .dt-actions:has(.btn:not([hidden])) { margin-top: 10px; }
+  .dt-actions:has(.btn:not([hidden])) { margin-top: 8px; }
+  #mf-msg:not(:empty) { color: var(--bad); }   /* i messaggi della finestra sono errori: in rosso */
   /* etichetta a sinistra, interruttore a destra (Ripetizione, Penalità) */
   .sw-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; }
   .sw-row .label { margin: 0; }
@@ -842,3 +841,7 @@
   }
   .mission.picked { box-shadow: inset 0 0 0 3px var(--gold); }
   .mission.picked .sel-box { border-color: var(--gold); background: var(--gold); box-shadow: inset 0 0 0 3px var(--track); }
+  /* arrivando dal calendario, la missione si illumina un attimo */
+  .mission.flash { animation: flash 1.6s ease-out; }
+  @keyframes flash { 0%, 40% { box-shadow: inset 0 0 0 3px var(--gold); } 100% { box-shadow: inset 0 0 0 3px transparent; } }
+  @media (prefers-reduced-motion: reduce) { .mission.flash { animation: none; box-shadow: inset 0 0 0 3px var(--gold); } }

@@ -375,28 +375,30 @@
       </div>
     </div>
 
-    <div class="field" id="mf-dt-field">
-      <div class="dt-grid" id="mf-dt-grid">
-        <div id="mf-from-col">
-          <label class="label" for="mf-from" data-i18n="mf.from">Disponibile dal</label>
-          <input class="text-in date" id="mf-from" type="date">
-        </div>
-        <div id="mf-date-col">
-          <label class="label" for="mf-date" data-i18n="mf.date">Scadenza</label>
-          <input class="text-in date" id="mf-date" type="date">
-        </div>
-        <div id="mf-time-col">
-          <label class="label" for="mf-time" data-i18n="mf.time">Ora di scadenza</label>
-          <input class="text-in date" id="mf-time" type="time">
-        </div>
+    <div class="field dt-block" id="mf-from-block">
+      <p class="label" id="mf-from-lbl" data-i18n="mf.from">Disponibile dal</p>
+      <div class="dt-pair">
+        <input class="text-in date" id="mf-from" type="date" aria-labelledby="mf-from-lbl">
+        <input class="text-in date" id="mf-from-time" type="time" aria-label="Disponibile dal: ora" data-i18n-aria="mf.from.time">
       </div>
       <div class="dt-actions">
-        <button type="button" class="btn small" id="mf-nofrom" data-i18n="mf.nofrom">Togli disponibilità</button>
-        <button type="button" class="btn small" id="mf-nodate" data-i18n="mf.nodate">Togli scadenza</button>
-        <button type="button" class="btn small" id="mf-notime" data-i18n="mf.notime">Togli ora</button>
+        <button type="button" class="btn small" id="mf-nofrom" data-i18n="mf.noday" data-i18n-aria="mf.nofrom.aria">Togli data</button>
+        <button type="button" class="btn small" id="mf-nofromtime" data-i18n="mf.notime" data-i18n-aria="mf.nofromtime.aria">Togli ora</button>
       </div>
-      <p class="tip" id="mf-dt-tip" data-i18n="mf.dt.tip">Facoltative. Prima del giorno di disponibilità la missione non si può completare; dopo la scadenza fallisce.</p>
-      <p class="tip" id="mf-time-tip" data-i18n="mf.time.tip">Si usa l'orologio del tuo dispositivo. Senza ora, la scadenza è a fine giornata.</p>
+    </div>
+
+    <div class="field dt-block" id="mf-due-block">
+      <p class="label" id="mf-due-lbl" data-i18n="mf.date">Scadenza</p>
+      <div class="dt-pair">
+        <input class="text-in date" id="mf-date" type="date" aria-labelledby="mf-due-lbl">
+        <input class="text-in date" id="mf-time" type="time" aria-label="Scadenza: ora" data-i18n-aria="mf.due.time">
+      </div>
+      <div class="dt-actions">
+        <button type="button" class="btn small" id="mf-nodate" data-i18n="mf.noday" data-i18n-aria="mf.nodate.aria">Togli data</button>
+        <button type="button" class="btn small" id="mf-notime" data-i18n="mf.notime" data-i18n-aria="mf.notime.aria">Togli ora</button>
+      </div>
+      <p class="tip" id="mf-dt-tip" data-i18n="mf.dt.tip">Facoltative. Prima della disponibilità la missione non si può completare; dopo la scadenza fallisce.</p>
+      <p class="tip" id="mf-time-tip" data-i18n="mf.time.tip">Si usa l'orologio del tuo dispositivo. Senza ora, la disponibilità inizia a mezzanotte e la scadenza è a fine giornata.</p>
     </div>
 
     <div class="field">
