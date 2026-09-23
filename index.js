@@ -1709,8 +1709,14 @@
   }
 
   // messaggi
-  function missionMsg(text, kind) {
-    ['mis-msg', 'cal-msg'].forEach(id => { const e = $(id); e.textContent = text; e.className = 'msg' + (kind ? ' ' + kind : ''); });
+  // Messaggi sulle missioni. Le conferme ("Missione creata…") non si vedono: le legge solo il lettore di schermo,
+  // perché chi guarda lo schermo vede già succedere l'azione. Si vedono (in rosso) solo i messaggi che spiegano
+  // perché un'azione non è avvenuta (visible = true).
+  function missionMsg(text, kind, visible) {
+    ['mis-msg', 'cal-msg'].forEach(id => { const e = $(id); e.textContent = visible ? text : ''; e.className = 'msg' + (kind ? ' ' + kind : ''); });
+    const live = $('act-live');
+    live.textContent = '';
+    if (!visible && text) setTimeout(() => { live.textContent = text; }, 50);   // un attimo dopo, così viene letto anche se è uguale al precedente
   }
   const gainText = map => {
     if (allSame(map)) return '+' + fmt(allSame(map)) + ' ' + T('xp.all');
@@ -1725,13 +1731,13 @@
     const m = missions.find(x => x.id === id);
     if (!m || m.done || m.failed) return;   // scaduta: non si completa più (si può solo riprogrammare)
     if (isLate(m)) {   // scaduta da poco ma non ancora segnata come fallita: non si completa, e diventa fallita adesso
-      missionMsg(T('msg.expired', { title: m.title }), 'bad');
+      missionMsg(T('msg.expired', { title: m.title }), 'bad', true);
       sfx('err');
       renderMissionViews();
       checkPenalties();
       return;
     }
-    if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(m.due) }), 'bad'); sfx('err'); return; }
+    if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(m.due) }), 'bad', true); sfx('err'); return; }
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
     const applied = {};
@@ -2110,6 +2116,12 @@
   const PAGE = 8;          // quante missioni si vedono per volta prima di "Mostra altre"
   let doneShown = PAGE;    // quante completate sono visibili
   const shownBy = {};      // quante ne sono state aperte in ogni gruppo
+  function collapseMissionLists() {
+    const opened = doneShown !== PAGE || Object.keys(shownBy).length;
+    doneShown = PAGE;
+    Object.keys(shownBy).forEach(k => delete shownBy[k]);
+    if (opened) renderMissions();
+  }
   // un gruppo di missioni con il suo titolo e, se sono tante, "Mostra altre"
   function groupBlock(box, key, title, list) {
     if (!list.length) return;
@@ -2396,7 +2408,7 @@
     const byTime = (a, b) => dueKey(a).localeCompare(dueKey(b)) || a.title.localeCompare(b.title);
     const todo = missions.filter(m => !m.done && !m.failed && m.due === selDate).sort(byTime);
     const failed = missions.filter(m => !m.done && m.failed && m.due === selDate).sort(byTime);
-    const done = missions.filter(m => m.done && m.done.date === selDate);
+    const done = missions.filter(m => m.done && m.done.date === selDate).sort((a, b) => b.done.t - a.done.t || a.title.localeCompare(b.title));   // le più recenti in alto
     const planned = plannedRoutines(selDate, new Set(missions.map(m => m.id)));
     if (!todo.length && !failed.length && !done.length && !planned.length) box.appendChild(mk('p', 'empty', T('day.empty')));
     if (planned.length) {
@@ -2446,6 +2458,8 @@
     const prevView = curView;
     curView = name;
     musicSync(name === 'char' && prevView !== 'char');
+    // lasciando la scheda Missioni, i gruppi aperti con "Mostra altre" si richiudono
+    if (prevView === 'missions' && name !== 'missions') collapseMissionLists();
     Object.entries(VIEWS).forEach(([n, [t, v]]) => {
       $(v).hidden = n !== name;
       $(t).setAttribute('aria-selected', String(n === name));
