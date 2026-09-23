@@ -410,6 +410,7 @@
         id, title,
         desc: typeof m.desc === 'string' ? m.desc.trim().slice(0, 500) : '',
         rewards, penalty: normalizeRewards(m.penalty), due: validDate(m.due) ? m.due : null,
+        from: validDate(m.from) ? m.from : null,   // disponibile dal: prima non si può completare
         dueTime: validDate(m.due) && validTime(m.dueTime) ? m.dueTime : null,
         created: m.created, done: null, failed: null, stars: normalizeStars(rewards, m.stars),
       };
@@ -1673,7 +1674,7 @@
     return d.getTime();
   }
   const isLate = m => !m.done && Date.now() >= dueEndMs(m);
-  const dueKey = m => (m.due || '9999-99-99') + ' ' + (m.dueTime || '99:99');
+  const dueKey = m => (m.due || m.from || '9999-99-99') + ' ' + (m.dueTime || '99:99');
   const fmtClock = ms => new Date(ms).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const fmtDay = (s, long) => cap1(parseDate(s).toLocaleDateString(locale(),
     long ? { weekday: 'long', day: 'numeric', month: 'long' } : { day: 'numeric', month: 'short' }));
@@ -1729,7 +1730,8 @@
 
   // completare e annullare
   // ancora non completabile: la data è nel futuro
-  const notYet = m => !m.done && !m.failed && !!m.due && m.due > todayStr();
+  const availOf = m => m.rid ? m.due : m.from;   // da quando si può completare (una routine: solo il suo giorno)
+  const notYet = m => !m.done && !m.failed && !!availOf(m) && availOf(m) > todayStr();
   function completeMission(id) {
     const m = missions.find(x => x.id === id);
     if (!m || m.done || m.failed) return;   // scaduta: non si completa più (si può solo riprogrammare)
@@ -1740,7 +1742,7 @@
       checkPenalties();
       return;
     }
-    if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(m.due) }), 'bad', true); sfx('err'); return; }
+    if (notYet(m)) { missionMsg(T('m.locked', { when: fmtDay(availOf(m)) }), 'bad', true); sfx('err'); return; }
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
     const applied = {};
@@ -2070,15 +2072,17 @@
     else if (m.done) head.appendChild(mk('span', 'm-date', T('m.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
     else if (m.due) {
       const late = isLate(m);
-      head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), T(late ? 'm.late.on' : 'm.due.by', { when: dueLabel(m) })));
-    }
+      const txt = late ? T('m.late.on', { when: dueLabel(m) })
+        : m.from && !m.rid && m.from > todayStr() ? T('m.range', { from: fmtDay(m.from), to: dueLabel(m) })
+        : T('m.due.by', { when: dueLabel(m) });
+      head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), txt));
+    } else if (m.from && m.from > todayStr()) head.appendChild(mk('span', 'm-date', T('m.from', { when: fmtDay(m.from) })));
     card.appendChild(head);
     const rtn = routineOf(m);
     if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
     if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
     const msl = starsLine(m.stars);
     if (msl) card.appendChild(msl);
-    if (!m.done && !m.failed && notYet(m)) card.appendChild(mk('p', 'm-lock', T('m.locked', { when: fmtDay(m.due) })));
     if (failedNow) card.appendChild(mk('p', 'm-still', T('m.still')));
     const chipBox = chips(m.done ? m.done.applied : m.rewards);
     if (failedNow) chipBox.classList.add('missed');   // ricompensa che non arriverà più
@@ -2298,10 +2302,11 @@
     const soonEnd = isoDate(soon);
     const groups = { late: [], routine: [], today: [], soon: [], later: [], nodate: [] };
     todo.forEach(m => {
-      if (!m.due) groups.nodate.push(m);
+      const key = m.due || m.from;
+      if (!key) groups.nodate.push(m);
       else if (isLate(m)) groups.late.push(m);
-      else if (m.due === today) (m.rid ? groups.routine : groups.today).push(m);
-      else if (m.due <= soonEnd) groups.soon.push(m);
+      else if (key === today) (m.rid ? groups.routine : groups.today).push(m);
+      else if (key <= soonEnd) groups.soon.push(m);
       else groups.later.push(m);
     });
     groupBlock(tl, 'late', T('grp.late'), groups.late);
@@ -2356,7 +2361,7 @@
     missions.forEach(m => {
       if (m.done) done[m.done.date] = (done[m.done.date] || 0) + 1;
       else if (m.due && m.failed) fail[m.due] = (fail[m.due] || 0) + 1;
-      else if (m.due) todo[m.due] = (todo[m.due] || 0) + 1;
+      else if (m.due || m.from) { const k = m.due || m.from; todo[k] = (todo[k] || 0) + 1; }
     });
     const today = todayStr();
     const ids = new Set(missions.map(m => m.id));
@@ -2417,11 +2422,10 @@
   }
   function renderDay() {
     $('day-title').textContent = fmtDay(selDate, true) + (selDate === todayStr() ? T('day.today') : '');
-    $('day-new').disabled = selDate < todayStr();   // in un giorno passato non si crea una missione
     const box = $('day-list');
     box.textContent = '';
     const byTime = (a, b) => dueKey(a).localeCompare(dueKey(b)) || a.title.localeCompare(b.title);
-    const todo = missions.filter(m => !m.done && !m.failed && m.due === selDate).sort(byTime);
+    const todo = missions.filter(m => !m.done && !m.failed && (m.due || m.from) === selDate).sort(byTime);
     const failed = missions.filter(m => !m.done && m.failed && m.due === selDate).sort(byTime);
     const done = missions.filter(m => m.done && m.done.date === selDate).sort((a, b) => b.done.t - a.done.t || a.title.localeCompare(b.title));   // le più recenti in alto
     const planned = plannedRoutines(selDate, new Set(missions.map(m => m.id)));
@@ -2507,7 +2511,6 @@
     });
   });
   $('m-new').addEventListener('click', () => openMissionForm(null, null));
-  $('day-new').addEventListener('click', () => openMissionForm(null, selDate));
   $('m-more').addEventListener('click', () => { doneShown += PAGE; renderMissions(); });
   // frecce pixel-art: il font dell'app non ha i caratteri < e >
   // (pixel grandi come quelli delle lettere: 1 pixel del font = 1/16 della sua altezza)
@@ -2537,7 +2540,7 @@
   const mform = $('mform');
   const xpInputs = {}, penInputs = {};
   let editingId = null, mfArmTimer = 0;
-  let formRepeat = false, editingRid = null, routinesBack = false, editingDue = null;
+  let formRepeat = false, editingRid = null, routinesBack = false, editingDue = null, editingFrom = null;
   const dayBtns = [];
   const formLabels = [];   // etichette dei nomi delle statistiche, da aggiornare cambiando lingua
   const formRows = [];     // righe ricompensa e penalità: prendono i colori scelti nelle impostazioni
@@ -2641,7 +2644,9 @@
     $('mf-rep').textContent = formRepeat ? T('mf.rep.on') : T('mf.rep.off');
     $('mf-rep').setAttribute('aria-pressed', String(formRepeat));
     $('mf-rep-box').hidden = !formRepeat;
-    $('mf-date-col').hidden = formRepeat;   // una routine non ha data, solo l'ora
+    $('mf-date-col').hidden = formRepeat;   // una routine non ha scadenza né disponibilità, solo l'ora
+    $('mf-from-col').hidden = formRepeat;
+    $('mf-dt-tip').hidden = formRepeat;
     $('mf-pen-tip').textContent = formRepeat ? T('mf.pen.tip.r') : T('mf.pen.tip');
     $('mf-pen-on').textContent = penOn ? T('mf.pen.on') : T('mf.pen.off');   // (anche quando cambi lingua)
     paintDayChips();
@@ -2653,8 +2658,9 @@
     if (!has) $('mf-time').value = '';
     $('mf-time-col').hidden = !has;
     $('mf-time-tip').hidden = !has;
-    $('mf-dt-grid').classList.toggle('two', !formRepeat && has);
+    $('mf-dt-grid').classList.toggle('two', !formRepeat);
     $('mf-nodate').hidden = formRepeat || !hasDate;
+    $('mf-nofrom').hidden = formRepeat || !$('mf-from').value;
     $('mf-notime').hidden = !$('mf-time').value;
   }
   // penalità: interruttore; spento = nessuna penalità (i numeri scritti restano, se lo riaccendi prima di salvare)
@@ -2677,6 +2683,7 @@
     if (m0 && m0.rid && routineOf(m0)) { openRoutineForm(m0.rid); return; }   // le volte di una routine si modificano dalla routine
     editingId = id; editingRid = null; routinesBack = false;
     editingDue = m0 ? m0.due : null;
+    editingFrom = m0 ? m0.from : null;
     $('mf-rep-field').hidden = !!m0;          // una missione già creata non diventa routine
     $('mf-rep-toggle').hidden = false;
     setFormRepeat(false);
@@ -2690,7 +2697,9 @@
     });
     initRewardStars(m ? m.rewards : null, m ? m.stars : null);
     $('mf-date').min = todayStr();
+    $('mf-from').min = todayStr();
     $('mf-date').value = m ? (m.due || '') : (dateStr || '');
+    $('mf-from').value = m && !m.rid ? (m.from || '') : '';
     $('mf-time').value = m && m.dueTime ? m.dueTime : '';
     syncTime();
     setPenOn(!!(m && m.penalty && STATS.some(s => m.penalty[s.key] > 0)));
@@ -2858,17 +2867,23 @@
     }
     const desc = $('mf-desc').value.trim().slice(0, 500);
     const due = dueRaw || null;
+    // disponibile dal: non nel passato (tranne se non l'hai cambiato) e non dopo la scadenza
+    const fromRaw = $('mf-from').value;
+    if (fromRaw && !validDate(fromRaw)) return fail(T('mf.err.date'), $('mf-from'));
+    if (fromRaw && fromRaw < todayStr() && !(editingId && fromRaw === editingFrom)) return fail(T('mf.err.past'), $('mf-from'));
+    if (fromRaw && due && fromRaw > due) return fail(T('mf.err.from'), $('mf-from'));
+    const from = fromRaw || null;
     let m = editingId ? missions.find(x => x.id === editingId) : null;
     if (m) {
       if (m.done) return fail(T('mf.err.done'), null);
-      Object.assign(m, { title, desc, rewards, penalty, due, dueTime, stars });
+      Object.assign(m, { title, desc, rewards, penalty, due, dueTime, from, stars });
     } else {
       const created = todayStr();
       if (missions.filter(x => monthOf(x) === created.slice(0, 7)).length >= MAX_PER_MONTH) {
         return fail(T('mf.err.month', { max: MAX_PER_MONTH }), null);
       }
       if (missions.length >= MAX_MISSIONS) return fail(T('mf.err.total'), null);
-      m = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title, desc, rewards, penalty, due, dueTime, created, done: null, failed: null, stars };
+      m = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title, desc, rewards, penalty, due, dueTime, from, created, done: null, failed: null, stars };
       missions.push(m);
     }
     touchMonth(monthOf(m));
@@ -3040,6 +3055,8 @@
   rmodal.addEventListener('click', e => { if (e.target === rmodal) closeModal(); });
   $('mf-del').addEventListener('click', deleteMission);
   $('mf-nodate').addEventListener('click', () => { $('mf-date').value = ''; syncTime(); $('mf-date').focus(); });
+  $('mf-nofrom').addEventListener('click', () => { $('mf-from').value = ''; syncTime(); $('mf-from').focus(); });
+  ['input', 'change'].forEach(t => $('mf-from').addEventListener(t, syncTime));
   $('mf-notime').addEventListener('click', () => { $('mf-time').value = ''; syncTime(); $('mf-time').focus(); });
   ['input', 'change'].forEach(t => { $('mf-date').addEventListener(t, syncTime); $('mf-time').addEventListener(t, syncTime); });
   $('mf-pen-on').addEventListener('click', () => setPenOn(!penOn, true));

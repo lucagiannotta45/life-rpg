@@ -118,7 +118,6 @@
     <section class="win col-b" aria-labelledby="t-day">
       <h2 class="win-title" id="t-day" data-i18n="day.title">Giorno</h2>
       <h3 class="day-title" id="day-title"></h3>
-      <button type="button" class="btn small add" id="day-new" data-i18n="day.new">Aggiungi missione</button>
       <p class="msg" id="cal-msg" role="status" aria-live="polite"></p>
       <div class="mlist" id="day-list"></div>
     </section>
@@ -378,19 +377,25 @@
 
     <div class="field" id="mf-dt-field">
       <div class="dt-grid" id="mf-dt-grid">
+        <div id="mf-from-col">
+          <label class="label" for="mf-from" data-i18n="mf.from">Disponibile dal</label>
+          <input class="text-in date" id="mf-from" type="date">
+        </div>
         <div id="mf-date-col">
-          <label class="label" for="mf-date" data-i18n="mf.date">Data (facoltativa)</label>
+          <label class="label" for="mf-date" data-i18n="mf.date">Scadenza</label>
           <input class="text-in date" id="mf-date" type="date">
         </div>
         <div id="mf-time-col">
-          <label class="label" for="mf-time" data-i18n="mf.time">Ora (facoltativa)</label>
+          <label class="label" for="mf-time" data-i18n="mf.time">Ora di scadenza</label>
           <input class="text-in date" id="mf-time" type="time">
         </div>
       </div>
       <div class="dt-actions">
-        <button type="button" class="btn small" id="mf-nodate" data-i18n="mf.nodate">Togli data</button>
+        <button type="button" class="btn small" id="mf-nofrom" data-i18n="mf.nofrom">Togli disponibilità</button>
+        <button type="button" class="btn small" id="mf-nodate" data-i18n="mf.nodate">Togli scadenza</button>
         <button type="button" class="btn small" id="mf-notime" data-i18n="mf.notime">Togli ora</button>
       </div>
+      <p class="tip" id="mf-dt-tip" data-i18n="mf.dt.tip">Facoltative. Prima del giorno di disponibilità la missione non si può completare; dopo la scadenza fallisce.</p>
       <p class="tip" id="mf-time-tip" data-i18n="mf.time.tip">Si usa l'orologio del tuo dispositivo. Senza ora, la scadenza è a fine giornata.</p>
     </div>
 

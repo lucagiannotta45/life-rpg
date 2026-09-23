@@ -808,8 +808,12 @@
   #mform .field { margin-bottom: 16px; }
   #mform .xp-total { margin: 6px 0 8px; }
   /* data e ora affiancate (con l'ora solo quando c'è una data); i pulsanti "Togli…" sotto, solo se servono */
+  /* disponibile dal | scadenza, e sotto la scadenza la sua ora (nelle routine c'è solo l'ora) */
   .dt-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .dt-grid.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .dt-grid.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "from due" ". time"; }
+  .dt-grid.two #mf-from-col { grid-area: from; }
+  .dt-grid.two #mf-date-col { grid-area: due; }
+  .dt-grid.two #mf-time-col { grid-area: time; }
   .dt-grid .text-in.date { min-width: 0; width: 100%; }
   .dt-actions { display: flex; gap: 10px; flex-wrap: wrap; }
   .dt-actions:has(.btn:not([hidden])) { margin-top: 10px; }
