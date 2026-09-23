@@ -809,3 +809,11 @@
   .sw-row .label { margin: 0; }
   #mf-pen-box { margin-top: 12px; }
   #mf-desc-add { margin: 0; }
+  /* titoli dei gruppi (Da fare, Fallite, Completate…): più grandi, con una linea fino al bordo */
+  .mlist > h4.sub, #day-list > h4.sub { display: flex; align-items: center; gap: 12px; margin: 18px 0 8px; font-size: 24px; line-height: 1.2; color: var(--gold); }
+  .mlist > h4.sub:first-child, #day-list > h4.sub:first-child { margin-top: 4px; }
+  .mlist > h4.sub::after, #day-list > h4.sub::after { content: ""; flex: 1; border-top: 2px solid currentColor; opacity: .35; }
+  /* etichetta della routine sotto il titolo della missione */
+  .m-tag { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 3px 8px; font-size: var(--fs-s); line-height: 1.2; color: var(--gold); border: 2px solid currentColor; border-radius: 6px; }
+  .m-tag-ico svg { display: block; }
+  .mission .m-tag + .m-desc { margin-top: 8px; }

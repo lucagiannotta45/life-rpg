@@ -2028,6 +2028,14 @@
     }
     return wrap;
   }
+  // etichetta "↻ Routine · serie 5": dice subito che tipo di missione è, quindi sta sotto il titolo
+  const ROUTINE_ICON = ['...XXX...', '.XX...X..', '.X....XXX', 'X......X.', 'X........', 'X.......X', '.X.....X.', '.XX...XX.', '...XXX...'];
+  function routineTag(text) {
+    const t = mk('p', 'm-tag');
+    const ic = mk('span', 'm-tag-ico'); ic.innerHTML = iconSvg(ROUTINE_ICON, 2);
+    t.append(ic, mk('span', null, text));
+    return t;
+  }
   function starsLine(stars) {
     if (!stars) return null;   // missione creata prima di questo sistema: niente da mostrare
     const wrap = mk('div', 'm-stars');
@@ -2049,12 +2057,12 @@
       head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), T(late ? 'm.late.on' : 'm.due.by', { when: dueLabel(m) })));
     }
     card.appendChild(head);
+    const rtn = routineOf(m);
+    if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
     if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
     const msl = starsLine(m.stars);
     if (msl) card.appendChild(msl);
     if (!m.done && !m.failed && notYet(m)) card.appendChild(mk('p', 'm-lock', T('m.locked', { when: fmtDay(m.due) })));
-    const rtn = routineOf(m);
-    if (rtn) card.appendChild(mk('p', 'm-routine', !m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
     if (failedNow) card.appendChild(mk('p', 'm-still', T('m.still')));
     const chipBox = chips(m.done ? m.done.applied : m.rewards);
     if (failedNow) chipBox.classList.add('missed');   // ricompensa che non arriverà più
@@ -2392,22 +2400,23 @@
     const planned = plannedRoutines(selDate, new Set(missions.map(m => m.id)));
     if (!todo.length && !failed.length && !done.length && !planned.length) box.appendChild(mk('p', 'empty', T('day.empty')));
     if (planned.length) {
-      box.appendChild(mk('h4', 'sub', T('day.routines')));
+      box.appendChild(mk('h4', 'sub', T('day.routines') + ' (' + planned.length + ')'));
       planned.forEach(r => {
         const card = mk('article', 'mission');
         const head = mk('div', 'm-head');
         head.appendChild(mk('h3', 'm-title', r.title));
         if (r.time) head.appendChild(mk('span', 'm-date', T('r.at', { time: r.time })));
         card.appendChild(head);
+        card.appendChild(routineTag(T('m.routine')));
         if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
-        card.appendChild(mk('p', 'm-routine', T('m.routine')));
         card.appendChild(chips(r.rewards));
         box.appendChild(card);
       });
     }
-    if (todo.length) { box.appendChild(mk('h4', 'sub', T('mis.todo'))); todo.forEach(m => box.appendChild(missionCard(m, true))); }
-    if (failed.length) { box.appendChild(mk('h4', 'sub', T('grp.late'))); failed.forEach(m => box.appendChild(missionCard(m, true))); }
-    if (done.length) { box.appendChild(mk('h4', 'sub', T('mis.done'))); done.forEach(m => box.appendChild(missionCard(m, true))); }
+    const group = (label, list) => { box.appendChild(mk('h4', 'sub', label + ' (' + list.length + ')')); list.forEach(m => box.appendChild(missionCard(m, true))); };
+    if (todo.length) group(T('mis.todo'), todo);
+    if (failed.length) group(T('mis.failed'), failed);
+    if (done.length) group(T('mis.done'), done);
   }
   function moveMonth(delta) {
     const t = new Date(calY, calM + delta, 1);
