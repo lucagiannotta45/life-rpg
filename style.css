@@ -292,18 +292,23 @@
   .lv b { font-size: 24px; line-height: 1; color: var(--ink-strong); }
   .row-bot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: var(--fs-s); line-height: 1.1; color: var(--ink-soft); }
 
+  /* barra da gioco di ruolo: cornice doppia (scura fuori, chiara dentro) con gli angoli smussati di un pixel;
+     il riempimento ha una riga chiara in alto e una più scura in basso */
   .bar {
-    position: relative; display: block; height: 14px; overflow: hidden;
-    background: var(--track); border: 2px solid rgba(242, 245, 255, .55); border-radius: 4px;
+    position: relative; display: block; box-sizing: border-box; height: 18px; overflow: hidden;
+    background: var(--track);
+    border: 2px solid var(--win-edge);
+    box-shadow: inset 0 0 0 2px #c8d0f0;
+    clip-path: polygon(2px 0, calc(100% - 2px) 0, calc(100% - 2px) 2px, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) calc(100% - 2px),
+      calc(100% - 2px) 100%, 2px 100%, 2px calc(100% - 2px), 0 calc(100% - 2px), 0 2px, 2px 2px);
   }
   .fill {
-    display: block; height: 100%; width: 0;
-    background: linear-gradient(180deg, rgba(255, 255, 255, .5) 0 28%, transparent 28%), var(--c);
+    display: block; height: calc(100% - 4px); width: 0; max-width: calc(100% - 4px); margin: 2px;
+    background: linear-gradient(180deg,
+      color-mix(in srgb, var(--c) 45%, #ffffff) 0 2px,
+      var(--c) 2px calc(100% - 2px),
+      color-mix(in srgb, var(--c) 65%, #000000) calc(100% - 2px));
     transition: width .7s cubic-bezier(.2, .8, .2, 1);
-  }
-  .bar::after {
-    content: ""; position: absolute; inset: 0; pointer-events: none;
-    background: repeating-linear-gradient(90deg, transparent 0 6px, rgba(6, 10, 46, .55) 6px 8px);
   }
 
   .float {
@@ -576,8 +581,12 @@
   .cal-day:hover { background: rgba(255, 255, 255, .13); }
   .cal-day.today { border-color: var(--gold); }
   .cal-day[aria-pressed="true"] { background: var(--btn); }
-  .dots { display: flex; gap: 4px; min-height: 8px; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+  .dots { display: flex; gap: 4px; min-height: 10px; }
+  /* pallino a pixel: griglia 5 × 5 da 2 px con gli angoli tagliati (.XXX. / XXXXX ×3 / .XXX.) */
+  .dot {
+    display: inline-block; width: 10px; height: 10px;
+    clip-path: polygon(20% 0, 80% 0, 80% 20%, 100% 20%, 100% 80%, 80% 80%, 80% 100%, 20% 100%, 20% 80%, 0 80%, 0 20%, 20% 20%);
+  }
   .dot.todo { background: var(--gold); }
   .dot.done { background: var(--good); }
   .dot.fail { background: var(--bad); }
