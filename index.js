@@ -483,6 +483,7 @@
         pause: pz && validDate(pz.from) && validDate(pz.until) && pz.from <= pz.until ? { from: pz.from, until: pz.until } : null,
         streak: nn(r.streak, 100000), streakDate: validDate(r.streakDate) ? r.streakDate : '', best: nn(r.best, 100000),
         bonus, stars: normalizeStars(rewards, r.stars),
+        made: validDate(r.made) ? r.made : '',   // fin qui le missioni della routine sono già state create
       });
       if (out.length >= MAX_ROUTINES) break;
     }
@@ -1911,10 +1912,15 @@
         routinesChanged = true;
       }
       if (r.pause && r.pause.until < today) { r.pause = null; routinesChanged = true; }
-      // le volte di oggi e tutte quelle saltate da quando la routine è iniziata: ogni giorno previsto conta,
-      // con o senza penalità (chi non ha messo una penalità perde comunque la serie, ma non XP)
+      // le volte di oggi e quelle saltate dall'ultima apertura: ogni giorno previsto conta,
+      // con o senza penalità (chi non ha messo una penalità perde comunque la serie, ma non XP).
+      // Si parte dal giorno dopo "made": un giorno già fatto non si ricrea mai, anche se la sua missione
+      // è stata tolta (dalla pulizia dei 60 giorni o eliminata da te). Senza "made" (routine di prima):
+      // al massimo gli ultimi 60 giorni, così le volte vecchie già tolte non tornano a fallire.
       const existing = new Set(missions.filter(mm => mm.rid === r.id).map(mm => mm.id));
-      for (let d = r.start, guard = 0; d <= today && guard < 3660; guard++, d = addDaysStr(d, 1)) {
+      const oldest = addDaysStr(today, -(KEEP_DAYS - 1));   // un giorno dentro il confine della pulizia, per sicurezza
+      const from = r.made ? addDaysStr(r.made, 1) : (r.start > oldest ? r.start : oldest);
+      for (let d = from, guard = 0; d <= today && guard < 3660; guard++, d = addDaysStr(d, 1)) {
         if (!dayCounts(r, d)) continue;
         const id = occId(r, d);
         if (existing.has(id) || missions.length >= MAX_MISSIONS) continue;
@@ -1924,6 +1930,7 @@
         months.add(d.slice(0, 7));
         changed = true;
       }
+      if (r.start <= today && r.made !== today) { r.made = today; routinesChanged = true; }
     });
     // pulizia: volte saltate senza penalità, volte in pausa, cronologia vecchia
     const keepFrom = addDaysStr(today, -KEEP_DAYS);
@@ -2054,6 +2061,7 @@
   function missionCard(m, hideDate) {
     const failedNow = !!m.failed && !m.done;
     const card = mk('article', 'mission' + (m.done ? ' done' : '') + (failedNow ? ' failed' : ''));
+    card.dataset.id = m.id;
     const head = mk('div', 'm-head');
     head.appendChild(mk('h3', 'm-title', m.title));
     if (hideDate) { /* la data è già il titolo del pannello "Giorno": non ripeterla su ogni scheda */ }
@@ -2304,10 +2312,15 @@
     // fallite: le più recenti per prime, con lo stesso "Mostra altre"
     groupBlock(fl, 'failed', '', failed);
     $('w-failed').hidden = !failed.length;
+    if (!failed.length && sel.list === 'failed') { sel.list = null; sel.ids.clear(); }
 
     // completate: le 8 più recenti, poi "Mostra altre"
     if (!done.length) dl.appendChild(mk('p', 'empty', T('mis.empty.done')));
     done.slice(0, doneShown).forEach(m => dl.appendChild(missionCard(m)));
+    if (!done.length && sel.list === 'done') { sel.list = null; sel.ids.clear(); }
+    selDecorate(fl, 'failed');
+    selDecorate(dl, 'done');
+    paintSelBars();
     $('m-more').hidden = done.length <= doneShown;
     $('m-more').textContent = T('mis.more.n', { n: done.length - doneShown });
     const nb = $('nav-badge');
@@ -2459,7 +2472,7 @@
     curView = name;
     musicSync(name === 'char' && prevView !== 'char');
     // lasciando la scheda Missioni, i gruppi aperti con "Mostra altre" si richiudono
-    if (prevView === 'missions' && name !== 'missions') collapseMissionLists();
+    if (prevView === 'missions' && name !== 'missions') { sel.list = null; sel.ids.clear(); collapseMissionLists(); }
     Object.entries(VIEWS).forEach(([n, [t, v]]) => {
       $(v).hidden = n !== name;
       $(t).setAttribute('aria-selected', String(n === name));
@@ -2525,9 +2538,12 @@
   let formRepeat = false, editingRid = null, routinesBack = false, editingDue = null;
   const dayBtns = [];
   const formLabels = [];   // etichette dei nomi delle statistiche, da aggiornare cambiando lingua
+  const formRows = [];     // righe ricompensa e penalità: prendono i colori scelti nelle impostazioni
+  // i nomi delle statistiche nella finestra usano il colore scelto (schiarito solo se troppo scuro per leggersi)
+  function paintFormColors() { formRows.forEach(([key, el]) => el.style.setProperty('--c', readable(statColor(key)))); }
   STATS.forEach(s => {
     const row = mk('div', 'xp-row');
-    row.style.setProperty('--c', s.color);
+    formRows.push([s.key, row]);
     const label = mk('label', null, s.name);
     label.htmlFor = 'mf-xp-' + s.key;
     const inp = mk('input', 'xp-in');
@@ -2539,7 +2555,7 @@
     xpInputs[s.key] = inp;
 
     const prow = mk('div', 'xp-row');
-    prow.style.setProperty('--c', s.color);
+    formRows.push([s.key, prow]);
     const plabel = mk('label', null, s.name);
     plabel.htmlFor = 'mf-pen-' + s.key;
     const pinp = mk('input', 'xp-in');
@@ -2679,6 +2695,7 @@
     $('mf-del').hidden = !m;
     mfDelArm(false);
     mfMsg('');
+    paintFormColors();
     openModal(mform, $('mf-title'));
   }
   function openRoutineForm(rid) {
@@ -2713,6 +2730,7 @@
     $('mf-del').hidden = !r;
     mfDelArm(false);
     mfMsg('');
+    paintFormColors();
     openModal(mform, $('mf-title'));
   }
   function finishForm() {
@@ -2752,6 +2770,7 @@
     const time = timeRaw || null;
     if (r) {
       Object.assign(r, { title, desc, rewards, penalty, days, time, pause, bonus, stars });
+      if (r.made && r.made >= today) r.made = addDaysStr(today, -1);   // se oggi ora è un giorno previsto, compare subito
       if (!started && r.start !== start) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); }
     } else {
       if (routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
@@ -2856,6 +2875,75 @@
     missionMsg(T(editingId ? 'msg.edited' : 'msg.created', { title }), 'good');
     if (m.due) { const d = parseDate(m.due); calY = d.getFullYear(); calM = d.getMonth(); selDate = m.due; renderCalendar(); }
   }
+  // selezione di missioni completate o fallite, per eliminarle (gli XP guadagnati o persi restano)
+  const sel = { list: null, ids: new Set() };
+  let selArmTimer = 0;
+  function selStart(list) { sel.list = list; sel.ids.clear(); renderMissions(); }
+  function selStop() { if (!sel.list) return; sel.list = null; sel.ids.clear(); renderMissions(); }
+  function selArm(on) {
+    clearTimeout(selArmTimer);
+    document.querySelectorAll('.sel-bar [data-sel="del"]').forEach(b => {
+      b.dataset.armed = on ? '1' : '';
+      b.textContent = on ? T('sel.del.confirm', { n: sel.ids.size }) : T('sel.del', { n: sel.ids.size });
+    });
+    if (on) selArmTimer = setTimeout(() => selArm(false), 4000);
+  }
+  // trasforma le schede della lista in caselle da spuntare
+  function selDecorate(box, list) {
+    if (sel.list !== list) return;
+    box.querySelectorAll('.mission[data-id]').forEach(card => {
+      const id = card.dataset.id;
+      const on = () => sel.ids.has(id);
+      card.classList.add('selecting');
+      card.classList.toggle('picked', on());
+      card.setAttribute('role', 'checkbox');
+      card.setAttribute('aria-checked', String(on()));
+      card.tabIndex = 0;
+      const tick = mk('span', 'sel-box'); tick.setAttribute('aria-hidden', 'true');
+      card.prepend(tick);
+      const toggle = () => {
+        if (on()) sel.ids.delete(id); else sel.ids.add(id);
+        card.classList.toggle('picked', on());
+        card.setAttribute('aria-checked', String(on()));
+        paintSelBars();
+      };
+      card.addEventListener('click', toggle);
+      card.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } });
+    });
+  }
+  function paintSelBars() {
+    document.querySelectorAll('.sel-bar').forEach(bar => {
+      const list = bar.dataset.list, active = sel.list === list;
+      const has = !!document.getElementById(list === 'done' ? 'm-done' : 'm-failed').querySelector('.mission');
+      bar.hidden = !has && !active;
+      bar.querySelector('[data-sel="start"]').hidden = active || (!!sel.list && !active);
+      bar.querySelector('[data-sel="del"]').hidden = !active;
+      bar.querySelector('[data-sel="cancel"]').hidden = !active;
+      const del = bar.querySelector('[data-sel="del"]');
+      del.disabled = !sel.ids.size;
+      if (!del.dataset.armed) del.textContent = T('sel.del', { n: sel.ids.size });
+    });
+  }
+  function selDelete() {
+    const del = document.querySelector('.sel-bar:not([hidden]) [data-sel="del"]:not([hidden])');
+    if (!sel.ids.size) return;
+    if (!del || !del.dataset.armed) { selArm(true); return; }
+    selArm(false);
+    const gone = missions.filter(m => sel.ids.has(m.id) && (m.done || m.failed));
+    const months = new Set(gone.map(monthOf));
+    missions = missions.filter(m => !gone.includes(m));
+    months.forEach(touchMonth);
+    sfx('del');
+    missionMsg(TN('msg.deleted.n', gone.length), '');
+    sel.list = null; sel.ids.clear();
+    renderMissionViews();
+  }
+  document.querySelectorAll('.sel-bar').forEach(bar => {
+    bar.querySelector('[data-sel="start"]').addEventListener('click', () => selStart(bar.dataset.list));
+    bar.querySelector('[data-sel="cancel"]').addEventListener('click', () => { selArm(false); selStop(); });
+    bar.querySelector('[data-sel="del"]').addEventListener('click', selDelete);
+  });
+
   function deleteMission() {
     if (editingRid) { deleteRoutine(); return; }
     const m = editingId ? missions.find(x => x.id === editingId) : null;

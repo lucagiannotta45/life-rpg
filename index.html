@@ -80,10 +80,20 @@
     </section>
     <section class="win col-c" id="w-failed" aria-labelledby="t-failed" hidden>
       <h2 class="win-title" id="t-failed" data-i18n="mis.failed">Fallite</h2>
+      <div class="sel-bar" data-list="failed" hidden>
+        <button type="button" class="btn small" data-sel="start" data-i18n="sel.start">Seleziona</button>
+        <button type="button" class="btn small sub" data-sel="del" hidden>Elimina (0)</button>
+        <button type="button" class="btn small ghost" data-sel="cancel" hidden data-i18n="sel.cancel">Annulla</button>
+      </div>
       <div class="mlist" id="m-failed"></div>
     </section>
     <section class="win col-b" aria-labelledby="t-done">
       <h2 class="win-title" id="t-done" data-i18n="mis.done">Completate</h2>
+      <div class="sel-bar" data-list="done" hidden>
+        <button type="button" class="btn small" data-sel="start" data-i18n="sel.start">Seleziona</button>
+        <button type="button" class="btn small sub" data-sel="del" hidden>Elimina (0)</button>
+        <button type="button" class="btn small ghost" data-sel="cancel" hidden data-i18n="sel.cancel">Annulla</button>
+      </div>
       <div class="mlist" id="m-done"></div>
       <button type="button" class="btn small" id="m-more" hidden>Mostra altre</button>
     </section>
