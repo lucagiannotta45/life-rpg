@@ -773,7 +773,10 @@
   .fr-code { font-size: 40px; line-height: 1; color: var(--gold); letter-spacing: 2px; text-shadow: 2px 2px 0 var(--win-edge); }
   .fr-add { display: flex; gap: 10px; flex-wrap: wrap; }
   .fr-add .text-in { flex: 1 1 180px; width: auto; text-transform: uppercase; }
-  .fr-list { display: grid; gap: 8px; margin: 8px 0 16px; }
+  /* finestra Amici: titoletti come le etichette ("Il tuo codice amico"), testi tutti della stessa misura */
+  .fr-h { margin: 20px 0 8px; font-size: 24px; font-weight: normal; line-height: 1.2; color: var(--gold); }
+  #fmodal .msg, #fmodal .empty, .fr-row { font-size: 24px; line-height: 1.3; }
+  .fr-list { display: grid; gap: 8px; margin: 0 0 8px; }
   .fr-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
     padding: 10px 12px; border: 2px solid var(--win-line); border-radius: 8px; background: color-mix(in srgb, var(--win-c) 60%, transparent); }
   .fr-act { display: flex; gap: 8px; }
@@ -790,3 +793,4 @@
   .fp-win.has-bg {
     background: linear-gradient(color-mix(in srgb, var(--win-c) 55%, transparent), color-mix(in srgb, var(--win-c) 80%, transparent)), var(--fp-bg) center / cover no-repeat;
   }
+  .modal-win:focus { outline: none; }   /* il fuoco va sulla finestra solo per i lettori di schermo */

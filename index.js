@@ -920,11 +920,19 @@
   /* ================= finestre (Dati e Personalizza) ================= */
   const settingsWin = $('settings'), paneLook = $('pane-look');
   let activeModal = null, lastFocus = null;
+  // sul telefono (schermo touch) non si mette il cursore in un campo di testo aprendo una finestra,
+  // altrimenti la tastiera si apre da sola: il fuoco va sulla finestra stessa (per i lettori di schermo)
+  const isTouch = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  const isTextField = el => !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['button', 'checkbox', 'radio', 'range', 'color', 'file', 'submit'].includes(el.type)));
   function openModal(m, focusEl) {
     lastFocus = document.activeElement;
     activeModal = m;
     m.hidden = false;
-    if (focusEl) focusEl.focus();
+    if (focusEl && isTextField(focusEl) && isTouch()) {
+      const win = m.querySelector('.modal-win') || m;
+      win.setAttribute('tabindex', '-1');
+      win.focus({ preventScroll: true });
+    } else if (focusEl) focusEl.focus();
     sfx('open');
   }
   function closeModal() {
@@ -3286,7 +3294,7 @@
       const code = await ensureCode();
       const bg = settings.shareBg && imgs.bg && imgs.bg.length <= CLOUD_IMG_MAX ? imgs.bg : null;
       const bgId = bg ? imgId(bg) : '';
-      const look = { bg: !!bg, bgId };
+      const look = { bg: !!bg, bgId, lang: settings.lang };   // la lingua: gli amici vedono la tua scheda come la vedi tu
       ['winColor', 'inkColor', 'softColor', 'accentColor', 'nameColor'].forEach(k => { if (settings[k]) look[k] = settings[k]; });
       const pub = { name: settings.name.trim().slice(0, 30), level: overallOf(STATS.map(s => levelFromXp(xp[s.key]))), stats: { ...xp }, look, code };
       // sfondo: solo se l'hai scelto tu; se lo spegni o lo togli, sparisce anche per gli amici.
@@ -3495,11 +3503,19 @@
     fpUid = uid;
     const x = normalize(p.stats);
     const ov = overallOf(STATS.map(s => levelFromXp(x[s.key])));
-    $('fp-tab').innerHTML = levelTabSvg(ov, 3);
-    $('fp-tab').setAttribute('aria-label', T('lv') + ' ' + ov);
-    $('fp-name').textContent = friendName(p);
-    $('fp-class').textContent = heroClass(x);
-    $('fp-radar').innerHTML = radarMarkup(x);
+    // la sua scheda nella sua lingua (titolo, statistiche, "Lv"); i pulsanti restano nella tua
+    const fl = p.look && LANGS.some(l => l.id === p.look.lang) ? p.look.lang : lang;
+    const mine = lang;
+    lang = fl;
+    try {
+      $('fp-tab').innerHTML = levelTabSvg(ov, 3);
+      $('fp-tab').setAttribute('aria-label', T('lv') + ' ' + ov);
+      $('fp-name').textContent = friendName(p);
+      $('fp-class').textContent = heroClass(x);
+      $('fp-radar').innerHTML = radarMarkup(x);
+    } finally { lang = mine; }
+    const lc = (LANGS.find(l => l.id === fl) || LANGS[0]).locale;
+    $('fpmodal').querySelector('.fp-win').setAttribute('lang', lc ? lc.split('-')[0] : fl);   // pronuncia giusta nei lettori di schermo
     fpArm(false);
     const win = $('fpmodal').querySelector('.fp-win');
     applyFriendLook(win, p.look);
