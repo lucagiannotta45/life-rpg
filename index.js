@@ -14,10 +14,13 @@
  * I disegni (icone e cifre a pixel, linguetta del livello, radar) sono in draw.js.
  * Le regole della sincronizzazione tra dispositivi (calcoli puri) sono in sync.js.
  * Effetti sonori e musica (con la tabella dei brani MUSIC_FILES) sono in audio.js.
+ * I calcoli dei colori (temi, finestre, testo leggibile) sono in look.js; la finestra Impostazioni,
+ * il pannello Personalizza e l'applicazione dell'aspetto sono in settings-ui.js.
  * Le regole delle missioni, delle routine e del calendario (calcoli puri) sono in missions.js;
  * la parte che si vede (schede, elenco, calendario, finestre delle missioni) è in missions-ui.js.
  * L'ordine dei file in index.html è:
- *   i18n.js → game.js → draw.js → sync.js → missions.js → missions-ui.js → audio.js → index.js.
+ *   i18n.js → game.js → draw.js → look.js → sync.js → missions.js → missions-ui.js → settings-ui.js
+ *   → audio.js → index.js.
  *
  * Indice delle sezioni, nell'ordine in cui compaiono (cerca il titolo per saltare al punto giusto):
  *   1. lingue                                — collegamento ai testi di i18n.js
@@ -27,8 +30,9 @@
  *   4. suono                                 — collegamento ad audio.js + pulsanti Suono
  *   5. interfaccia: elementi                 — riferimenti ai nodi del DOM, pulsanti "premi di nuovo", radar
  *   6. effetti                               — animazioni e feedback visivi
- *   7. finestre (Dati e Personalizza)        — pannelli modali
- *   8. personalizzazione                     — temi, sfondi, nome, icone
+ *   7. finestre (Dati e Personalizza)        — aprire/chiudere le finestre, scheda Dati (backup, import, azzera)
+ *   8. personalizzazione                     — collegamento a settings-ui.js, cambio di lingua,
+ *                                              salvataggio delle impostazioni e delle immagini
  *   9. missioni e calendario                 — mk (crea elementi), salvataggio mese per mese e
  *                                              collegamento a missions-ui.js
  *  10. musica                                — pulsanti Musica e volume (la logica è in audio.js)
@@ -81,6 +85,8 @@
   const {
     normLedger, normDel, normRaw, rawOf, clampXp, effOf, canon, mergeItems,
   } = SYNC;
+  // Calcoli dei colori (luminosità, mescolanze, colori delle finestre...): sono in look.js
+  const { luminance, mixHex, hslToHex, winBase, paletteVars, readable, normHex } = window.LIFE_RPG_LOOK;
   // Regole delle missioni, delle routine e del calendario (calcoli puri): sono in missions.js
   const MISSIONS = window.LIFE_RPG_MISSIONS.create(GAME, SYNC);
   const {
@@ -853,50 +859,13 @@
     resetArm(false);
     custResetArm(false);
     mfDelArm(false);
-    pasteSlot = null;
+    clearPasteSlot();
     if (lastFocus && lastFocus.focus) lastFocus.focus();
     // un attimo dopo: se chi ha chiuso questa finestra ne apre subito un'altra (profilo di un amico, impostazioni...),
     // le penalità aspettano che si chiuda anche quella invece di aprirsi sotto di lei
     setTimeout(checkPenalties, 0);
   }
   function dataMsg(t) { $('data-msg').textContent = t; }
-  // Impostazioni: cinque schede (Aspetto, Lingua, Suono, Dati, Info)
-  const SET_TABS = { look: ['tab-look', 'pane-look'], lang: ['tab-lang', 'pane-lang'], sound: ['tab-sound', 'pane-sound'], data: ['tab-data', 'pane-data'], info: ['tab-info', 'pane-info'] };
-  const SET_ORDER = ['look', 'lang', 'sound', 'data', 'info'];
-  function showTab(name) {
-    settingsWin.dataset.tab = name;
-    SET_ORDER.forEach(n => {
-      $(SET_TABS[n][1]).hidden = n !== name;
-      const b = $(SET_TABS[n][0]);
-      b.setAttribute('aria-selected', String(n === name));
-      b.tabIndex = n === name ? 0 : -1;
-    });
-    $('btn-custom-reset').hidden = name !== 'look';
-    if (name !== 'look') custResetArm(false);
-    if (name === 'look') paintCustom();
-    if (name === 'data') { dataMsg(''); $('json-box').hidden = true; resetArm(false); }
-    if (name === 'info') renderInfo();
-  }
-  function openSettings(name) {
-    if (!fbAuth && !(window.claude && typeof window.claude.use === 'function')) loadFirebase();   // pronte per "Accedi"
-    showTab(name);
-    openModal(settingsWin, name === 'look' ? $('in-name') : name === 'lang' ? $('tab-lang') : name === 'sound' ? $('btn-sound') : name === 'data' ? $('btn-export') : $('tab-info'));
-  }
-  $('btn-settings').addEventListener('click', () => openSettings('look'));
-  SET_ORDER.forEach((n, i) => {
-    const b = $(SET_TABS[n][0]);
-    b.addEventListener('click', () => showTab(n));
-    b.addEventListener('keydown', e => {
-      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-      e.preventDefault();
-      const to = SET_ORDER[(i + (e.key === 'ArrowRight' ? 1 : SET_ORDER.length - 1)) % SET_ORDER.length];
-      showTab(to);
-      $(SET_TABS[to][0]).focus();
-    });
-  });
-  $('btn-close').addEventListener('click', closeModal);
-  settingsWin.addEventListener('click', e => { if (e.target === settingsWin) closeModal(); });
-
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       if (activeModal) closeModal();
@@ -1032,158 +1001,21 @@
   });
 
   /* ================= personalizzazione ================= */
-  const rootStyle = document.documentElement.style;
-  const WIN_VARS = ['--win-a', '--win-b', '--win-c', '--win-edge', '--win-glow', '--ink-soft', '--track', '--btn'];
-
-  function luminance(hex) {
-    const n = parseInt(hex.slice(1), 16);
-    const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v => {
-      v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-    });
-    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-  }
-  function mixHex(a, b, t) {
-    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
-    const ch = sh => Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t);
-    return '#' + [16, 8, 0].map(sh => ch(sh).toString(16).padStart(2, '0')).join('');
-  }
-  function hslToHex(hh, ss, ll) {
-    ss /= 100; ll /= 100;
-    const k = n => (n + hh / 30) % 12, a = ss * Math.min(ll, 1 - ll);
-    const f = n => ll - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    return '#' + [f(0), f(8), f(4)].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
-  }
-  // colore di base delle finestre: se troppo chiaro viene scurito per lasciare il testo leggibile
-  function winBase(c) {
-    let a = c, k = 0;
-    while (luminance(a) > 0.2 && k < 24) { a = mixHex(a, '#000000', 0.08); k++; }
-    return a;
-  }
-  // variabili CSS delle finestre ricavate da un solo colore (le usa anche il profilo di un amico)
-  function paletteVars(color) {
-    const a = winBase(color), dk = mixHex(a, '#000000', 0.70);
-    return {
-      '--win-a': a,
-      '--win-b': mixHex(a, '#000000', 0.45),
-      '--win-c': dk,
-      '--win-edge': dk,
-      '--win-glow': mixHex(a, '#ffffff', 0.45),
-      '--ink-soft': mixHex(a, '#ffffff', 0.72),
-      '--track': mixHex(a, '#000000', 0.82),
-      '--btn': mixHex(a, '#ffffff', 0.06),
-    };
-  }
-  function applyTheme() {
-    const c = settings.winColor;
-    if (!c) { WIN_VARS.forEach(v => rootStyle.removeProperty(v)); return; }
-    Object.entries(paletteVars(c)).forEach(([k, v]) => rootStyle.setProperty(k, v));
-  }
-  function applyFrame() { document.documentElement.dataset.frame = settings.frame; }
-  // colori dei testi. --ink-soft dipende anche dal colore delle finestre: va applicato dopo di esso
-  function applyTextColors() {
-    ['--name-color', '--title-color', '--ink', '--ink-strong', '--gold'].forEach(v => rootStyle.removeProperty(v));
-    if (settings.inkColor) { rootStyle.setProperty('--ink', settings.inkColor); rootStyle.setProperty('--ink-strong', settings.inkColor); }
-    if (settings.accentColor) rootStyle.setProperty('--gold', settings.accentColor);
-    if (settings.nameColor) rootStyle.setProperty('--name-color', settings.nameColor);
-    if (settings.titleColor) rootStyle.setProperty('--title-color', settings.titleColor);
-    if (settings.softColor) rootStyle.setProperty('--ink-soft', settings.softColor);
-  }
-  function applyPalette() { applyTheme(); applyTextColors(); }
-  // trasparenza delle finestre: 0 = opache, 100 = completamente trasparenti.
-  // Con la trasparenza si aggiunge uno sfocato (fino a 6px verso il 60%) che poi scompare,
-  // così a 100% lo sfondo si vede nitido.
-  function applyTransparency() {
-    const t = settings.trans;
-    if (!t) { rootStyle.removeProperty('--win-op'); rootStyle.removeProperty('--win-bf'); return; }
-    rootStyle.setProperty('--win-op', (100 - t) + '%');
-    const blur = t <= 60 ? t / 10 : 6 * (100 - t) / 40;
-    if (blur > 0) rootStyle.setProperty('--win-bf', 'blur(' + blur + 'px)');
-    else rootStyle.removeProperty('--win-bf');
-  }
-  function applyName() { $('player-name').textContent = settings.name.trim(); schedulePublish(); }
-  // titolo in alto: testo a scelta (vuoto = "Life RPG") oppure nascosto
-  function applyTitle() {
-    const el = $('app-title');
-    const text = settings.titleText.replace(/\s+/g, ' ').trim() || 'Life RPG';
-    el.textContent = text;
-    el.hidden = !settings.titleShow;
-    el.classList.toggle('long', text.length > 16);
-    document.title = settings.titleShow ? text : 'Life RPG';
-  }
-  function statColor(key) { return settings.colors[key] || STATS.find(s => s.key === key).color; }
-  // colore del testo leggibile su fondo scuro: se quello scelto è troppo scuro lo si schiarisce (il bordo resta del colore scelto)
-  function readable(hex) {
-    let c = HEX.test(hex) ? hex : '#ffffff';
-    for (let k = 0; k < 20 && luminance(c) < 0.18; k++) c = mixHex(c, '#ffffff', 0.12);
-    return c;
-  }
-  function statIconId(key) { return STATS.find(s => s.key === key).icon; }
-  // mostra l'icona pixel oppure l'immagine caricata
-  function paintIcon(el, key) {
-    const data = imgs[key];
-    if (data) {
-      const im = document.createElement('img');
-      im.alt = ''; im.src = data;
-      el.textContent = '';
-      el.appendChild(im);
-      el.classList.add('has-img');
-    } else {
-      el.classList.remove('has-img');
-      const rw = ICONS[statIconId(key)].rows;
-      // nelle righe delle statistiche l'icona ha pixel interi (3 o 4 px), così resta nitida
-      el.innerHTML = iconSvg(rw, el.classList.contains('ico') ? icoPx(rw) : 0);
-    }
-  }
-  function applyStats() {
-    STATS.forEach(s => {
-      const c = statColor(s.key), r = rows[s.key];
-      r.item.style.setProperty('--c', c);
-      paintIcon(r.item.querySelector('.ico'), s.key);
-    });
-  }
-  // con "riduci animazioni" attivo sul dispositivo, una GIF di sfondo viene mostrata ferma (primo fotogramma)
-  let stillSrc = null, stillUrl = null, stillFor = null;
-  function stillOf(src) {
-    if (stillSrc === src) return stillUrl;
-    if (stillFor !== src) {
-      stillFor = src;
-      const im = new Image();
-      im.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = im.naturalWidth || 1; c.height = im.naturalHeight || 1;
-        c.getContext('2d').drawImage(im, 0, 0);
-        stillSrc = src; stillUrl = c.toDataURL('image/png');
-        if (imgs.bg === src) applyImages();
-      };
-      im.src = src;
-    }
-    return null;
-  }
-  const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function applyImages() {
-    schedulePublish();
-    const el = $('bg-img');
-    let bg = imgs.bg;
-    if (bg && isGif(bg) && reduceMotion()) bg = stillOf(bg);
-    if (bg) {
-      el.style.backgroundImage = 'url("' + bg + '")';
-      el.style.backgroundSize = (FITS.find(f => f.id === settings.bgFit) || FITS[0]).size;
-      // "Adatta": le bande vuote si riempiono con una copia sfocata della stessa immagine
-      const fill = $('bg-fill');
-      if (settings.bgFit === 'adatta') { fill.style.backgroundImage = 'url("' + bg + '")'; fill.hidden = false; }
-      else { fill.hidden = true; fill.style.backgroundImage = ''; }
-      el.hidden = false;
-      document.body.classList.add('has-bg');
-    } else {
-      el.hidden = true;
-      el.style.backgroundImage = '';
-      el.style.backgroundSize = '';
-      $('bg-fill').hidden = true;
-      $('bg-fill').style.backgroundImage = '';
-      document.body.classList.remove('has-bg');
-    }
-    applyStats();
-  }
+  // Finestra Impostazioni, pannello Personalizza, applicazione dell'aspetto e caricamento immagini: settings-ui.js
+  const SET = window.LIFE_RPG_SETTINGS_UI.create({
+    LANGS, T, STATS, ICONS, mixHex, winBase, paletteVars, normHex, FRAMES, FITS, defaultSettings, IMG_NAMES, CLOUD_IMG_MAX,
+    GIF_MAX_FILE, isGif, validImg, imgs, $, resetArm, custResetArm, icoPx, iconSvg, rows, settingsWin, paneLook,
+    openModal, closeModal, dataMsg, applyLang, applyAll, changed, setImg, renderInfo, loadFirebase, schedulePublish,
+    get missionMsg() { return missionMsg; },   // definito più avanti (missions-ui.js)
+  }, {
+    get settings() { return settings; }, set settings(v) { settings = v; },
+    get dbRef() { return dbRef; },
+    get fbAuth() { return fbAuth; },
+    get activeModal() { return activeModal; },
+  });
+  const {
+    openSettings, applyTheme, applyFrame, applyTextColors, applyTransparency, applyName, applyTitle, statColor, applyImages, cs, buildCustom, paintCustom, wireDrops, clearPasteSlot,
+  } = SET;
   // cambia lingua: aggiorna tutti i testi della pagina
   function applyLang() {
     lang = LANGS.some(l => l.id === settings.lang) ? settings.lang : 'it';
@@ -1226,215 +1058,10 @@
     if (soon) setTimer = setTimeout(flush, 600); else flush();
   }
 
-  const cs = {};
-  function buildCustom() {
-    // colori: finestre, nome e titolo
-    $('in-win').addEventListener('input', e => {
-      settings.winColor = e.target.value.toLowerCase();
-      applyPalette(); paintCustom(); changed(true);
-    });
-    $('win-reset').addEventListener('click', () => { settings.winColor = null; applyPalette(); paintCustom(); changed(); });
-    [['in-ink', 'ink-reset', 'inkColor'], ['in-soft', 'soft-reset', 'softColor'], ['in-accent', 'accent-reset', 'accentColor'],
-     ['in-name-color', 'name-color-reset', 'nameColor'], ['in-title-color', 'title-color-reset', 'titleColor']]
-      .forEach(([inp, rst, key]) => {
-        $(inp).addEventListener('input', e => { settings[key] = e.target.value.toLowerCase(); applyPalette(); paintCustom(); changed(true); });
-        $(rst).addEventListener('click', () => { settings[key] = null; applyPalette(); paintCustom(); changed(); });
-      });
-    // trasparenza
-    $('in-trans').addEventListener('input', e => {
-      settings.trans = Math.min(100, Math.max(0, Math.round(Number(e.target.value)) || 0));
-      $('trans-val').textContent = settings.trans + '%';
-      applyTransparency(); changed(true);
-    });
-    // bordi delle finestre
-    FRAMES.forEach(f => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.textContent = f.name; b.dataset.id = f.id;
-      b.setAttribute('role', 'radio');
-      b.addEventListener('click', () => { settings.frame = f.id; applyFrame(); paintCustom(); changed(); });
-      $('seg-frame').appendChild(b);
-    });
-    // lingua
-    LANGS.forEach(l => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.textContent = l.name; b.dataset.id = l.id; b.lang = l.id;
-      b.setAttribute('role', 'radio');
-      b.addEventListener('click', () => {
-        if (settings.lang === l.id) return;
-        settings.lang = l.id;
-        applyLang(); paintCustom(); changed();
-        // i messaggi già mostrati restano nella vecchia lingua: si tolgono
-        missionMsg(''); dataMsg(''); imgMsg('');
-      });
-      $('seg-lang').appendChild(b);
-    });
-    // adattamento dell'immagine di sfondo
-    FITS.forEach(f => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.textContent = f.name; b.dataset.id = f.id;
-      b.setAttribute('role', 'radio');
-      b.addEventListener('click', () => { settings.bgFit = f.id; applyImages(); paintCustom(); changed(); });
-      $('seg-fit').appendChild(b);
-    });
-    // titolo in alto
-    $('in-title').addEventListener('input', e => {
-      settings.titleText = e.target.value.slice(0, 24);
-      applyTitle(); changed(true);
-    });
-    $('btn-title-show').addEventListener('click', () => {
-      settings.titleShow = !settings.titleShow;
-      applyTitle(); paintCustom(); changed();
-    });
-    // sfondo visibile agli amici
-    $('btn-share-bg').addEventListener('click', () => {
-      settings.shareBg = !settings.shareBg;
-      paintCustom(); changed();
-    });
-    // nome
-    $('in-name').addEventListener('input', e => {
-      settings.name = e.target.value.slice(0, 16);
-      applyName(); changed(true);
-    });
-    // icona e colore di ogni statistica
-    STATS.forEach(s => {
-      const item = document.createElement('div');
-      item.className = 'cs-item';
-      item.dataset.slot = s.key;
-      item.innerHTML =
-        '<div class="cs-row">' +
-          `<button type="button" class="cs-icon" aria-expanded="false" aria-label="${T('cs.icon.aria', { name: s.name })}"></button>` +
-          `<span class="cs-name">${s.name}</span>` +
-          `<input type="color" class="cs-color" aria-label="${T('cs.color.aria', { name: s.name })}">` +
-        '</div>' +
-        '<div class="cs-panel" hidden>' +
-          '<div class="img-actions">' +
-            '<button type="button" class="btn small cs-upload" data-i18n="img.use">' + T('img.use') + '</button>' +
-            '<button type="button" class="btn small sub cs-remove" hidden data-i18n="img.remove">' + T('img.remove') + '</button>' +
-          '</div>' +
-          '<p class="tip" data-i18n="img.tip">' + T('img.tip') + '</p>' +
-        '</div>';
-      $('stat-custom').appendChild(item);
-      const q = sel => item.querySelector(sel);
-      const c = cs[s.key] = {
-        item, icoBtn: q('.cs-icon'), nameEl: q('.cs-name'), color: q('.cs-color'),
-        panel: q('.cs-panel'), upBtn: q('.cs-upload'), rmBtn: q('.cs-remove'),
-      };
-      c.upBtn.addEventListener('click', () => pickImage(s.key));
-      c.rmBtn.addEventListener('click', () => { setImg(s.key, null); imgMsg(T('img.msg.removed')); });
-      c.icoBtn.addEventListener('click', () => {
-        const open = c.panel.hidden;
-        STATS.forEach(t => { cs[t.key].panel.hidden = true; cs[t.key].icoBtn.setAttribute('aria-expanded', 'false'); });
-        c.panel.hidden = !open;
-        c.icoBtn.setAttribute('aria-expanded', String(open));
-      });
-      c.color.addEventListener('input', e => {
-        settings.colors[s.key] = e.target.value.toLowerCase();
-        applyStats(); paintCustom(); changed(true);
-      });
-    });
-
-    $('btn-custom-reset').addEventListener('click', () => {
-      const b = $('btn-custom-reset');
-      if (!b.dataset.armed) { custResetArm(true); return; }
-      custResetArm(false);
-      settings = Object.assign(defaultSettings(), { lang: settings.lang });   // la lingua non fa parte dell'aspetto
-      IMG_NAMES.forEach(n => { if (imgs[n]) setImg(n, null); });
-      applyAll(); paintCustom(); changed();
-      imgMsg('');
-    });
-
-    document.querySelectorAll('#settings input[type="color"]').forEach(attachHex);
-  }
-
-  function paintCustom() {
-    $('in-name').value = settings.name;
-    $('in-title').value = settings.titleText;
-    $('btn-title-show').setAttribute('aria-pressed', String(settings.titleShow));
-    $('btn-title-show').textContent = settings.titleShow ? T('look.title.shown') : T('look.title.hidden');
-    $('btn-share-bg').setAttribute('aria-pressed', String(settings.shareBg));
-    $('btn-share-bg').textContent = settings.shareBg ? T('look.sharebg.on') : T('look.sharebg.off');
-    $('share-bg-big').hidden = !(settings.shareBg && imgs.bg && imgs.bg.length > CLOUD_IMG_MAX);
-    $('in-trans').value = settings.trans;
-    $('trans-val').textContent = settings.trans + '%';
-    $('in-win').value = settings.winColor || '#3049cf';
-    $('win-reset').hidden = !settings.winColor;
-    const accent = settings.accentColor || '#ffd54a';
-    $('in-ink').value = settings.inkColor || '#f5f7ff';
-    $('ink-reset').hidden = !settings.inkColor;
-    $('in-soft').value = settings.softColor || (settings.winColor ? mixHex(winBase(settings.winColor), '#ffffff', 0.72) : '#b9c4ff');
-    $('soft-reset').hidden = !settings.softColor;
-    $('in-accent').value = accent;
-    $('accent-reset').hidden = !settings.accentColor;
-    $('in-name-color').value = settings.nameColor || accent;
-    $('name-color-reset').hidden = !settings.nameColor;
-    $('in-title-color').value = settings.titleColor || accent;
-    $('title-color-reset').hidden = !settings.titleColor;
-    document.querySelectorAll('#seg-frame button').forEach(b => {
-      b.textContent = T('frame.' + b.dataset.id);
-      b.setAttribute('aria-checked', String(b.dataset.id === settings.frame));
-    });
-    document.querySelectorAll('#seg-lang button').forEach(b =>
-      b.setAttribute('aria-checked', String(b.dataset.id === settings.lang)));
-    STATS.forEach(s => {
-      const c = cs[s.key], col = statColor(s.key);
-      c.item.style.setProperty('--c', col);
-      c.nameEl.textContent = s.name;
-      c.icoBtn.setAttribute('aria-label', T('cs.icon.aria', { name: s.name }));
-      c.color.setAttribute('aria-label', T('cs.color.aria', { name: s.name }));
-      paintIcon(c.icoBtn, s.key);
-      c.color.value = col;
-      c.rmBtn.hidden = !imgs[s.key];
-    });
-    $('bg-remove').hidden = !imgs.bg;
-    $('fit-wrap').hidden = !imgs.bg;
-    document.querySelectorAll('#seg-fit button').forEach(b => {
-      b.textContent = T('fit.' + b.dataset.id);
-      b.setAttribute('aria-checked', String(b.dataset.id === settings.bgFit));
-    });
-    syncHex();
-  }
-
-  // accanto a ogni selettore di colore c'è un campo per scrivere il codice esadecimale
-  function normHex(v) {
-    let t = String(v).trim().replace(/^#/, '');
-    if (/^[0-9a-f]{3}$/i.test(t)) t = t.split('').map(ch => ch + ch).join('');
-    return /^[0-9a-f]{6}$/i.test(t) ? '#' + t.toLowerCase() : null;
-  }
-  function attachHex(colorEl) {
-    const t = document.createElement('input');
-    t.type = 'text'; t.className = 'hex'; t.maxLength = 7;
-    t.spellcheck = false; t.autocomplete = 'off'; t.placeholder = '#rrggbb';
-    t.setAttribute('aria-label', T('hex.aria'));
-    t.value = colorEl.value;
-    colorEl.insertAdjacentElement('afterend', t);
-    colorEl._hex = t;
-    colorEl.addEventListener('input', () => {
-      if (document.activeElement !== t) t.value = colorEl.value;
-      t.removeAttribute('aria-invalid');
-    });
-    t.addEventListener('input', () => {
-      const v = normHex(t.value);
-      if (!v) { t.setAttribute('aria-invalid', 'true'); return; }
-      t.removeAttribute('aria-invalid');
-      colorEl.value = v;
-      colorEl.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    t.addEventListener('blur', () => { t.value = colorEl.value; t.removeAttribute('aria-invalid'); });
-  }
-  function syncHex() {
-    document.querySelectorAll('#settings input[type="color"]').forEach(c => {
-      if (c._hex && document.activeElement !== c._hex) c._hex.value = c.value;
-    });
-  }
-
-
-  /* ----- caricamento immagini ----- */
-  // Le pagine pubblicate non possono aprire indirizzi web: le immagini arrivano da un file,
-  // dagli appunti (incolla) o dal trascinamento, poi vengono ridimensionate e salvate.
-  const MAX_FILE = 15 * 1024 * 1024;
+  /* ----- immagini: salvataggio e invio all'account ----- */
+  // (il caricamento da file, appunti e trascinamento è in settings-ui.js)
   const imgQueue = new Set();
   let imgBusy = false;
-  function imgMsg(t) { $('custom-msg').textContent = t; }
 
   async function flushImgs() {
     if (!dbRef || imgBusy) return;
@@ -1467,110 +1094,6 @@
     flushImgs();
     return saving;
   }
-
-  function loadImage(file) {
-    return new Promise((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onerror = () => reject(new Error('lettura'));
-      fr.onload = () => {
-        const im = new Image();
-        im.onload = () => resolve(im);
-        im.onerror = () => reject(new Error('formato'));
-        im.src = String(fr.result);
-      };
-      fr.readAsDataURL(file);
-    });
-  }
-  function makeIcon(im) {
-    const c = document.createElement('canvas');
-    c.width = 96; c.height = 96;
-    const g = c.getContext('2d');
-    const k = Math.max(96 / im.width, 96 / im.height);
-    const dw = im.width * k, dh = im.height * k;
-    g.drawImage(im, (96 - dw) / 2, (96 - dh) / 2, dw, dh);
-    let url = c.toDataURL('image/png');
-    if (url.length > 120000) url = c.toDataURL('image/jpeg', 0.8);
-    return url;
-  }
-  function makeBackground(im) {
-    const tries = [[1280, 0.72], [1280, 0.6], [1024, 0.6], [900, 0.5], [720, 0.5], [560, 0.45]];
-    for (const [max, q] of tries) {
-      const k = Math.min(1, max / Math.max(im.width, im.height));
-      const w = Math.max(1, Math.round(im.width * k)), h = Math.max(1, Math.round(im.height * k));
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      const g = c.getContext('2d');
-      g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
-      g.drawImage(im, 0, 0, w, h);
-      const url = c.toDataURL('image/jpeg', q);
-      if (url.length <= 200000) return url;
-    }
-    return null;
-  }
-  async function useImageFile(slot, file) {
-    if (!file || !/^image\//.test(file.type || '')) { imgMsg(T('img.msg.notimg')); return; }
-    if (file.size > MAX_FILE) { imgMsg(T('img.msg.big')); return; }
-    imgMsg(T('img.msg.work'));
-    try {
-      const im = await loadImage(file);
-      let data, gifBig = false;
-      if (slot === 'bg' && isGif(im.src)) {
-        // le GIF si tengono così come sono, altrimenti perdono l'animazione
-        if (file.size <= GIF_MAX_FILE) data = im.src;
-        else { data = makeBackground(im); gifBig = true; }
-      } else data = slot === 'bg' ? makeBackground(im) : makeIcon(im);
-      if (!validImg(data)) { imgMsg(T('img.msg.unusable')); return; }
-      const saved = await setImg(slot, data);
-      if (!saved) imgMsg(T('img.msg.full'));
-      else if (gifBig) imgMsg(T('img.msg.gifbig'));
-      else if (dbRef && data.length > CLOUD_IMG_MAX) imgMsg(T('img.msg.gifcloud'));
-      else imgMsg(T('img.msg.ok'));
-    } catch (e) {
-      imgMsg(T('img.msg.unread'));
-    }
-  }
-
-  const fileImg = $('file-img');
-  let uploadSlot = null, pasteSlot = null;
-  function pickImage(slot) { uploadSlot = slot; fileImg.click(); }
-  fileImg.addEventListener('change', e => {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (f && uploadSlot) useImageFile(uploadSlot, f);
-  });
-  $('bg-upload').addEventListener('click', () => pickImage('bg'));
-  $('bg-remove').addEventListener('click', () => { setImg('bg', null); imgMsg(T('img.msg.bgremoved')); });
-
-  // ricorda l'area su cui hai toccato per sapere dove incollare
-  const slotOf = el => (el && el.closest ? el.closest('[data-slot]') : null);
-  paneLook.addEventListener('pointerdown', e => { const s = slotOf(e.target); pasteSlot = s ? s.dataset.slot : null; });
-  paneLook.addEventListener('focusin', e => { const s = slotOf(e.target); if (s) pasteSlot = s.dataset.slot; });
-  document.addEventListener('paste', e => {
-    if (activeModal !== settingsWin || paneLook.hidden) return;
-    const focused = slotOf(document.activeElement);
-    const slot = pasteSlot || (focused ? focused.dataset.slot : null);
-    if (!slot) return;
-    const items = e.clipboardData && e.clipboardData.items ? [...e.clipboardData.items] : [];
-    const it = items.find(i => i.kind === 'file' && /^image\//.test(i.type));
-    if (!it) return;
-    e.preventDefault();
-    useImageFile(slot, it.getAsFile());
-  });
-  function wireDrops() {
-    paneLook.querySelectorAll('[data-slot]').forEach(el => {
-      el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag'); });
-      el.addEventListener('dragleave', () => el.classList.remove('drag'));
-      el.addEventListener('drop', e => {
-        e.preventDefault(); e.stopPropagation();
-        el.classList.remove('drag');
-        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-        if (f) useImageFile(el.dataset.slot, f);
-        else imgMsg(T('img.msg.drop'));
-      });
-    });
-  }
-  // un file lasciato fuori dalle aree non deve aprirsi al posto della pagina
-  ['dragover', 'drop'].forEach(t => window.addEventListener(t, e => e.preventDefault()));
 
   /* ================= missioni e calendario ================= */
   // Le regole (date, scadenze, ordine, routine, penalità, Google Calendar) sono in missions.js,
