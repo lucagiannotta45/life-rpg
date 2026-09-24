@@ -16,11 +16,13 @@
  * Effetti sonori e musica (con la tabella dei brani MUSIC_FILES) sono in audio.js.
  * I calcoli dei colori (temi, finestre, testo leggibile) sono in look.js; la finestra Impostazioni,
  * il pannello Personalizza e l'applicazione dell'aspetto sono in settings-ui.js. Gli amici sono in friends.js.
+ * Il motore dell'account e della sincronizzazione (scrivere, ascoltare, accedere) è in cloud.js;
+ * i dati (XP, missioni, routine, impostazioni, stato della sincronizzazione) restano qui.
  * Le regole delle missioni, delle routine e del calendario (calcoli puri) sono in missions.js;
  * la parte che si vede (schede, elenco, calendario, finestre delle missioni) è in missions-ui.js.
  * L'ordine dei file in index.html è:
  *   i18n.js → game.js → draw.js → look.js → sync.js → missions.js → missions-ui.js → settings-ui.js
- *   → friends.js → audio.js → index.js.
+ *   → cloud.js → friends.js → audio.js → index.js.
  *
  * Indice delle sezioni, nell'ordine in cui compaiono (cerca il titolo per saltare al punto giusto):
  *   1. lingue                                — collegamento ai testi di i18n.js
@@ -40,7 +42,7 @@
  *                                              icone delle Impostazioni
  *  11. info: la guida del giocatore          — testo di aiuto in-app
  *  12. avvio                                 — inizializzazione dell'app
- *  13. account (Firebase)                    — accesso con Google, collegamento e unione dei dati
+ *  13. account (Firebase)                    — (il motore è in cloud.js, creato prima dell'avvio)
  *  14. amici                                 — collegamento a friends.js; poi il riquadro Account
  *                                              (accesso/uscita) e l'avvio della connessione
  *
@@ -392,227 +394,6 @@
   const seenOf = m => ({ g: missionSig(m), e: effOf(m) });
   const mSeen = new Map(missions.map(m => [m.id, seenOf(m)]));
   const rSeen = new Map(routines.map(r => [r.id, routineSig(r)]));
-  function stampRoutines() {
-    const now = Date.now();
-    routines.forEach(r => { const g = routineSig(r); if (rSeen.get(r.id) !== g) { r.u = Math.max(now, (r.u || 0) + 1); rSeen.set(r.id, g); } });
-  }
-  // missioni o routine eliminate da te: la lapide impedisce che tornino da un altro dispositivo
-  function tombMissions(list) {
-    const now = Date.now();
-    list.forEach(m => {
-      const ym = monthOf(m), x = { t: now };
-      if (m.c) x.c = m.c;
-      if (m.z) x.z = m.z;
-      (sync.mDel[ym] = sync.mDel[ym] || {})[m.id] = x;
-      mSeen.delete(m.id);
-    });
-    saveSync();
-  }
-  function tombRoutine(id) { sync.rDel[id] = { t: Date.now() }; rSeen.delete(id); saveSync(); }
-
-  // porta dentro questo dispositivo il contenuto di un mese dell'account (R, lapidi rDel).
-  // Se una tua versione ha perso, si annulla la parte di XP che il registro vincente non ti riconosce.
-  function mergeMonth(ym, R, rDel) {
-    const L = missions.filter(m => monthOf(m) === ym);
-    const res = SYNC.mergeReport(L, sync.mDel[ym] || {}, R, rDel, missionSig, DEV);
-    const { comp, changed, dirty } = res;
-    if (Object.keys(res.del).length) sync.mDel[ym] = res.del; else delete sync.mDel[ym];
-    if (changed) {
-      missions = missions.filter(m => monthOf(m) !== ym).concat(res.items);
-      L.forEach(m => { if (!res.info.get(m.id).w) mSeen.delete(m.id); });
-      res.items.forEach(m => { const i = res.info.get(m.id); if (i.w !== i.l) mSeen.set(m.id, seenOf(m)); });
-      saveMissionsLocal();
-    }
-    const fix = STATS.filter(s => comp[s.key]);
-    let xpCh = false;
-    if (fix.length) {
-      absorbLocal();
-      fix.forEach(s => { sync.pend[s.key] += comp[s.key]; });
-      xpCh = recomputeXp();
-      saveLocal();
-    }
-    saveSync();
-    if (dirty) monthQueue.add(ym);
-    return { changed, xpChanged: fix.length > 0 || xpCh };
-  }
-
-  // porta dentro le routine dell'account
-  function mergeRoutinesIn(R, rDel) {
-    const res = SYNC.mergeReport(routines, sync.rDel, R, rDel, routineSig);
-    const { changed, dirty, gone } = res;
-    sync.rDel = res.del;
-    if (changed) {
-      routines = res.items;
-      rSeen.clear(); routines.forEach(r => rSeen.set(r.id, routineSig(r)));
-      routinesApplying = true; saveRoutinesLocal(); routinesApplying = false;
-      // routine eliminata su un altro dispositivo: le sue volte ancora da fare spariscono anche qui
-      if (gone.length) {
-        const drop = missions.filter(m => gone.includes(m.rid) && !m.done && !m.failed);
-        if (drop.length) {
-          const months = new Set(drop.map(monthOf));
-          tombMissions(drop);
-          missions = missions.filter(m => !drop.includes(m));
-          months.forEach(touchMonth);
-        }
-      }
-    }
-    saveSync();
-    return { changed, dirty };
-  }
-
-  // applica il documento del giocatore arrivato dall'account.
-  // sent: ciò che questo dispositivo ha appena scritto (dopo una scrittura riuscita); force: al collegamento
-  function applyUserDoc(d, sent, force) {
-    const rev = Number(d.rev) || 0;
-    let xpChanged = false;
-    if (sent || force || rev > sync.rev) {
-      absorbLocal();
-      // ciò che è appena stato scritto non è più "da mandare"
-      if (sent) STATS.forEach(s => { sync.pend[s.key] -= sent.pend[s.key]; });
-      sync.xpBase = rawOf(d);
-      xpChanged = recomputeXp();
-      sync.rev = Math.max(sync.rev, rev);
-      saveLocal();
-    }
-    const rr = mergeRoutinesIn(normalizeRoutines(d.routines), normDel(d.rDel));
-    // impostazioni: vince la modifica più recente; a parità (anche dati di versioni precedenti) vince l'account
-    const rsAt = Number(d.sAt) || 0;
-    let setDirty = false;
-    if (d.settings && typeof d.settings === 'object') {
-      if (rsAt >= sync.sAt) {
-        const s = mergeSettings(d.settings);
-        sync.sAt = rsAt;
-        if (JSON.stringify(s) !== JSON.stringify(settings)) {
-          settings = s;
-          saveSettingsLocal();
-          applyAll();
-          paintCustom();
-        }
-      } else setDirty = true;
-    } else if (!isDefaultSettings() || sync.sAt) setDirty = true;
-    saveSync();
-    return { xpChanged, routinesChanged: rr.changed, dirty: rr.dirty || setDirty };
-  }
-
-  // legge, unisce e riscrive un documento in modo sicuro: con Firebase in una transazione
-  // (se nel frattempo un altro dispositivo lo cambia, si rifà da capo); altrove lettura e poi scrittura
-  async function txDoc(ref, make) {
-    if (fbDb && dbRef && typeof fbDb.runTransaction === 'function' && ref.firestore) {
-      await fbDb.runTransaction(async t => {
-        const snap = await t.get(ref);
-        t.set(ref, make(snap.exists ? snap.data() : null));
-      });
-    } else {
-      const snap = await ref.get();
-      await ref.set(make(snap.exists ? snap.data() : null));
-    }
-  }
-
-  // se la scrittura non riesce si riprova da soli: subito quando torna la rete, altrimenti dopo un po'
-  let retryT = 0, retryMs = 15000, userDirty = false;
-  function syncFail(e) {
-    console.warn('sync', e);
-    const offline = !navigator.onLine || (e && (e.code === 'unavailable' || e.code === 'deadline-exceeded'));
-    setSaveState(offline ? 'offline' : 'error');   // senza rete non è un errore: si salva sul dispositivo e si manda dopo
-    clearTimeout(retryT);
-    retryT = setTimeout(syncKick, retryMs);
-    retryMs = Math.min(retryMs * 2, 300000);
-  }
-  function syncOk() { retryMs = 15000; setSaveState('account'); }
-  function syncKick() {
-    if (!dbRef) return;
-    if (userDirty) flush();
-    if (monthQueue.size) flushMissions();
-    if (imgQueue.size) flushImgs();
-  }
-
-  // documento del giocatore: XP (come differenza), routine e impostazioni
-  async function flush() {
-    if (!dbRef) return;
-    userDirty = true;
-    if (writing) { again = true; return; }
-    writing = true;
-    stampRoutines();
-    absorbLocal();
-    const sent = { xs: { ...xp }, pend: { ...sync.pend }, abs: xpAbs };
-    let out = null;
-    try {
-      await txDoc(dbRef, cur => {
-        const d = cur || {};
-        const xr = SYNC.nextRaw(rawOf(d), sent.pend, sent.abs, sent.xs), nx = {};
-        STATS.forEach(s => { nx[s.key] = clampXp(xr[s.key]); });
-        const rr = mergeItems(routines, sync.rDel, normalizeRoutines(d.routines), normDel(d.rDel), routineSig);
-        const rs = d.settings && typeof d.settings === 'object' ? mergeSettings(d.settings) : null, rsAt = Number(d.sAt) || 0;
-        const mine = !rs || sync.sAt > rsAt;
-        out = { v: 2, rev: (Number(d.rev) || 0) + 1, xp: nx, xr, settings: mine ? settings : rs, sAt: mine ? sync.sAt : rsAt, routines: rr.items, rDel: rr.del };
-        return JSON.parse(JSON.stringify(out));
-      });
-      userDirty = false;
-      if (sent.abs && xpAbs === sent.abs) xpAbs = 0;
-      const r = applyUserDoc(JSON.parse(JSON.stringify(out)), sent);
-      if (r.dirty) again = true;
-      syncOk();
-      if (r.xpChanged || r.routinesChanged) afterRemote(r.routinesChanged);
-    } catch (e) { syncFail(e); }
-    writing = false;
-    if (deferredUser) { const d = deferredUser; deferredUser = null; onUserSnap(d); }
-    if (again) { again = false; flush(); }
-  }
-  function persist() { saveLocal(); flush(); }
-
-  // dopo un aggiornamento arrivato da un altro dispositivo: si ridisegna ciò che serve
-  function afterRemote(missionsToo) {
-    render(false);
-    if (missionsToo) renderMissionViews();
-    if (!rmodal.hidden) renderRoutines();
-  }
-  function onUserSnap(d) {
-    if (writing) { if (!deferredUser || (Number(d.rev) || 0) >= (Number(deferredUser.rev) || 0)) deferredUser = d; return; }
-    const r = applyUserDoc(d, null);
-    if (r.dirty) flush();
-    if (r.xpChanged || r.routinesChanged) afterRemote(r.routinesChanged);
-  }
-
-  // aggiornamenti in diretta dall'account (solo Firebase): documento del giocatore, missioni, immagini
-  let unsubs = [];
-  function stopListening() { unsubs.forEach(f => { try { f(); } catch (e) { /* ignora */ } }); unsubs = []; }
-  function startListening() {
-    stopListening();
-    if (!dbRef || typeof dbRef.onSnapshot !== 'function' || !dbRef.firestore) return;
-    const ref = dbRef;
-    const err = e => console.warn('listen', e);
-    unsubs.push(ref.onSnapshot(s => {
-      if (dbRef !== ref || !s.exists || s.metadata.hasPendingWrites) return;
-      onUserSnap(s.data());
-    }, err));
-    unsubs.push(ref.collection('m').onSnapshot(qs => {
-      if (dbRef !== ref) return;
-      let any = false, xpAny = false;
-      qs.docChanges().forEach(ch => {
-        if (ch.type === 'removed' || ch.doc.metadata.hasPendingWrites || !/^\d{4}-\d{2}$/.test(ch.doc.id)) return;
-        const x = ch.doc.data() || {};
-        const r = mergeMonth(ch.doc.id, normalizeMissions(x.items).filter(m => monthOf(m) === ch.doc.id), normDel(x.del));
-        any = any || r.changed; xpAny = xpAny || r.xpChanged;
-      });
-      if (xpAny) persist();
-      if (any || xpAny) { render(false); renderMissionViews(); }
-      if (monthQueue.size) flushMissions();
-    }, err));
-    unsubs.push(ref.collection('imgs').onSnapshot(qs => {
-      if (dbRef !== ref) return;
-      let any = false;
-      qs.docChanges().forEach(ch => {
-        const n = ch.doc.id;
-        if (!IMG_NAMES.includes(n) || imgQueue.has(n) || ch.doc.metadata.hasPendingWrites) return;
-        const raw = ch.type === 'removed' ? null : (ch.doc.data() || {}).data;
-        const v = validImg(raw) ? raw : null;
-        if (!v && imgs[n] && imgs[n].length > CLOUD_IMG_MAX) return;   // immagine troppo grande per l'account: resta questa
-        if (imgs[n] !== v) { imgs[n] = v; saveImgLocal(n); any = true; }
-      });
-      if (any) { applyImages(); if (cs.Vigore) paintCustom(); }
-    }, err));
-  }
-
   /* ================= suono ================= */
   // Effetti sonori e musica vivono in audio.js: qui si crea il "mixer" e si collegano i pulsanti.
   // Il brano si sceglie dal tuo ruolo (XP attuali); nella scheda Personaggio la musica suona a volume pieno.
@@ -1375,6 +1156,50 @@
     p(b, T(dbRef ? 'info.data.p3' : 'info.data.p3.local'));   // con l'account il backup è una copia di sicurezza, senza è l'unico modo di trasferire i dati
   }
 
+  /* ----- account e sincronizzazione (cloud.js): creati qui, prima degli amici e dell'avvio ----- */
+  const CLOUD = window.LIFE_RPG_CLOUD.create({
+    T, TN, STATS, levelFromXp, overallOf, blank, normalize, SYNC, normDel, rawOf, clampXp, mergeItems, monthOf,
+    normalizeMissions, normalizeRoutines, fmt, saveLocal, hasProgress, defaultSettings, saveSettingsLocal, isDefaultSettings,
+    mergeSettings, IMG_NAMES, CLOUD_IMG_MAX, validImg, imgs, imgTouched, saveImgLocal, imagesInit, saveMissionsLocal,
+    saveRoutinesLocal, setSaveState, lsSet, blankSync, DEV, absorbLocal, recomputeXp, hasPend, saveSync, missionSig,
+    routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
+    applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
+    renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests,
+  }, {
+    get settings() { return settings; }, set settings(v) { settings = v; },
+    get settingsTouched() { return settingsTouched; }, set settingsTouched(v) { settingsTouched = v; },
+    get missions() { return missions; }, set missions(v) { missions = v; },
+    get routinesApplying() { return routinesApplying; }, set routinesApplying(v) { routinesApplying = v; },
+    get routines() { return routines; }, set routines(v) { routines = v; },
+    get xp() { return xp; }, set xp(v) { xp = v; },
+    get dbRef() { return dbRef; }, set dbRef(v) { dbRef = v; },
+    get writing() { return writing; }, set writing(v) { writing = v; },
+    get again() { return again; }, set again(v) { again = v; },
+    get fbAuth() { return fbAuth; }, set fbAuth(v) { fbAuth = v; },
+    get fbDb() { return fbDb; }, set fbDb(v) { fbDb = v; },
+    get fbUser() { return fbUser; }, set fbUser(v) { fbUser = v; },
+    get accBusy() { return accBusy; }, set accBusy(v) { accBusy = v; },
+    get accPending() { return accPending; }, set accPending(v) { accPending = v; },
+    get downloadsCap() { return downloadsCap; }, set downloadsCap(v) { downloadsCap = v; },
+    get sync() { return sync; }, set sync(v) { sync = v; },
+    get xpAbs() { return xpAbs; }, set xpAbs(v) { xpAbs = v; },
+    get deferredUser() { return deferredUser; }, set deferredUser(v) { deferredUser = v; },
+  });
+  // "ponti": funzioni dichiarate (esistono fin dall'inizio del file, come prima) che passano la chiamata a cloud.js
+  function stampRoutines(...a) { return CLOUD.stampRoutines(...a); }
+  function tombMissions(...a) { return CLOUD.tombMissions(...a); }
+  function tombRoutine(...a) { return CLOUD.tombRoutine(...a); }
+  function mergeMonth(...a) { return CLOUD.mergeMonth(...a); }
+  function txDoc(...a) { return CLOUD.txDoc(...a); }
+  function syncFail(...a) { return CLOUD.syncFail(...a); }
+  function syncOk(...a) { return CLOUD.syncOk(...a); }
+  function flush(...a) { return CLOUD.flush(...a); }
+  function persist(...a) { return CLOUD.persist(...a); }
+  function loadFirebase(...a) { return CLOUD.loadFirebase(...a); }
+  function fbConnect(...a) { return CLOUD.fbConnect(...a); }
+  function paintAccount(...a) { return CLOUD.paintAccount(...a); }
+  function initCloud(...a) { return CLOUD.initCloud(...a); }
+
   /* ----- amici (friends.js): creati qui, prima dell'avvio, perché l'avvio li usa già ----- */
   // Codice amico, profilo pubblico, elenco e profilo di un amico: sono in friends.js.
   const FR = window.LIFE_RPG_FRIENDS.create({
@@ -1405,331 +1230,10 @@
   render(false);
 
   /* ================= account (Firebase) ================= */
-  // Accesso con Google e salvataggio nel database Firestore del progetto "life-rpg".
-  // Questi valori non sono segreti: finiscono comunque nel codice pubblico dell'app.
-  // Chi può leggere o scrivere cosa lo decidono le regole di sicurezza su Firebase.
-  const FIREBASE_CONFIG = {
-    apiKey: 'AIzaSyBUytbsbm5MH1lUttO9Cbw8ILAH2DRF1qM',
-    authDomain: 'life-rpg-1a118.firebaseapp.com',
-    projectId: 'life-rpg-1a118',
-    storageBucket: 'life-rpg-1a118.firebasestorage.app',
-    messagingSenderId: '742342774863',
-    appId: '1:742342774863:web:ee6e00c69eae4da001da3a',
-  };
-  // l'accesso funziona solo da un indirizzo web (https o localhost), non aprendo il file dal dispositivo
-  function fbUsable() { return location.protocol === 'https:' || location.hostname === 'localhost'; }
-  // Le librerie Firebase (circa 700 KB) si caricano solo se servono: all'avvio se avevi già fatto l'accesso,
-  // altrimenti quando apri le impostazioni (per essere pronte al tocco su "Accedi").
-  const LS_SIGNED = 'liferpg:signed';
-  function wasSignedIn() {
-    try {
-      const v = localStorage.getItem(LS_SIGNED);
-      return v === '1' || (v === null && !!localStorage.getItem('liferpg:acc'));   // versione precedente: basta essere stati collegati
-    } catch (e) { return false; }
-  }
-  const markSigned = on => lsSet(LS_SIGNED, on ? '1' : '0');
-  let fbLoading = null;
-  function loadFirebase() {
-    if (window.firebase && window.firebase.apps) return Promise.resolve(true);
-    if (!fbUsable()) return Promise.resolve(false);
-    if (!fbLoading) {
-      // una dopo l'altra: auth e firestore hanno bisogno di app
-      fbLoading = ['app', 'auth', 'firestore'].reduce((p, n) => p.then(() => new Promise((res, rej) => {
-        const sc = document.createElement('script');
-        sc.src = 'firebase/firebase-' + n + '-compat.js';
-        sc.onload = res;
-        sc.onerror = () => rej(new Error('firebase ' + n));
-        document.head.appendChild(sc);
-      })), Promise.resolve()).then(() => !!window.firebase, e => { console.warn(e); fbLoading = null; return false; });
-    }
-    return fbLoading;
-  }
-  function fbInit() {
-    if (fbAuth || !fbUsable() || !window.firebase) return !!fbAuth;
-    try {
-      const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
-      fbAuth = app.auth();
-      fbDb = app.firestore();
-      return true;
-    } catch (e) { console.warn('firebase', e); return false; }
-  }
-  // al primo avvio Firebase ritrova da solo l'accesso fatto in precedenza (anche offline)
-  function fbFirstUser() { return new Promise(res => { const off = fbAuth.onAuthStateChanged(u => { off(); res(u); }); }); }
-
-  // legge tutto quello che c'è nell'account (documento del giocatore, immagini, missioni per mese)
-  async function cloudFetch(ref) {
-    const snap = await ref.get();
-    const d = snap.exists ? snap.data() : null;
-    const isnap = await ref.collection('imgs').get();
-    const rImgs = {};
-    isnap.docs.forEach(x => { const v = x.data() && x.data().data; if (validImg(v)) rImgs[x.id] = v; });
-    const msnap = await ref.collection('m').get();
-    const rM = {};
-    msnap.docs.forEach(x => {
-      if (!/^\d{4}-\d{2}$/.test(x.id)) return;
-      const v = x.data() || {};
-      rM[x.id] = { items: normalizeMissions(v.items).filter(m => monthOf(m) === x.id), del: normDel(v.del) };
-    });
-    return { d, rImgs, rM };
-  }
-  // il dispositivo ricorda a quale account è già collegato: la scelta "quali dati tenere" si fa una volta sola
-  const LS_ACC = 'liferpg:acc';
-  const linkedUid = () => { try { return localStorage.getItem(LS_ACC) || ''; } catch (e) { return ''; } };
-  const linkUid = uid => lsSet(LS_ACC, uid);
-  // confronto senza "u": due copie degli stessi dati sono uguali anche se le modifiche hanno istanti diversi
-  const sortedSig = (list, sig) => [...list].sort((a, b) => a.id.localeCompare(b.id)).map(sig).join('\n');
-  const remoteMissions = r => Object.values(r.rM).flatMap(x => x.items);
-  const deviceHasData = () => hasProgress(xp) || missions.length > 0 || routines.length > 0 || !isDefaultSettings() || IMG_NAMES.some(n => imgs[n]);
-  function accountHasData(r) {
-    return !!r.d && (hasProgress(normalize(r.d.xp)) || (Array.isArray(r.d.routines) && r.d.routines.length > 0)
-      || (!!r.d.settings && JSON.stringify(mergeSettings(r.d.settings)) !== JSON.stringify({ ...defaultSettings(), lang: settings.lang })))
-      || remoteMissions(r).length > 0 || Object.keys(r.rImgs).length > 0;
-  }
-  function sameData(r) {
-    if (!r.d) return false;
-    return JSON.stringify(normalize(r.d.xp)) === JSON.stringify(xp)
-      && JSON.stringify(mergeSettings(r.d.settings || {})) === JSON.stringify(settings)
-      && sortedSig(normalizeRoutines(r.d.routines || []), routineSig) === sortedSig(routines, routineSig)
-      && sortedSig(remoteMissions(r), missionSig) === sortedSig(missions, missionSig)
-      && IMG_NAMES.every(n => {
-        const here = imgs[n] || null;
-        if (here && here.length > CLOUD_IMG_MAX) return true;   // troppo grande per l'account: non conta
-        return (r.rImgs[n] || null) === here;
-      });
-  }
-  // riassunto di un insieme di dati per la finestra della scelta
-  function dataSummary(x, list) {
-    const total = STATS.reduce((t, s) => t + (x[s.key] || 0), 0);
-    return TN('acc.sum', list.length, { lv: overallOf(STATS.map(s => levelFromXp(x[s.key]))), xp: fmt(total) });
-  }
-
-  // carica i dati dall'account (ref = documento del giocatore) e li unisce a quelli di questo dispositivo.
-  // uid: l'account Firebase; se il dispositivo non è ancora collegato e sia l'account sia il dispositivo
-  // hanno dati diversi, prima si chiede quali tenere. key: a chi appartiene lo stato di sincronizzazione.
-  async function cloudLoad(ref, uid, key) {
-    const r = await cloudFetch(ref);
-    if (uid && linkedUid() !== uid && accountHasData(r) && deviceHasData() && !sameData(r)) {
-      accPending = { ref, uid, r, key };
-      $('acc-choice-acc').textContent = T('acc.choice.acc', { sum: dataSummary(normalize(r.d && r.d.xp), remoteMissions(r)) });
-      $('acc-choice-dev').textContent = T('acc.choice.dev', { sum: dataSummary(xp, missions) });
-      openModal($('accmodal'), $('acc-keep-acc'));
-      return;
-    }
-    cloudApply(ref, r, 'merge', !!uid && linkedUid() !== uid, key || uid);
-    if (uid) linkUid(uid);
-  }
-  // mode: 'merge' = unisce (per ogni missione, routine e impostazione vince la modifica più recente; gli XP si sommano
-  //         come differenze); 'account' = tiene solo i dati dell'account; 'device' = tiene solo quelli di questo dispositivo
-  // firstLink: primo collegamento di questo dispositivo all'account (un'immagine che manca nell'account non va tolta)
-  function cloudApply(ref, r, mode, firstLink, key) {
-    const d = r.d || {};
-    const S = normalize(d.xp);
-    dbRef = ref;
-    setSaveState('account');
-    if (mode === 'merge' && sync.key !== key) {
-      // primo collegamento (o un altro account): i dati di adesso sono il punto di partenza.
-      // Se l'account ha già dei progressi, gli XP di qui sono gli stessi (dati uguali) oppure zero (dispositivo nuovo);
-      // se l'account è vuoto, tutti gli XP di qui sono da mandare.
-      const keepAt = settingsTouched ? sync.sAt : 0;
-      sync = blankSync(key);
-      sync.sAt = keepAt;
-      sync.xpBase = hasProgress(S) ? { ...xp } : blank();
-      absorbLocal();
-      STATS.forEach(s => { sync.pend[s.key] = xp[s.key] - sync.xpBase[s.key]; });
-    }
-    if (mode === 'account') {
-      sync = blankSync(key);
-      sync.xpBase = rawOf(d); sync.rev = Number(d.rev) || 0; recomputeXp();
-      settingsTouched = false; imgTouched.clear();
-      if (d.settings) { settings = mergeSettings(d.settings); sync.sAt = Number(d.sAt) || 0; saveSettingsLocal(); applyAll(); paintCustom(); }
-      else userDirty = true;   // l'account non ha ancora le impostazioni: si mandano quelle di qui
-      routinesApplying = true;
-      routines = normalizeRoutines(d.routines); sync.rDel = normDel(d.rDel); saveRoutinesLocal();
-      routinesApplying = false;
-      rSeen.clear(); routines.forEach(x => rSeen.set(x.id, routineSig(x)));
-      missions = remoteMissions(r);
-      mSeen.clear(); missions.forEach(m => mSeen.set(m.id, seenOf(m)));
-      Object.entries(r.rM).forEach(([ym, x]) => { if (Object.keys(x.del).length) sync.mDel[ym] = x.del; });
-      saveLocal(); saveMissionsLocal(); saveSync();
-    } else if (mode === 'device') {
-      // i dati di qui vincono su tutto: si segnano come modificati adesso e ciò che c'è solo nell'account si elimina
-      const now = Date.now();
-      sync = blankSync(key);
-      sync.xpBase = { ...xp }; sync.xpSeen = { ...xp }; xpAbs = now; sync.sAt = now; sync.rev = Number(d.rev) || 0;
-      routines.forEach(x => { x.u = now; });
-      normalizeRoutines(d.routines).forEach(x => { if (!routines.some(y => y.id === x.id)) sync.rDel[x.id] = { t: now }; });
-      missions.forEach(m => { m.u = now; m.z = now; delete m.c; mSeen.set(m.id, seenOf(m)); });   // nuova epoca: gli XP sono già scritti per intero
-      Object.entries(r.rM).forEach(([ym, x]) => x.items.forEach(m => {
-        if (!missions.some(y => y.id === m.id)) (sync.mDel[ym] = sync.mDel[ym] || {})[m.id] = { t: now, z: now };
-      }));
-      new Set([...missions.map(monthOf), ...Object.keys(r.rM)]).forEach(ym => monthQueue.add(ym));
-      IMG_NAMES.forEach(n => { if (imgs[n] || r.rImgs[n]) imgTouched.add(n); });   // solo quelle da salvare o da togliere
-      userDirty = true;
-      saveMissionsLocal(); saveSync();
-      routinesApplying = true; saveRoutinesLocal(); routinesApplying = false;
-    } else {
-      const u = applyUserDoc(d, null, true);
-      if (u.dirty) userDirty = true;
-      new Set([...Object.keys(r.rM), ...missions.map(monthOf)]).forEach(ym => {
-        const x = r.rM[ym] || { items: [], del: {} };
-        mergeMonth(ym, x.items, x.del);
-      });
-      if (hasPend()) userDirty = true;   // XP fatti qui e non ancora nell'account
-      if (!r.d) userDirty = true;
-    }
-    // immagini: l'account è la fonte, tranne quelle modificate in questa sessione
-    IMG_NAMES.forEach(n => {
-      if (imgTouched.has(n)) { imgQueue.add(n); return; }
-      const v = r.rImgs[n] || null;
-      // primo collegamento: l'account non ha questa immagine, il dispositivo sì → si tiene e si carica nell'account
-      if (firstLink && mode === 'merge' && !v && imgs[n]) { if (imgs[n].length <= CLOUD_IMG_MAX) imgQueue.add(n); return; }
-      if (mode !== 'account' && imgs[n] && imgs[n].length > CLOUD_IMG_MAX) return;   // troppo grande per l'account: resta quella di questo dispositivo
-      if (imgs[n] !== v) { imgs[n] = v; saveImgLocal(n); }
-    });
-    applyImages();
-    paintCustom();
-    if (imgQueue.size) flushImgs();
-    renderMissionViews();
-    if (monthQueue.size) flushMissions();
-    render(true);
-    if (userDirty) flush();
-    startListening();
-    renderInfo();
-    if (fbUser && ref !== null) { schedulePublish(true); checkFriendRequests(); }
-  }
-  function accChoose(mode) {
-    const p = accPending;
-    if (!p) return;
-    accPending = null;
-    closeModal();
-    cloudApply(p.ref, p.r, mode, false, p.key || p.uid);
-    linkUid(p.uid);
-    accMsg(T(mode === 'account' ? 'acc.msg.acc' : 'acc.msg.dev'));
-    paintAccount();
-  }
-  $('acc-keep-acc').addEventListener('click', () => accChoose('account'));
-  $('acc-keep-dev').addEventListener('click', () => accChoose('device'));
-
-  async function initCloudInner() {
-    // pagina pubblicata come artifact su claude.ai: usa il salvataggio di quella piattaforma
-    if (window.claude && typeof window.claude.use === 'function') {
-      try {
-        const [db, user, dl] = await Promise.all([
-          window.claude.use('db'), window.claude.use('user'), window.claude.use('downloads'),
-        ]);
-        downloadsCap = dl || null;
-        const uid = user ? await user.id() : null;
-        if (!db || !uid) { setSaveState('local'); return; }
-        await cloudLoad(db.doc('data/users/' + uid + '/rpg'), null, 'claude:' + uid);
-      } catch (e) {
-        console.warn('cloud', e);
-        if (!dbRef) setSaveState('local');
-      }
-      return;
-    }
-    // app sul sito: account Firebase, se hai già fatto l'accesso
-    if (!wasSignedIn() || !(await loadFirebase()) || !fbInit()) { setSaveState('local'); paintAccount(); return; }
-    fbUser = await fbFirstUser();
-    paintAccount();
-    if (!fbUser) { markSigned(false); setSaveState('local'); return; }
-    markSigned(true);
-    await fbConnect();
-  }
-  // collega l'account (carica e unisce i dati). Se in quel momento manca la connessione si riprova da soli:
-  // quando torna internet, quando torni sull'app, quando apri gli amici. Nel frattempo si salva sul dispositivo.
-  let cloudJob = null;
-  function fbConnect() {
-    if (!fbUser || dbRef || accPending) return Promise.resolve();
-    if (cloudJob) return cloudJob;
-    cloudJob = (async () => {
-      try { await cloudLoad(fbDb.doc('users/' + fbUser.uid), fbUser.uid, fbUser.uid); }
-      catch (e) { console.warn('cloud', e); if (!dbRef) setSaveState('local'); }
-      paintAccount();
-    })().finally(() => { cloudJob = null; });
-    return cloudJob;
-  }
-  // quando torna la rete o torni sull'app: ci si collega (se non lo si era) e si manda ciò che era rimasto indietro
-  window.addEventListener('online', () => { fbConnect(); syncKick(); });
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) return;
-    fbConnect();
-    syncKick();
-    if (dbRef && !unsubs.length) cloudRefresh();   // senza aggiornamenti in diretta (claude.ai): si rilegge l'account
-  });
-  // rilettura completa dell'account, per chi non ha gli aggiornamenti in diretta
-  let refreshing = false;
-  async function cloudRefresh() {
-    if (refreshing || !dbRef || writing) return;
-    refreshing = true;
-    try {
-      const r = await cloudFetch(dbRef);
-      if (r.d) onUserSnap(r.d);
-      let any = false, xpAny = false;
-      Object.entries(r.rM).forEach(([ym, x]) => { const m = mergeMonth(ym, x.items, x.del); any = any || m.changed; xpAny = xpAny || m.xpChanged; });
-      if (xpAny) persist();
-      if (any || xpAny) { render(false); renderMissionViews(); }
-      if (monthQueue.size) flushMissions();
-    } catch (e) { console.warn('refresh', e); }
-    refreshing = false;
-  }
-
+  // Il motore dell'account e della sincronizzazione è in cloud.js (creato più sopra, prima dell'avvio).
   /* ================= amici ================= */
   // (la parte degli amici è in friends.js: si crea subito prima dell'avvio, vedi sopra)
 
-  // riquadro "Account" nella scheda Dati delle impostazioni
-  function paintAccount() {
-    const box = $('acc-box');
-    if (!box) return;
-    const usable = fbUsable();
-    box.hidden = !!(window.claude && typeof window.claude.use === 'function');   // su claude.ai l'account è già quello della piattaforma
-    $('acc-in').hidden = !usable || !!fbUser;
-    $('acc-out').hidden = !fbUser;
-    $('acc-in').disabled = $('acc-out').disabled = accBusy;
-    const who = fbUser ? (fbUser.email || fbUser.displayName || '') : '';
-    $('acc-status').textContent = !usable ? T('acc.unavail') : !fbUser ? T('acc.off')
-      : dbRef ? T('acc.as', { who }) : T('acc.as.wait', { who });   // accesso fatto, ma l'account non è ancora raggiungibile
-  }
-  function accMsg(t) { $('acc-msg').textContent = t || ''; }
-  $('acc-in').addEventListener('click', async () => {
-    if (accBusy) return;
-    accBusy = true; accMsg(''); paintAccount();
-    if (!(await loadFirebase()) || !fbInit()) { accMsg(T('acc.err')); accBusy = false; paintAccount(); return; }
-    const provider = new firebase.auth.GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
-    try {
-      const r = await fbAuth.signInWithPopup(provider);
-      fbUser = r.user;
-      markSigned(true);
-      paintAccount();
-      await fbConnect();
-      sfx('ok');
-    } catch (e) {
-      const code = e && e.code || '';
-      if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') {
-        try { markSigned(true); await fbAuth.signInWithRedirect(provider); return; } catch (e2) { markSigned(false); console.warn('auth', e2); }
-      }
-      if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') { accMsg(T('acc.err')); console.warn('auth', e); }
-    }
-    accBusy = false; paintAccount();
-  });
-  $('acc-out').addEventListener('click', async () => {
-    if (accBusy || !fbAuth) return;
-    accBusy = true; paintAccount();
-    try { await fbAuth.signOut(); } catch (e) { console.warn('auth', e); }
-    markSigned(false);
-    stopListening();
-    fbUser = null; dbRef = null;
-    friendsReset();
-    setSaveState('local');
-    accMsg(T('acc.bye'));
-    accBusy = false; paintAccount(); renderInfo();
-  });
-  async function initCloud() {
-    try { await initCloudInner(); }
-    finally { MUI.setPenaltyReady(); checkPenalties(); }
-  }
-  musicSync();      // prova a partire subito (funziona se il browser lo permette, altrimenti al primo tocco)
-  imagesInit();
   // sull'app installata chiede al browser di non cancellare i dati quando lo spazio scarseggia
   try {
     if (navigator.storage && navigator.storage.persist && matchMedia('(display-mode: standalone)').matches) navigator.storage.persist();
