@@ -4,7 +4,8 @@
  * Due cose diverse, entrambe qui:
  * - gli EFFETTI SONORI: note brevi generate al momento (Web Audio, nessun file),
  *   per missione completata, penalità, livello, schede, finestre...;
- * - la MUSICA di sottofondo: un file mp3 per ogni ruolo del personaggio, in loop.
+ * - la MUSICA di sottofondo: un file mp3 per ogni ruolo del personaggio, in loop
+ *   (i file stanno nella cartella musica/, accanto a index.html).
  *   Nella scheda Personaggio suona al volume scelto, nelle altre più piano.
  *
  * Qui ci sono lo stato (acceso/spento, volume, brano) e la logica. Le preferenze
@@ -27,7 +28,8 @@
   const LS_MUSIC = 'liferpg:music', LS_MUSIC_VOL = 'liferpg:music:vol';
 
   // Ogni ruolo ha il suo file, con il nome italiano del ruolo (Eroe.mp3, Mago.mp3, Samurai.mp3...), senza il grado davanti,
-  // accanto a index.html (maiuscole e minuscole contano). Se il file del ruolo non c'è si usa Avventuriero.mp3.
+  // nella cartella MUSIC_DIR accanto a index.html (maiuscole e minuscole contano). Se il file del ruolo non c'è si usa Avventuriero.mp3.
+  const MUSIC_DIR = 'musica/';   // cartella dei brani (percorso relativo: funziona anche aperta come file o in una sottocartella)
   const MUSIC_FALLBACK = 'Avventuriero.mp3';
   const MUSIC_DUCK = 0.3;      // volume nelle schede diverse da Personaggio, rispetto a quello scelto
   // un brano per ogni ruolo. I nomi dei file sono fissi: correggere o cambiare una traduzione (anche quella
@@ -133,7 +135,7 @@
         musicEl.loop = true; musicEl.preload = 'auto'; musicEl.volume = 0;
         musicEl.addEventListener('error', onMusicError);
       }
-      if (musicFile !== file) { musicFile = file; musicEl.src = file; }   // cambiando brano si riparte dall'inizio
+      if (musicFile !== file) { musicFile = file; musicEl.src = MUSIC_DIR + file; }   // cambiando brano si riparte dall'inizio
     }
     function onMusicError() {
       musicMissing.add(musicFile);
@@ -224,11 +226,11 @@
       sfx, setSound, setMenuSound,
       soundOn: () => soundOn, menuOn: () => menuOn,
       // musica
-      MUSIC_FILES, MUSIC_FALLBACK, MUSIC_DUCK, roleFile,
+      MUSIC_DIR, MUSIC_FILES, MUSIC_FALLBACK, MUSIC_DUCK, roleFile,
       setMusic, setMusicVolume,
       musicOn: () => musicOn, musicPct: () => musicPct,
       musicWanted, musicIdle, musicPlay, musicStop, musicSync, musicRetune, musicGuestStart, musicGuestEnd,
     };
   }
-  window.LIFE_RPG_AUDIO = { create, MUSIC_FILES, MUSIC_FALLBACK };
+  window.LIFE_RPG_AUDIO = { create, MUSIC_DIR, MUSIC_FILES, MUSIC_FALLBACK };
 })();
