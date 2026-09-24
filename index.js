@@ -12,7 +12,8 @@
  * Anche le regole del gioco (statistiche, livelli, titoli del personaggio)
  * sono in un file a parte: game.js, caricato subito prima di questo.
  * I disegni (icone e cifre a pixel, linguetta del livello, radar) sono in draw.js.
- * L'ordine dei file in index.html è: i18n.js → game.js → draw.js → index.js.
+ * Le regole della sincronizzazione tra dispositivi (calcoli puri) sono in sync.js.
+ * L'ordine dei file in index.html è: i18n.js → game.js → draw.js → sync.js → index.js.
  *
  * Indice delle sezioni, nell'ordine in cui compaiono (cerca il titolo per saltare al punto giusto):
  *   1. lingue                                — collegamento ai testi di i18n.js
@@ -68,6 +69,11 @@
   } = GAME;
   const heroRole = (x = xp) => GAME.heroRole(x);     // di solito si guardano i tuoi XP
   const heroClass = (x = xp) => GAME.heroClass(x);
+  // Regole della sincronizzazione tra dispositivi (calcoli puri): sono in sync.js
+  const SYNC = window.LIFE_RPG_SYNC.create(GAME);
+  const {
+    normLedger, normDel, normRaw, rawOf, clampXp, effOf, canon, mergeItems,
+  } = SYNC;
   const LS_KEY = 'liferpg:v1';
   const LS_SOUND = 'liferpg:sound';
   const fmt = n => n.toLocaleString(locale());
@@ -244,19 +250,6 @@
     return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d;
   }
   const validTime = s => typeof s === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
-  // registro degli XP per dispositivo: { idDispositivo: { statistica: numero } }, al massimo 16 dispositivi
-  function normLedger(o) {
-    if (!o || typeof o !== 'object') return null;
-    const out = {};
-    let n = 0;
-    for (const [dev, e] of Object.entries(o)) {
-      if (n >= 16 || !/^[a-z0-9]{4,12}$/.test(dev) || !e || typeof e !== 'object') continue;
-      const v = {};
-      STATS.forEach(s => { const x = Number(e[s.key]); if (Number.isInteger(x) && x && Math.abs(x) <= MAX_XP) v[s.key] = x; });
-      if (Object.keys(v).length) { out[dev] = v; n++; }
-    }
-    return n ? out : null;
-  }
   function normalizeRewards(o) {
     const r = {};
     for (const s of STATS) {
@@ -438,33 +431,12 @@
   }
 
   /* ----- sincronizzazione con l'account (più dispositivi) ----- */
-  // Come restano d'accordo più dispositivi collegati allo stesso account, anche se uno è rimasto aperto
-  // in background per giorni:
-  // - ogni missione e ogni routine ha "u", l'istante dell'ultima modifica: in un conflitto vince la più recente;
-  // - una missione o routine eliminata lascia una "lapide" (id → istante) per 90 giorni, così un dispositivo
-  //   rimasto indietro non la fa ricomparire;
-  // - gli XP non si sovrascrivono mai: si manda all'account solo la DIFFERENZA rispetto all'ultimo valore visto lì
-  //   (xpBase), dentro una transazione. L'account tiene anche il totale "grezzo" (xr), non tagliato fra 0 e 100.000:
-  //   se due penalità arrivano insieme il totale può scendere sotto zero per un momento, e il taglio
-  //   perderebbe l'informazione che serve per correggerlo subito dopo. Sul dispositivo si vede sempre il valore tagliato;
-  // - ogni missione porta un piccolo registro "c": quanti XP ha dato o tolto ciascun dispositivo con quella missione.
-  //   Se la tua versione perde il confronto con quella di un altro dispositivo (per esempio l'avete completata tutti
-  //   e due mentre eravate offline), confronti la tua voce nel registro vincente con la tua e annulli la differenza:
-  //   così una missione non conta mai due volte;
-  // - le impostazioni vincono per intero, secondo l'istante dell'ultima modifica (sAt);
-  // - "rev" nel documento del giocatore cresce a ogni scrittura: un aggiornamento più vecchio non torna indietro.
-  // Tutto questo stato è di un solo account (key) ed è salvato sul dispositivo.
+  // Le regole (chi vince, lapidi, registro degli XP, totale grezzo) sono spiegate e scritte in sync.js.
+  // Qui c'è lo stato di questo dispositivo e il modo in cui lo si aggiorna.
+  // Lo stato è di un solo account (key) ed è salvato sul dispositivo.
   const LS_SYNC = 'liferpg:sync:v2';
-  const TOMB_MS = 90 * 86400000;
   // xpBase: totale grezzo visto nell'account; pend: XP fatti qui e non ancora mandati; xpSeen: gli XP locali già contati in pend
   const blankSync = key => ({ key: key || '', xpBase: null, pend: blank(), xpSeen: null, rev: 0, mDel: {}, rDel: {}, sAt: 0 });
-  // totale grezzo: interi, anche negativi, entro un margine largo
-  function normRaw(o) {
-    const out = blank();
-    if (o && typeof o === 'object') STATS.forEach(s => { const n = Number(o[s.key]); if (Number.isFinite(n)) out[s.key] = Math.max(-10 * MAX_XP, Math.min(10 * MAX_XP, Math.round(n))); });
-    return out;
-  }
-  const rawOf = d => (d && d.xr && typeof d.xr === 'object') ? normRaw(d.xr) : normalize(d && d.xp);
   // questo dispositivo, per il registro "c" delle missioni
   const DEV = (() => {
     let id = '';
@@ -476,34 +448,6 @@
     }
     return id;
   })();
-  // lapidi: { id: { t: istante, c: registro della missione eliminata, z: epoca } }
-  function normDel(o) {
-    const out = {};
-    if (o && typeof o === 'object') for (const [id, v] of Object.entries(o)) {
-      const t = Number(v && typeof v === 'object' ? v.t : v);
-      if (!/^[\w-]{1,40}$/.test(id) || !Number.isFinite(t) || t <= 0) continue;
-      const x = { t: Math.floor(t) };
-      const led = v && typeof v === 'object' ? normLedger(v.c) : null;
-      if (led) x.c = led;
-      if (v && Number(v.z) > 0) x.z = Math.floor(Number(v.z));
-      out[id] = x;
-    }
-    return out;
-  }
-  // lapidi più vecchie di 90 giorni: non servono più
-  function pruneDel(del) {
-    const lim = Date.now() - TOMB_MS, out = {};
-    for (const [id, x] of Object.entries(del)) if (x.t >= lim) out[id] = x;
-    return out;
-  }
-  // "effetto" di una missione sugli XP: + quelli ricevuti completandola, - quelli persi con la penalità (solo i valori diversi da 0)
-  const effOf = m => {
-    const src = m && (m.done || m.failed), e = {};
-    if (src) STATS.forEach(s => { const v = src.applied[s.key] || 0; if (v) e[s.key] = m.done ? v : -v; });
-    return e;
-  };
-  const addEff = (acc, e, sign) => { for (const k in e) acc[k] = (acc[k] || 0) + sign * e[k]; };
-  const clampXp = v => Math.min(MAX_XP, Math.max(0, Math.round(v)));
   // le modifiche fatte qui agli XP (missioni, penalità...) finiscono in "pend", da mandare all'account
   function absorbLocal() {
     if (!sync.xpSeen) sync.xpSeen = { ...xp };
@@ -512,9 +456,9 @@
   }
   // XP mostrati = totale dell'account + ciò che non è ancora partito, tagliato fra 0 e 100.000
   function recomputeXp() {
-    const B = sync.xpBase || blank();
+    const shown = SYNC.shownXp(sync.xpBase, sync.pend);
     let ch = false;
-    STATS.forEach(s => { const v = clampXp(B[s.key] + sync.pend[s.key]); if (v !== xp[s.key]) { xp[s.key] = v; ch = true; } });
+    STATS.forEach(s => { if (shown[s.key] !== xp[s.key]) { xp[s.key] = shown[s.key]; ch = true; } });
     sync.xpSeen = { ...xp };
     return ch;
   }
@@ -547,14 +491,6 @@
   let xpAbs = 0;            // diverso da 0: gli XP vanno scritti così come sono (backup importato, "Azzera tutto", scelta "questo dispositivo")
   let deferredUser = null;  // aggiornamento del documento arrivato mentre si scriveva: si guarda dopo
 
-  // confronto "stesso contenuto": si normalizza, si ordinano le chiavi e si ignorano "u" e i campi vuoti
-  function canon(v) {
-    if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
-    if (v && typeof v === 'object') {
-      return '{' + Object.keys(v).sort().filter(k => v[k] != null && k !== 'u' && k !== 'c').map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
-    }
-    return JSON.stringify(v);
-  }
   const missionSig = m => canon(normalizeMissions([m])[0] || m);
   const routineSig = r => canon(normalizeRoutines([r])[0] || r);
   // ultima versione "firmata" di ogni missione e routine: se cambia, si aggiorna "u".
@@ -580,48 +516,12 @@
   }
   function tombRoutine(id) { sync.rDel[id] = { t: Date.now() }; rSeen.delete(id); saveSync(); }
 
-  // unisce due elenchi (missioni o routine) elemento per elemento. Per ogni id dice da dove viene il vincitore.
-  function mergeItems(L, lDel, R, rDel, sig) {
-    const lm = new Map(L.map(x => [x.id, x])), rm = new Map(R.map(x => [x.id, x]));
-    const del = { ...rDel };
-    for (const [id, x] of Object.entries(lDel)) if (!del[id] || del[id].t < x.t) del[id] = x;
-    const items = [], info = new Map();
-    for (const id of new Set([...lm.keys(), ...rm.keys()])) {
-      const l = lm.get(id), r = rm.get(id);
-      let w, same = false;
-      if (l && r) {
-        same = sig(l) === sig(r);
-        w = same ? r : ((l.u || 0) > (r.u || 0) ? l : r);   // a parità vince l'account (come prima)
-      } else w = l || r;
-      if (del[id] && del[id].t >= (w.u || 0)) w = null;        // eliminata dopo l'ultima modifica
-      else if (del[id]) delete del[id];                        // modificata dopo l'eliminazione: resta, la lapide si toglie
-      if (w) items.push(w);
-      info.set(id, { l, r, w, same });
-    }
-    return { items, del: pruneDel(del), info };
-  }
-
   // porta dentro questo dispositivo il contenuto di un mese dell'account (R, lapidi rDel).
   // Se una tua versione ha perso, si annulla la parte di XP che il registro vincente non ti riconosce.
   function mergeMonth(ym, R, rDel) {
-    const lDel = sync.mDel[ym] || {};
     const L = missions.filter(m => monthOf(m) === ym);
-    const res = mergeItems(L, lDel, R, rDel, missionSig);
-    const comp = {};
-    let changed = false, dirty = false;
-    res.info.forEach(({ l, w, same }, id) => {
-      if (l && w !== l) {
-        changed = true;
-        const win = w || res.del[id] || {};                 // vincitore: un'altra versione, oppure la lapide
-        if ((win.z || 0) === (l.z || 0)) {                  // stessa epoca (un backup importato azzera il conto)
-          addEff(comp, (win.c && win.c[DEV]) || {}, 1);
-          addEff(comp, (l.c && l.c[DEV]) || {}, -1);
-        }
-      }
-      if (!l && w) changed = true;
-      if (w && w === l && !same) dirty = true;             // l'account non ha ancora la tua versione
-    });
-    for (const [id, x] of Object.entries(lDel)) if (!(rDel[id] && rDel[id].t >= x.t) && res.del[id]) dirty = true;
+    const res = SYNC.mergeReport(L, sync.mDel[ym] || {}, R, rDel, missionSig, DEV);
+    const { comp, changed, dirty } = res;
     if (Object.keys(res.del).length) sync.mDel[ym] = res.del; else delete sync.mDel[ym];
     if (changed) {
       missions = missions.filter(m => monthOf(m) !== ym).concat(res.items);
@@ -644,15 +544,8 @@
 
   // porta dentro le routine dell'account
   function mergeRoutinesIn(R, rDel) {
-    const res = mergeItems(routines, sync.rDel, R, rDel, routineSig);
-    let changed = false, dirty = false;
-    const gone = [];
-    res.info.forEach(({ l, w, same }) => {
-      if (l && w !== l) { changed = true; if (!w) gone.push(l.id); }
-      if (!l && w) changed = true;
-      if (w && w === l && !same) dirty = true;
-    });
-    for (const [id, x] of Object.entries(sync.rDel)) if (!(rDel[id] && rDel[id].t >= x.t) && res.del[id]) dirty = true;
+    const res = SYNC.mergeReport(routines, sync.rDel, R, rDel, routineSig);
+    const { changed, dirty, gone } = res;
     sync.rDel = res.del;
     if (changed) {
       routines = res.items;
@@ -752,8 +645,8 @@
     try {
       await txDoc(dbRef, cur => {
         const d = cur || {};
-        const S = rawOf(d), xr = {}, nx = {};
-        STATS.forEach(s => { const k = s.key; xr[k] = sent.abs ? sent.xs[k] : S[k] + sent.pend[k]; nx[k] = clampXp(xr[k]); });
+        const xr = SYNC.nextRaw(rawOf(d), sent.pend, sent.abs, sent.xs), nx = {};
+        STATS.forEach(s => { nx[s.key] = clampXp(xr[s.key]); });
         const rr = mergeItems(routines, sync.rDel, normalizeRoutines(d.routines), normDel(d.rDel), routineSig);
         const rs = d.settings && typeof d.settings === 'object' ? mergeSettings(d.settings) : null, rsAt = Number(d.sAt) || 0;
         const mine = !rs || sync.sAt > rsAt;
@@ -1925,14 +1818,9 @@
       if (was && was.g === g) return;
       m.u = Math.max(now, (m.u || 0) + 1);
       // quanto è cambiato qui l'effetto sugli XP: si aggiunge alla voce di questo dispositivo nel registro
-      const e = effOf(m), d = {};
-      addEff(d, e, 1); addEff(d, was ? was.e : {}, -1);
-      if (STATS.some(s => d[s.key])) {
-        const c = JSON.parse(JSON.stringify(m.c || {})), mine = c[DEV] || {};
-        STATS.forEach(s => { const v = (mine[s.key] || 0) + (d[s.key] || 0); if (v) mine[s.key] = v; else delete mine[s.key]; });
-        if (Object.keys(mine).length) c[DEV] = mine; else delete c[DEV];
-        if (Object.keys(c).length) m.c = c; else delete m.c;
-      }
+      const e = effOf(m);
+      const c = SYNC.stampLedger(m.c, was ? was.e : {}, e, DEV);
+      if (c) m.c = c; else delete m.c;
       mSeen.set(m.id, { g, e });
     });
   }
