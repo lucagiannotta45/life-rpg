@@ -273,13 +273,13 @@
 
   .row {
     position: relative;
-    display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center;
+    display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 10px; align-items: center;
     width: 100%; padding: var(--row-pad, 3px) 4px var(--row-pad, 3px) 6px; text-align: left;
     font: inherit; line-height: 1.1; color: inherit;
     background: transparent; border: 0; border-radius: 6px;
   }
   .ico {
-    display: grid; place-items: center; width: 52px; height: 52px;
+    display: grid; place-items: center; width: 60px; height: 60px;
     color: var(--c); background: var(--track);
     border: 2px solid var(--c); border-radius: 8px;
   }
@@ -460,6 +460,9 @@
   body.has-bg .foot.warn { color: var(--ink-strong); background: var(--win-c); border-color: var(--bad); }
   .ico.has-img, .cs-icon.has-img { padding: 0; overflow: hidden; }
   .ico img, .cs-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* immagine con zone trasparenti: niente riquadro dietro, si vede solo la sua forma (intera, non tagliata) */
+  .ico.has-img.alpha, .cs-icon.has-img.alpha { background: transparent; border-color: transparent; }
+  .ico.alpha img, .cs-icon.alpha img { object-fit: contain; }
   .cs-panel { margin: 10px 0 8px; }
   .img-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 0; }
   .modal-win .tip { margin: 10px 0 0; font-size: 24px; color: var(--ink-soft); }
@@ -663,8 +666,8 @@
   @media (max-width: 520px) {
     .win { padding: 28px 14px 18px; }
     #view-stats .win { padding-top: 22px; padding-bottom: 12px; }
-    .row { padding-left: 4px; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; }
-    .ico { width: 48px; height: 48px; }
+    .row { padding-left: 4px; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; }
+    .ico { width: 56px; height: 56px; }
     .class-name { font-size: 32px; }
   }
 

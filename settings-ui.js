@@ -109,6 +109,29 @@
     function statColor(key) { return S.settings.colors[key] || STATS.find(s => s.key === key).color; }
     function statIconId(key) { return STATS.find(s => s.key === key).icon; }
     // mostra l'icona pixel oppure l'immagine caricata
+    // trasparenza delle immagini: si guarda una volta per immagine e si ricorda
+    const alphaKnown = new Map();
+    function hasAlpha(data) {
+      if (/^data:image\/jpe?g/i.test(data)) { alphaKnown.set(data, false); return Promise.resolve(false); }   // i JPEG non hanno trasparenza
+      return new Promise(resolve => {
+        const im = new Image();
+        im.onload = () => {
+          let a = false;
+          try {
+            const k = Math.min(1, 128 / Math.max(im.width, im.height, 1));
+            const c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k));
+            const g = c.getContext('2d');
+            g.drawImage(im, 0, 0, c.width, c.height);
+            const px = g.getImageData(0, 0, c.width, c.height).data;
+            for (let i = 3; i < px.length; i += 4) if (px[i] < 250) { a = true; break; }
+          } catch (e) { /* non leggibile: come un'immagine piena */ }
+          alphaKnown.set(data, a); resolve(a);
+        };
+        im.onerror = () => { alphaKnown.set(data, false); resolve(false); };
+        im.src = data;
+      });
+    }
     function paintIcon(el, key) {
       const data = imgs[key];
       if (data) {
@@ -117,8 +140,11 @@
         el.textContent = '';
         el.appendChild(im);
         el.classList.add('has-img');
+        // immagine con zone trasparenti: si mostra senza riquadro (vale anche per le icone caricate prima)
+        el.classList.toggle('alpha', alphaKnown.get(data) === true);
+        if (!alphaKnown.has(data)) hasAlpha(data).then(a => { if (im.parentNode === el) el.classList.toggle('alpha', a); });
       } else {
-        el.classList.remove('has-img');
+        el.classList.remove('has-img', 'alpha');
         const rw = ICONS[statIconId(key)].rows;
         // nelle righe delle statistiche l'icona ha pixel interi (3 o 4 px), così resta nitida
         el.innerHTML = iconSvg(rw, el.classList.contains('ico') ? icoPx(rw) : 0);
@@ -389,15 +415,50 @@
         fr.readAsDataURL(file);
       });
     }
+    // icona di una statistica: un quadrato di 128 px.
+    // - immagine piena (una foto): riempie il quadrato, tagliando ai lati quello che avanza (come prima);
+    // - immagine con zone trasparenti: si toglie il margine trasparente intorno alla forma, la forma si mostra
+    //   intera al centro, e resta trasparente (sempre PNG: il JPEG cancellerebbe la trasparenza).
     function makeIcon(im) {
-      const c = document.createElement('canvas');
-      c.width = 96; c.height = 96;
-      const g = c.getContext('2d');
-      const k = Math.max(96 / im.width, 96 / im.height);
-      const dw = im.width * k, dh = im.height * k;
-      g.drawImage(im, (96 - dw) / 2, (96 - dh) / 2, dw, dh);
-      let url = c.toDataURL('image/png');
-      if (url.length > 120000) url = c.toDataURL('image/jpeg', 0.8);
+      // si guarda l'immagine (ridotta, per fare in fretta): ha zone trasparenti? dove sta la parte visibile?
+      const k0 = Math.min(1, 512 / Math.max(im.width, im.height, 1));
+      const w0 = Math.max(1, Math.round(im.width * k0)), h0 = Math.max(1, Math.round(im.height * k0));
+      let box = null, alpha = false;
+      try {
+        const pc = document.createElement('canvas');
+        pc.width = w0; pc.height = h0;
+        const pg = pc.getContext('2d');
+        pg.drawImage(im, 0, 0, w0, h0);
+        const px = pg.getImageData(0, 0, w0, h0).data;
+        let x0 = w0, y0 = h0, x1 = -1, y1 = -1;
+        for (let y = 0; y < h0; y++) for (let x = 0; x < w0; x++) {
+          const a = px[(y * w0 + x) * 4 + 3];
+          if (a < 250) alpha = true;
+          if (a > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        }
+        // riquadro della parte visibile, riportato alla misura vera dell'immagine
+        if (alpha && x1 >= 0) box = { x: x0 / k0, y: y0 / k0, w: (x1 - x0 + 1) / k0, h: (y1 - y0 + 1) / k0 };
+      } catch (e) { alpha = false; }
+      const draw = size => {
+        const c = document.createElement('canvas');
+        c.width = size; c.height = size;
+        const g = c.getContext('2d');
+        if (box) {
+          const k = Math.min(size / box.w, size / box.h);   // la forma intera, senza tagli
+          const dw = box.w * k, dh = box.h * k;
+          g.drawImage(im, box.x, box.y, box.w, box.h, (size - dw) / 2, (size - dh) / 2, dw, dh);
+        } else {
+          const k = Math.max(size / im.width, size / im.height);   // riempie il quadrato
+          const dw = im.width * k, dh = im.height * k;
+          g.drawImage(im, (size - dw) / 2, (size - dh) / 2, dw, dh);
+        }
+        return c;
+      };
+      let c = draw(128), url = c.toDataURL('image/png');
+      if (url.length > 120000) {
+        if (alpha) { c = draw(96); url = c.toDataURL('image/png'); }   // trasparente: più piccola, ma sempre PNG
+        else url = c.toDataURL('image/jpeg', 0.8);
+      }
       return url;
     }
     function makeBackground(im) {

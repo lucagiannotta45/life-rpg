@@ -17,7 +17,7 @@
   'use strict';
   function create(T, G) {
     const { STATS, MAX_LEVEL, levelFromXp, fracLevel } = G;
-    const icoPx = rw => (Math.max(rw.length, rw[0].length) >= 9 ? 3 : 4);   // pixel interi per le icone delle righe di Statistiche
+    const icoPx = rw => (Math.max(rw.length, rw[0].length) >= 9 ? 4 : 5);   // pixel interi per le icone delle righe di Statistiche (riquadro da 60 px)
     // Ogni quadratino di un'icona pixel deve occupare un numero INTERO di pixel dello schermo: su un telefono con fattore di scala
     // 2,625 o 2,75 un quadratino da 3 pixel CSS sarebbe largo 7,9 o 8,25 pixel, e i disegni verrebbero storti e irregolari.
     const snapCell = px => { const d = window.devicePixelRatio || 1; return Math.max(1, Math.round(px * d)) / d; };
