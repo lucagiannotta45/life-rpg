@@ -9,20 +9,22 @@
  * i18n.js (caricato prima di questo, vedi index.html), per poterli
  * modificare senza dover cercare tra la logica dell'app.
  *
- * Indice delle sezioni (cerca il titolo per saltare al punto giusto):
+ * Indice delle sezioni, nell'ordine in cui compaiono (cerca il titolo per saltare al punto giusto):
  *   1. lingue                                — collegamento ai testi di i18n.js
- *   2. dati di gioco                          — statistiche, missioni, livelli, XP
- *   3. stato e salvataggio                    — stato in memoria + persistenza locale
- *   4. suono                                  — effetti sonori dell'interfaccia
- *   5. interfaccia: elementi                  — riferimenti ai nodi del DOM
- *   6. effetti                                — animazioni e feedback visivi
- *   7. finestre (Dati e Personalizza)         — pannelli modali
- *   8. account (Firebase)                     — accesso con Google e salvataggio nell'account
- *   9. personalizzazione                      — temi, sfondi, nome, icone
- *  10. missioni e calendario                  — creazione/gestione missioni, vista calendario
- *  11. musica                                 — musica di sottofondo
- *  12. info: la guida del giocatore           — testo di aiuto in-app
- *  13. avvio                                  — inizializzazione e bootstrap dell'app
+ *   2. dati di gioco                         — statistiche, missioni, livelli, XP
+ *   3. stato e salvataggio                   — stato in memoria + persistenza locale;
+ *                                              contiene "sincronizzazione con l'account (più dispositivi)"
+ *   4. suono                                 — effetti sonori dell'interfaccia
+ *   5. interfaccia: elementi                 — riferimenti ai nodi del DOM, pulsanti "premi di nuovo", radar
+ *   6. effetti                               — animazioni e feedback visivi
+ *   7. finestre (Dati e Personalizza)        — pannelli modali
+ *   8. personalizzazione                     — temi, sfondi, nome, icone
+ *   9. missioni e calendario                 — creazione/gestione missioni, routine, penalità, calendario
+ *  10. musica                                — musica di sottofondo (un brano per ogni ruolo)
+ *  11. info: la guida del giocatore          — testo di aiuto in-app
+ *  12. avvio                                 — inizializzazione dell'app
+ *  13. account (Firebase)                    — accesso con Google, collegamento e unione dei dati
+ *  14. amici                                 — codici amico, richieste, profili pubblici
  *
  * Tutta l'app resta racchiusa in un'unica IIFE (subito sotto) per non
  * inquinare lo scope globale della pagina: le funzioni e variabili
@@ -367,6 +369,19 @@
     return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d;
   }
   const validTime = s => typeof s === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+  // registro degli XP per dispositivo: { idDispositivo: { statistica: numero } }, al massimo 16 dispositivi
+  function normLedger(o) {
+    if (!o || typeof o !== 'object') return null;
+    const out = {};
+    let n = 0;
+    for (const [dev, e] of Object.entries(o)) {
+      if (n >= 16 || !/^[a-z0-9]{4,12}$/.test(dev) || !e || typeof e !== 'object') continue;
+      const v = {};
+      STATS.forEach(s => { const x = Number(e[s.key]); if (Number.isInteger(x) && x && Math.abs(x) <= MAX_XP) v[s.key] = x; });
+      if (Object.keys(v).length) { out[dev] = v; n++; }
+    }
+    return n ? out : null;
+  }
   function normalizeRewards(o) {
     const r = {};
     for (const s of STATS) {
@@ -416,6 +431,14 @@
         created: m.created, done: null, failed: null, stars: normalizeStars(rewards, m.stars),
       };
       if (typeof m.rid === 'string' && /^\w{1,12}$/.test(m.rid)) it.rid = m.rid;
+      // sincronizzazione (vedi "sincronizzazione con l'account"): u = istante dell'ultima modifica,
+      // c = XP prodotti da ciascun dispositivo con questa missione, z = epoca (cambia con un backup importato)
+      const mu = Number(m.u);
+      if (Number.isFinite(mu) && mu > 0) it.u = Math.floor(mu);
+      const led = normLedger(m.c);
+      if (led) it.c = led;
+      const mz = Number(m.z);
+      if (Number.isFinite(mz) && mz > 0) it.z = Math.floor(mz);
       if (m.failed && typeof m.failed === 'object' && validDate(m.failed.date)) {
         it.failed = {
           date: m.failed.date,
@@ -452,7 +475,6 @@
     return ok;
   }
   let missions = loadMissionsLocal();
-  const missionsTouched = new Set();   // mesi modificati in questa sessione
 
   /* ----- routine: missioni che si ripetono nei giorni scelti ----- */
   const LS_ROU = 'liferpg:routines:v1';
@@ -487,6 +509,8 @@
         bonus, stars: normalizeStars(rewards, r.stars),
         made: validDate(r.made) ? r.made : '',   // fin qui le missioni della routine sono già state create
       });
+      const ru = Number(r.u);
+      if (Number.isFinite(ru) && ru > 0) out[out.length - 1].u = Math.floor(ru);   // istante dell'ultima modifica
       if (out.length >= MAX_ROUTINES) break;
     }
     return out;
@@ -495,18 +519,17 @@
     try { const raw = localStorage.getItem(LS_ROU); if (raw) return normalizeRoutines(JSON.parse(raw)); } catch (e) { /* ignora */ }
     return [];
   }
-  let routinesTouched = false, routinesApplying = false;
+  let routinesApplying = false;
   function saveRoutinesLocal() {
+    if (!routinesApplying) stampRoutines();   // modifica fatta qui: si segna l'istante (le routine arrivate dall'account ce l'hanno già)
     lsSet(LS_ROU, JSON.stringify(routines));
-    if (routinesApplying) return;   // routine appena arrivate dall'account: non c'è niente da rimandare
-    routinesTouched = true;
+    if (routinesApplying) return;             // routine appena arrivate dall'account: non c'è niente da rimandare
     if (dbRef) flush();
   }
   let routines = loadRoutinesLocal();
   try { localStorage.removeItem('liferpg:drive'); } catch (e) { /* Google Drive non c'è più */ }
 
   let xp = loadLocal();
-  let touched = false;
   let dbRef = null, writing = false, again = false;
   let fbAuth = null, fbDb = null, fbUser = null, accBusy = false;   // account Firebase (vedi la sezione "account")
   let accPending = null;                                            // scelta "quali dati tenere" in attesa
@@ -539,21 +562,394 @@
     return ok;
   }
 
+  /* ----- sincronizzazione con l'account (più dispositivi) ----- */
+  // Come restano d'accordo più dispositivi collegati allo stesso account, anche se uno è rimasto aperto
+  // in background per giorni:
+  // - ogni missione e ogni routine ha "u", l'istante dell'ultima modifica: in un conflitto vince la più recente;
+  // - una missione o routine eliminata lascia una "lapide" (id → istante) per 90 giorni, così un dispositivo
+  //   rimasto indietro non la fa ricomparire;
+  // - gli XP non si sovrascrivono mai: si manda all'account solo la DIFFERENZA rispetto all'ultimo valore visto lì
+  //   (xpBase), dentro una transazione. L'account tiene anche il totale "grezzo" (xr), non tagliato fra 0 e 100.000:
+  //   se due penalità arrivano insieme il totale può scendere sotto zero per un momento, e il taglio
+  //   perderebbe l'informazione che serve per correggerlo subito dopo. Sul dispositivo si vede sempre il valore tagliato;
+  // - ogni missione porta un piccolo registro "c": quanti XP ha dato o tolto ciascun dispositivo con quella missione.
+  //   Se la tua versione perde il confronto con quella di un altro dispositivo (per esempio l'avete completata tutti
+  //   e due mentre eravate offline), confronti la tua voce nel registro vincente con la tua e annulli la differenza:
+  //   così una missione non conta mai due volte;
+  // - le impostazioni vincono per intero, secondo l'istante dell'ultima modifica (sAt);
+  // - "rev" nel documento del giocatore cresce a ogni scrittura: un aggiornamento più vecchio non torna indietro.
+  // Tutto questo stato è di un solo account (key) ed è salvato sul dispositivo.
+  const LS_SYNC = 'liferpg:sync:v2';
+  const TOMB_MS = 90 * 86400000;
+  // xpBase: totale grezzo visto nell'account; pend: XP fatti qui e non ancora mandati; xpSeen: gli XP locali già contati in pend
+  const blankSync = key => ({ key: key || '', xpBase: null, pend: blank(), xpSeen: null, rev: 0, mDel: {}, rDel: {}, sAt: 0 });
+  // totale grezzo: interi, anche negativi, entro un margine largo
+  function normRaw(o) {
+    const out = blank();
+    if (o && typeof o === 'object') STATS.forEach(s => { const n = Number(o[s.key]); if (Number.isFinite(n)) out[s.key] = Math.max(-10 * MAX_XP, Math.min(10 * MAX_XP, Math.round(n))); });
+    return out;
+  }
+  const rawOf = d => (d && d.xr && typeof d.xr === 'object') ? normRaw(d.xr) : normalize(d && d.xp);
+  // questo dispositivo, per il registro "c" delle missioni
+  const DEV = (() => {
+    let id = '';
+    try { id = localStorage.getItem('liferpg:dev') || ''; } catch (e) { /* ignora */ }
+    if (!/^[a-z0-9]{4,12}$/.test(id)) {
+      const b = new Uint32Array(2); crypto.getRandomValues(b);
+      id = (b[0].toString(36) + b[1].toString(36)).replace(/[^a-z0-9]/g, '').slice(0, 10).padEnd(6, '0');
+      try { localStorage.setItem('liferpg:dev', id); } catch (e) { /* ignora */ }
+    }
+    return id;
+  })();
+  // lapidi: { id: { t: istante, c: registro della missione eliminata, z: epoca } }
+  function normDel(o) {
+    const out = {};
+    if (o && typeof o === 'object') for (const [id, v] of Object.entries(o)) {
+      const t = Number(v && typeof v === 'object' ? v.t : v);
+      if (!/^[\w-]{1,40}$/.test(id) || !Number.isFinite(t) || t <= 0) continue;
+      const x = { t: Math.floor(t) };
+      const led = v && typeof v === 'object' ? normLedger(v.c) : null;
+      if (led) x.c = led;
+      if (v && Number(v.z) > 0) x.z = Math.floor(Number(v.z));
+      out[id] = x;
+    }
+    return out;
+  }
+  // lapidi più vecchie di 90 giorni: non servono più
+  function pruneDel(del) {
+    const lim = Date.now() - TOMB_MS, out = {};
+    for (const [id, x] of Object.entries(del)) if (x.t >= lim) out[id] = x;
+    return out;
+  }
+  // "effetto" di una missione sugli XP: + quelli ricevuti completandola, - quelli persi con la penalità (solo i valori diversi da 0)
+  const effOf = m => {
+    const src = m && (m.done || m.failed), e = {};
+    if (src) STATS.forEach(s => { const v = src.applied[s.key] || 0; if (v) e[s.key] = m.done ? v : -v; });
+    return e;
+  };
+  const addEff = (acc, e, sign) => { for (const k in e) acc[k] = (acc[k] || 0) + sign * e[k]; };
+  const clampXp = v => Math.min(MAX_XP, Math.max(0, Math.round(v)));
+  // le modifiche fatte qui agli XP (missioni, penalità...) finiscono in "pend", da mandare all'account
+  function absorbLocal() {
+    if (!sync.xpSeen) sync.xpSeen = { ...xp };
+    STATS.forEach(s => { sync.pend[s.key] += xp[s.key] - sync.xpSeen[s.key]; });
+    sync.xpSeen = { ...xp };
+  }
+  // XP mostrati = totale dell'account + ciò che non è ancora partito, tagliato fra 0 e 100.000
+  function recomputeXp() {
+    const B = sync.xpBase || blank();
+    let ch = false;
+    STATS.forEach(s => { const v = clampXp(B[s.key] + sync.pend[s.key]); if (v !== xp[s.key]) { xp[s.key] = v; ch = true; } });
+    sync.xpSeen = { ...xp };
+    return ch;
+  }
+  const hasPend = () => STATS.some(s => sync.pend[s.key]);
+  function loadSync() {
+    try {
+      const o = JSON.parse(localStorage.getItem(LS_SYNC) || 'null');
+      if (o && typeof o === 'object' && typeof o.key === 'string') {
+        const s = blankSync(o.key);
+        if (o.xpBase && typeof o.xpBase === 'object') s.xpBase = normRaw(o.xpBase);
+        s.pend = normRaw(o.pend);
+        if (o.xpSeen && typeof o.xpSeen === 'object') s.xpSeen = normalize(o.xpSeen);
+        s.rev = Number.isInteger(o.rev) && o.rev > 0 ? o.rev : 0;
+        if (o.mDel && typeof o.mDel === 'object') for (const [ym, d] of Object.entries(o.mDel)) if (/^\d{4}-\d{2}$/.test(ym)) s.mDel[ym] = normDel(d);
+        s.rDel = normDel(o.rDel);
+        s.sAt = Number.isFinite(Number(o.sAt)) && o.sAt > 0 ? Number(o.sAt) : 0;
+        return s;
+      }
+    } catch (e) { /* stato illeggibile: si riparte */ }
+    // prima volta con questa versione: se il dispositivo era già collegato a un account, i dati di adesso sono
+    // il punto di partenza (xpBase), così le modifiche fatte da qui in poi, anche offline, non si perdono
+    const s = blankSync(linkedUidRaw());
+    s.xpBase = { ...xp }; s.xpSeen = { ...xp };
+    return s;
+  }
+  function linkedUidRaw() { try { return localStorage.getItem('liferpg:acc') || ''; } catch (e) { return ''; } }
+  function saveSync() { lsSet(LS_SYNC, JSON.stringify(sync)); }
+  let sync = loadSync();
+  saveSync();
+  let xpAbs = 0;            // diverso da 0: gli XP vanno scritti così come sono (backup importato, "Azzera tutto", scelta "questo dispositivo")
+  let deferredUser = null;  // aggiornamento del documento arrivato mentre si scriveva: si guarda dopo
+
+  // confronto "stesso contenuto": si normalizza, si ordinano le chiavi e si ignorano "u" e i campi vuoti
+  function canon(v) {
+    if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+    if (v && typeof v === 'object') {
+      return '{' + Object.keys(v).sort().filter(k => v[k] != null && k !== 'u' && k !== 'c').map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
+    }
+    return JSON.stringify(v);
+  }
+  const missionSig = m => canon(normalizeMissions([m])[0] || m);
+  const routineSig = r => canon(normalizeRoutines([r])[0] || r);
+  // ultima versione "firmata" di ogni missione e routine: se cambia, si aggiorna "u".
+  // Per le missioni si ricorda anche l'effetto sugli XP, per scrivere nel registro "c" quanto è cambiato qui.
+  const seenOf = m => ({ g: missionSig(m), e: effOf(m) });
+  const mSeen = new Map(missions.map(m => [m.id, seenOf(m)]));
+  const rSeen = new Map(routines.map(r => [r.id, routineSig(r)]));
+  function stampRoutines() {
+    const now = Date.now();
+    routines.forEach(r => { const g = routineSig(r); if (rSeen.get(r.id) !== g) { r.u = Math.max(now, (r.u || 0) + 1); rSeen.set(r.id, g); } });
+  }
+  // missioni o routine eliminate da te: la lapide impedisce che tornino da un altro dispositivo
+  function tombMissions(list) {
+    const now = Date.now();
+    list.forEach(m => {
+      const ym = monthOf(m), x = { t: now };
+      if (m.c) x.c = m.c;
+      if (m.z) x.z = m.z;
+      (sync.mDel[ym] = sync.mDel[ym] || {})[m.id] = x;
+      mSeen.delete(m.id);
+    });
+    saveSync();
+  }
+  function tombRoutine(id) { sync.rDel[id] = { t: Date.now() }; rSeen.delete(id); saveSync(); }
+
+  // unisce due elenchi (missioni o routine) elemento per elemento. Per ogni id dice da dove viene il vincitore.
+  function mergeItems(L, lDel, R, rDel, sig) {
+    const lm = new Map(L.map(x => [x.id, x])), rm = new Map(R.map(x => [x.id, x]));
+    const del = { ...rDel };
+    for (const [id, x] of Object.entries(lDel)) if (!del[id] || del[id].t < x.t) del[id] = x;
+    const items = [], info = new Map();
+    for (const id of new Set([...lm.keys(), ...rm.keys()])) {
+      const l = lm.get(id), r = rm.get(id);
+      let w, same = false;
+      if (l && r) {
+        same = sig(l) === sig(r);
+        w = same ? r : ((l.u || 0) > (r.u || 0) ? l : r);   // a parità vince l'account (come prima)
+      } else w = l || r;
+      if (del[id] && del[id].t >= (w.u || 0)) w = null;        // eliminata dopo l'ultima modifica
+      else if (del[id]) delete del[id];                        // modificata dopo l'eliminazione: resta, la lapide si toglie
+      if (w) items.push(w);
+      info.set(id, { l, r, w, same });
+    }
+    return { items, del: pruneDel(del), info };
+  }
+
+  // porta dentro questo dispositivo il contenuto di un mese dell'account (R, lapidi rDel).
+  // Se una tua versione ha perso, si annulla la parte di XP che il registro vincente non ti riconosce.
+  function mergeMonth(ym, R, rDel) {
+    const lDel = sync.mDel[ym] || {};
+    const L = missions.filter(m => monthOf(m) === ym);
+    const res = mergeItems(L, lDel, R, rDel, missionSig);
+    const comp = {};
+    let changed = false, dirty = false;
+    res.info.forEach(({ l, w, same }, id) => {
+      if (l && w !== l) {
+        changed = true;
+        const win = w || res.del[id] || {};                 // vincitore: un'altra versione, oppure la lapide
+        if ((win.z || 0) === (l.z || 0)) {                  // stessa epoca (un backup importato azzera il conto)
+          addEff(comp, (win.c && win.c[DEV]) || {}, 1);
+          addEff(comp, (l.c && l.c[DEV]) || {}, -1);
+        }
+      }
+      if (!l && w) changed = true;
+      if (w && w === l && !same) dirty = true;             // l'account non ha ancora la tua versione
+    });
+    for (const [id, x] of Object.entries(lDel)) if (!(rDel[id] && rDel[id].t >= x.t) && res.del[id]) dirty = true;
+    if (Object.keys(res.del).length) sync.mDel[ym] = res.del; else delete sync.mDel[ym];
+    if (changed) {
+      missions = missions.filter(m => monthOf(m) !== ym).concat(res.items);
+      L.forEach(m => { if (!res.info.get(m.id).w) mSeen.delete(m.id); });
+      res.items.forEach(m => { const i = res.info.get(m.id); if (i.w !== i.l) mSeen.set(m.id, seenOf(m)); });
+      saveMissionsLocal();
+    }
+    const fix = STATS.filter(s => comp[s.key]);
+    let xpCh = false;
+    if (fix.length) {
+      absorbLocal();
+      fix.forEach(s => { sync.pend[s.key] += comp[s.key]; });
+      xpCh = recomputeXp();
+      saveLocal();
+    }
+    saveSync();
+    if (dirty) monthQueue.add(ym);
+    return { changed, xpChanged: fix.length > 0 || xpCh };
+  }
+
+  // porta dentro le routine dell'account
+  function mergeRoutinesIn(R, rDel) {
+    const res = mergeItems(routines, sync.rDel, R, rDel, routineSig);
+    let changed = false, dirty = false;
+    const gone = [];
+    res.info.forEach(({ l, w, same }) => {
+      if (l && w !== l) { changed = true; if (!w) gone.push(l.id); }
+      if (!l && w) changed = true;
+      if (w && w === l && !same) dirty = true;
+    });
+    for (const [id, x] of Object.entries(sync.rDel)) if (!(rDel[id] && rDel[id].t >= x.t) && res.del[id]) dirty = true;
+    sync.rDel = res.del;
+    if (changed) {
+      routines = res.items;
+      rSeen.clear(); routines.forEach(r => rSeen.set(r.id, routineSig(r)));
+      routinesApplying = true; saveRoutinesLocal(); routinesApplying = false;
+      // routine eliminata su un altro dispositivo: le sue volte ancora da fare spariscono anche qui
+      if (gone.length) {
+        const drop = missions.filter(m => gone.includes(m.rid) && !m.done && !m.failed);
+        if (drop.length) {
+          const months = new Set(drop.map(monthOf));
+          tombMissions(drop);
+          missions = missions.filter(m => !drop.includes(m));
+          months.forEach(touchMonth);
+        }
+      }
+    }
+    saveSync();
+    return { changed, dirty };
+  }
+
+  // applica il documento del giocatore arrivato dall'account.
+  // sent: ciò che questo dispositivo ha appena scritto (dopo una scrittura riuscita); force: al collegamento
+  function applyUserDoc(d, sent, force) {
+    const rev = Number(d.rev) || 0;
+    let xpChanged = false;
+    if (sent || force || rev > sync.rev) {
+      absorbLocal();
+      // ciò che è appena stato scritto non è più "da mandare"
+      if (sent) STATS.forEach(s => { sync.pend[s.key] -= sent.pend[s.key]; });
+      sync.xpBase = rawOf(d);
+      xpChanged = recomputeXp();
+      sync.rev = Math.max(sync.rev, rev);
+      saveLocal();
+    }
+    const rr = mergeRoutinesIn(normalizeRoutines(d.routines), normDel(d.rDel));
+    // impostazioni: vince la modifica più recente; a parità (anche dati di versioni precedenti) vince l'account
+    const rsAt = Number(d.sAt) || 0;
+    let setDirty = false;
+    if (d.settings && typeof d.settings === 'object') {
+      if (rsAt >= sync.sAt) {
+        const s = mergeSettings(d.settings);
+        sync.sAt = rsAt;
+        if (JSON.stringify(s) !== JSON.stringify(settings)) {
+          settings = s;
+          saveSettingsLocal();
+          applyAll();
+          paintCustom();
+        }
+      } else setDirty = true;
+    } else if (!isDefaultSettings() || sync.sAt) setDirty = true;
+    saveSync();
+    return { xpChanged, routinesChanged: rr.changed, dirty: rr.dirty || setDirty };
+  }
+
+  // legge, unisce e riscrive un documento in modo sicuro: con Firebase in una transazione
+  // (se nel frattempo un altro dispositivo lo cambia, si rifà da capo); altrove lettura e poi scrittura
+  async function txDoc(ref, make) {
+    if (fbDb && dbRef && typeof fbDb.runTransaction === 'function' && ref.firestore) {
+      await fbDb.runTransaction(async t => {
+        const snap = await t.get(ref);
+        t.set(ref, make(snap.exists ? snap.data() : null));
+      });
+    } else {
+      const snap = await ref.get();
+      await ref.set(make(snap.exists ? snap.data() : null));
+    }
+  }
+
+  // se la scrittura non riesce si riprova da soli: subito quando torna la rete, altrimenti dopo un po'
+  let retryT = 0, retryMs = 15000, userDirty = false;
+  function syncFail(e) {
+    console.warn('sync', e);
+    const offline = !navigator.onLine || (e && (e.code === 'unavailable' || e.code === 'deadline-exceeded'));
+    setSaveState(offline ? 'offline' : 'error');   // senza rete non è un errore: si salva sul dispositivo e si manda dopo
+    clearTimeout(retryT);
+    retryT = setTimeout(syncKick, retryMs);
+    retryMs = Math.min(retryMs * 2, 300000);
+  }
+  function syncOk() { retryMs = 15000; setSaveState('account'); }
+  function syncKick() {
+    if (!dbRef) return;
+    if (userDirty) flush();
+    if (monthQueue.size) flushMissions();
+    if (imgQueue.size) flushImgs();
+  }
+
+  // documento del giocatore: XP (come differenza), routine e impostazioni
   async function flush() {
     if (!dbRef) return;
+    userDirty = true;
     if (writing) { again = true; return; }
     writing = true;
+    stampRoutines();
+    absorbLocal();
+    const sent = { xs: { ...xp }, pend: { ...sync.pend }, abs: xpAbs };
+    let out = null;
     try {
-      await dbRef.set({ v: 1, xp: { ...xp }, settings, routines: JSON.parse(JSON.stringify(routines)) });
-      setSaveState('account');
-    } catch (e) {
-      console.warn('db.set', e);
-      setSaveState('error');
-    }
+      await txDoc(dbRef, cur => {
+        const d = cur || {};
+        const S = rawOf(d), xr = {}, nx = {};
+        STATS.forEach(s => { const k = s.key; xr[k] = sent.abs ? sent.xs[k] : S[k] + sent.pend[k]; nx[k] = clampXp(xr[k]); });
+        const rr = mergeItems(routines, sync.rDel, normalizeRoutines(d.routines), normDel(d.rDel), routineSig);
+        const rs = d.settings && typeof d.settings === 'object' ? mergeSettings(d.settings) : null, rsAt = Number(d.sAt) || 0;
+        const mine = !rs || sync.sAt > rsAt;
+        out = { v: 2, rev: (Number(d.rev) || 0) + 1, xp: nx, xr, settings: mine ? settings : rs, sAt: mine ? sync.sAt : rsAt, routines: rr.items, rDel: rr.del };
+        return JSON.parse(JSON.stringify(out));
+      });
+      userDirty = false;
+      if (sent.abs && xpAbs === sent.abs) xpAbs = 0;
+      const r = applyUserDoc(JSON.parse(JSON.stringify(out)), sent);
+      if (r.dirty) again = true;
+      syncOk();
+      if (r.xpChanged || r.routinesChanged) afterRemote(r.routinesChanged);
+    } catch (e) { syncFail(e); }
     writing = false;
+    if (deferredUser) { const d = deferredUser; deferredUser = null; onUserSnap(d); }
     if (again) { again = false; flush(); }
   }
   function persist() { saveLocal(); flush(); }
+
+  // dopo un aggiornamento arrivato da un altro dispositivo: si ridisegna ciò che serve
+  function afterRemote(missionsToo) {
+    render(false);
+    if (missionsToo) renderMissionViews();
+    if (!rmodal.hidden) renderRoutines();
+  }
+  function onUserSnap(d) {
+    if (writing) { if (!deferredUser || (Number(d.rev) || 0) >= (Number(deferredUser.rev) || 0)) deferredUser = d; return; }
+    const r = applyUserDoc(d, null);
+    if (r.dirty) flush();
+    if (r.xpChanged || r.routinesChanged) afterRemote(r.routinesChanged);
+  }
+
+  // aggiornamenti in diretta dall'account (solo Firebase): documento del giocatore, missioni, immagini
+  let unsubs = [];
+  function stopListening() { unsubs.forEach(f => { try { f(); } catch (e) { /* ignora */ } }); unsubs = []; }
+  function startListening() {
+    stopListening();
+    if (!dbRef || typeof dbRef.onSnapshot !== 'function' || !dbRef.firestore) return;
+    const ref = dbRef;
+    const err = e => console.warn('listen', e);
+    unsubs.push(ref.onSnapshot(s => {
+      if (dbRef !== ref || !s.exists || s.metadata.hasPendingWrites) return;
+      onUserSnap(s.data());
+    }, err));
+    unsubs.push(ref.collection('m').onSnapshot(qs => {
+      if (dbRef !== ref) return;
+      let any = false, xpAny = false;
+      qs.docChanges().forEach(ch => {
+        if (ch.type === 'removed' || ch.doc.metadata.hasPendingWrites || !/^\d{4}-\d{2}$/.test(ch.doc.id)) return;
+        const x = ch.doc.data() || {};
+        const r = mergeMonth(ch.doc.id, normalizeMissions(x.items).filter(m => monthOf(m) === ch.doc.id), normDel(x.del));
+        any = any || r.changed; xpAny = xpAny || r.xpChanged;
+      });
+      if (xpAny) persist();
+      if (any || xpAny) { render(false); renderMissionViews(); }
+      if (monthQueue.size) flushMissions();
+    }, err));
+    unsubs.push(ref.collection('imgs').onSnapshot(qs => {
+      if (dbRef !== ref) return;
+      let any = false;
+      qs.docChanges().forEach(ch => {
+        const n = ch.doc.id;
+        if (!IMG_NAMES.includes(n) || imgQueue.has(n) || ch.doc.metadata.hasPendingWrites) return;
+        const raw = ch.type === 'removed' ? null : (ch.doc.data() || {}).data;
+        const v = validImg(raw) ? raw : null;
+        if (!v && imgs[n] && imgs[n].length > CLOUD_IMG_MAX) return;   // immagine troppo grande per l'account: resta questa
+        if (imgs[n] !== v) { imgs[n] = v; saveImgLocal(n); any = true; }
+      });
+      if (any) { applyImages(); if (cs.Vigore) paintCustom(); }
+    }, err));
+  }
 
   /* ================= suono ================= */
   let soundOn = true;
@@ -598,6 +994,7 @@
           if (kind === 'tab') blip([523, 587, 659, 784][arg] || 523, t, 0.1, 'triangle', 0.06);   // una nota per scheda, su una scala
           if (kind === 'open') { blip(392, t, 0.08, 'triangle', 0.06); blip(587, t + 0.07, 0.11, 'triangle', 0.06); }
           if (kind === 'close') { blip(587, t, 0.08, 'triangle', 0.06); blip(392, t + 0.07, 0.11, 'triangle', 0.06); }
+          if (kind === 'ok') { blip(659, t, 0.08, 'triangle', 0.06); blip(988, t + 0.08, 0.14, 'triangle', 0.06); }   // accesso riuscito, amicizia accettata
           if (kind === 'save') { blip(523, t, 0.08, 'triangle', 0.06); blip(659, t + 0.08, 0.08, 'triangle', 0.06); blip(784, t + 0.16, 0.13, 'triangle', 0.06); }
           if (kind === 'del') { blip(330, t, 0.1, 'triangle', 0.07); blip(196, t + 0.09, 0.16, 'triangle', 0.07); }
           if (kind === 'err') { blip(180, t, 0.11, 'square', 0.045); blip(150, t + 0.12, 0.15, 'square', 0.045); }
@@ -636,6 +1033,28 @@
 
   /* ================= interfaccia: elementi ================= */
   const $ = id => document.getElementById(id);
+
+  // pulsanti "premi di nuovo per confermare": al primo tocco diventano "Conferma" (nello stesso punto) per 4 secondi.
+  // btns: i pulsanti; idle: il loro testo normale; confirmAria: la descrizione per i lettori di schermo mentre aspettano
+  function armable(btns, idle, confirmAria) {
+    let timer = 0;
+    const arm = on => {
+      clearTimeout(timer);
+      btns().forEach(b => {
+        b.dataset.armed = on ? '1' : '';
+        b.textContent = on ? T('btn.confirm') : idle();
+        if (on) b.setAttribute('aria-label', confirmAria()); else b.removeAttribute('aria-label');
+      });
+      if (on) timer = setTimeout(() => arm(false), 4000);
+    };
+    return arm;
+  }
+  const resetArm = armable(() => [$('btn-reset')], () => T('data.reset'), () => T('data.reset.confirm'));
+  const custResetArm = armable(() => [$('btn-custom-reset')], () => T('look.reset'), () => T('look.reset.confirm'));
+  const mfDelArm = armable(() => [$('mf-del')], () => T('btn.delete'), () => T('btn.delete.confirm'));
+  const fpArm = armable(() => [$('fp-remove')], () => T('fr.remove'), () => T('fr.remove.confirm'));
+  const selArm = armable(() => [...document.querySelectorAll('.sel-bar [data-sel="del"]')],
+    () => T('sel.del', { n: sel.ids.size }), () => T('sel.del.confirm', { n: sel.ids.size }));
   // quanto spazio copre la barra in basso (Personaggio, Statistiche...): serve al CSS per non nascondere la fine delle finestre
   (() => {
     const nav = document.querySelector('.tabs.views');
@@ -679,16 +1098,16 @@
     '9': ['.XXX..', 'X...X.', 'X...X.', 'X...X.', '.XXXX.', '....X.', '....X.', 'X...X.', '.XXX..'],
     '+': ['......', '..X...', '..X...', '..X...', 'XXXXX.', '..X...', '..X...', '..X...', '......'],
   };
-  function digitsSvg(str) {
+  // righe di pixel di un numero, senza le colonne vuote ai lati (così sta al centro di badge e linguetta)
+  function digitRows(str) {
     const rows = Array.from({ length: 9 }, (_, r) => [...str].map(ch => (DIGITS[ch] || DIGITS['0'])[r]).join(''));
-    // toglie le colonne vuote ai lati, così il numero sta al centro del badge
-    const cols = rows[0].length;
     const used = c => rows.some(row => row[c] === 'X');
-    let from = 0, to = cols - 1;
+    let from = 0, to = rows[0].length - 1;
     while (from < to && !used(from)) from++;
     while (to > from && !used(to)) to--;
-    return iconSvg(rows.map(row => row.slice(from, to + 1)));
+    return rows.map(row => row.slice(from, to + 1));
   }
+  const digitsSvg = str => iconSvg(digitRows(str));
 
   /* ----- linguetta del livello: pixel art dorata al centro del bordo in alto della scheda Personaggio ----- */
   // targhetta con gli angoli smussati e bordo doppio (L chiaro, B oro, D scuro), interno I, punte a freccia ai lati;
@@ -696,16 +1115,8 @@
   const TAB_H = 15, TAB_LV = 8, TAB_PAD = 3, TAB_GAP = 2;
   const TAB_CAP = ['...L', '..LB', '.LBB', 'LBBB', '.DBB', '..DB', '...D'];
   const TAB_CAP_R = TAB_CAP.map(r => [...r].reverse().map(c => c === 'L' ? 'D' : c === 'D' ? 'L' : c).join(''));
-  function tabDigits(str) {
-    let g = Array.from({ length: 9 }, (_, r) => [...str].map(ch => (DIGITS[ch] || DIGITS['0'])[r]).join(''));
-    const used = c => g.some(row => row[c] === 'X');
-    let from = 0, to = g[0].length - 1;
-    while (from < to && !used(from)) from++;
-    while (to > from && !used(to)) to--;
-    return g.map(row => row.slice(from, to + 1));
-  }
   function levelTabSvg(level, px) {
-    const dg = tabDigits(String(Math.max(0, level)));
+    const dg = digitRows(String(Math.max(0, level)));
     const pw = 2 + TAB_PAD + TAB_LV + TAB_GAP + dg[0].length + TAB_PAD + 2, cap = TAB_CAP[0].length, W = pw + 2 * cap, H = TAB_H;
     const inside = (x, y) => x >= 0 && x < pw && y >= 0 && y < H && !((x === 0 || x === pw - 1) && (y === 0 || y === H - 1));
     const out = (x, y) => ({ u: !inside(x, y - 1), d: !inside(x, y + 1), l: !inside(x - 1, y), r: !inside(x + 1, y) });
@@ -771,41 +1182,34 @@
   const CX = 180, CY = 192, R = 108, LR = 148;
   const ang = i => (-90 + i * 60) * Math.PI / 180;
   const pt = (i, r) => [CX + r * Math.cos(ang(i)), CY + r * Math.sin(ang(i))];
-  const el = (tag, attrs, parent) => {
-    const n = document.createElementNS(NS, tag);
-    for (const k in attrs) n.setAttribute(k, attrs[k]);
-    (parent || radar).appendChild(n);
-    return n;
-  };
   const ptsStr = arr => arr.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
-
-  [0.25, 0.5, 0.75, 1].forEach(f => {
-    el('polygon', { class: 'r-ring' + (f === 1 ? ' outer' : ''), points: ptsStr(STATS.map((_, i) => pt(i, R * f))) });
-  });
-  STATS.forEach((_, i) => {
-    const p = pt(i, R);
-    el('line', { class: 'r-axis', x1: CX, y1: CY, x2: p[0].toFixed(1), y2: p[1].toFixed(1) });
-  });
-  const shape = el('polygon', { class: 'r-shape', points: '' });
-  const labelLv = [], radarNames = [];
   // ordine delle statistiche nell'esagono, dalla cima in senso orario (l'elenco delle statistiche resta com'è)
   const RADAR_IDX = ['Intelletto', 'Vigore', 'Vitalita', 'Creativita', 'Legami', 'Animo'].map(k => STATS.findIndex(x => x.key === k));
   const POS = STATS.map((_, i) => RADAR_IDX.indexOf(i));      // posizione nell'esagono di ogni statistica
-  RADAR_IDX.forEach((si, i) => {
-    const s = STATS[si];
-    const p = pt(i, LR);
-    let dyName = -6, dyLv = 16;
-    if (i === 0) { dyName = -22; dyLv = 0; }
-    if (i === 3) { dyName = 8; dyLv = 30; }
-    // le etichette dei lati si allargano un poco, in modo simmetrico: 3 spazi del font (3 x 6) verso l'esterno
-    const dx = (i === 1 || i === 2) ? 18 : (i === 4 || i === 5) ? -18 : 0;
-    const n = el('text', { class: 'r-name', x: (p[0] + dx).toFixed(1), y: (p[1] + dyName).toFixed(1), 'text-anchor': 'middle' });
-    n.textContent = s.name;
-    radarNames.push(n);
-    const l = el('text', { class: 'r-lv', x: (p[0] + dx).toFixed(1), y: (p[1] + dyLv).toFixed(1), 'text-anchor': 'middle' });
-    l.textContent = T('lv') + ' 0';
-    labelLv.push(l);
-  });
+  // disegno completo del radar per certi XP (lo usano il tuo radar e il profilo degli amici)
+  function radarMarkup(x) {
+    const fr = STATS.map(s => fracLevel(x[s.key]));
+    const top = Math.min(MAX_LEVEL, Math.max(10, Math.ceil(Math.max(...fr) / 10) * 10));
+    let h = '';
+    [0.25, 0.5, 0.75, 1].forEach(f => { h += `<polygon class="r-ring${f === 1 ? ' outer' : ''}" points="${ptsStr(STATS.map((_, i) => pt(i, R * f)))}"/>`; });
+    STATS.forEach((_, i) => { const p = pt(i, R); h += `<line class="r-axis" x1="${CX}" y1="${CY}" x2="${p[0].toFixed(1)}" y2="${p[1].toFixed(1)}"/>`; });
+    h += `<polygon class="r-shape" points="${ptsStr(RADAR_IDX.map((k, i) => pt(i, R * Math.min(1, Math.max(fr[k] / top, 0.03)))))}"/>`;
+    RADAR_IDX.forEach((si, i) => {
+      const s = STATS[si], p = pt(i, LR);
+      let dyName = -6, dyLv = 16;
+      if (i === 0) { dyName = -22; dyLv = 0; }
+      if (i === 3) { dyName = 8; dyLv = 30; }
+      const dx = (i === 1 || i === 2) ? 18 : (i === 4 || i === 5) ? -18 : 0;
+      const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+      h += `<text class="r-name" x="${(p[0] + dx).toFixed(1)}" y="${(p[1] + dyName).toFixed(1)}" text-anchor="middle">${esc(s.name)}</text>`;
+      h += `<text class="r-lv" x="${(p[0] + dx).toFixed(1)}" y="${(p[1] + dyLv).toFixed(1)}" text-anchor="middle">${esc(T('lv') + ' ' + levelFromXp(x[s.key]))}</text>`;
+    });
+    return h;
+  }
+  radar.innerHTML = radarMarkup(blank());
+  const shape = radar.querySelector('.r-shape');
+  const radarNames = [...radar.querySelectorAll('.r-name')];   // nello stesso ordine di RADAR_IDX
+  const labelLv = [...radar.querySelectorAll('.r-lv')];
 
   let radarCur = STATS.map(() => 0), radarRaf = 0;
   function drawRadar(ratios) {
@@ -949,7 +1353,9 @@
     mfDelArm(false);
     pasteSlot = null;
     if (lastFocus && lastFocus.focus) lastFocus.focus();
-    checkPenalties();
+    // un attimo dopo: se chi ha chiuso questa finestra ne apre subito un'altra (profilo di un amico, impostazioni...),
+    // le penalità aspettano che si chiuda anche quella invece di aprirsi sotto di lei
+    setTimeout(checkPenalties, 0);
   }
   function dataMsg(t) { $('data-msg').textContent = t; }
   // Impostazioni: cinque schede (Aspetto, Lingua, Suono, Dati, Info)
@@ -970,6 +1376,7 @@
     if (name === 'info') renderInfo();
   }
   function openSettings(name) {
+    if (!fbAuth && !(window.claude && typeof window.claude.use === 'function')) loadFirebase();   // pronte per "Accedi"
     showTab(name);
     openModal(settingsWin, name === 'look' ? $('in-name') : name === 'lang' ? $('tab-lang') : name === 'sound' ? $('btn-sound') : name === 'data' ? $('btn-export') : $('tab-info'));
   }
@@ -1025,12 +1432,14 @@
     return out;
   }
   const isBackup = obj => !!obj && typeof obj === 'object' && Object.keys(obj).some(k => (ALIASES[k] || k) in blank());
+  // importare un backup sostituisce i dati: vale come una modifica fatta adesso, che vince anche sugli altri dispositivi
   function applyBackup(obj) {
     xp = normalize(obj);
-    touched = true;
+    xpAbs = Date.now();   // gli XP del backup si scrivono così come sono
     if (obj._settings) {
       settings = mergeSettings(obj._settings);
       settingsTouched = true;
+      sync.sAt = Date.now(); saveSync();
       saveSettingsLocal();
       applyAll();
       paintCustom();
@@ -1043,12 +1452,21 @@
     }
     if (Array.isArray(obj._missions)) {
       const months = new Set(missions.map(monthOf));
-      missions = normalizeMissions(obj._missions);
-      missions.forEach(m => months.add(monthOf(m)));
+      const next = normalizeMissions(obj._missions), keep = new Set(next.map(m => m.id));
+      tombMissions(missions.filter(m => !keep.has(m.id)));
+      missions = next;
+      const epoch = Date.now();
+      missions.forEach(m => { months.add(monthOf(m)); m.z = epoch; delete m.c; mSeen.set(m.id, { g: '', e: effOf(m) }); });   // nuova epoca: gli XP del backup sono già scritti per intero
       months.forEach(touchMonth);
       renderMissionViews();
     }
-    if (Array.isArray(obj._routines)) { routines = normalizeRoutines(obj._routines); saveRoutinesLocal(); }
+    if (Array.isArray(obj._routines)) {
+      const next = normalizeRoutines(obj._routines), keep = new Set(next.map(r => r.id));
+      routines.filter(r => !keep.has(r.id)).forEach(r => tombRoutine(r.id));
+      routines = next;
+      rSeen.clear();
+      saveRoutinesLocal();
+    }
     if (syncRoutines()) renderMissionViews();
     persist();
     render(true);
@@ -1096,21 +1514,15 @@
 
 
 
-  let armTimer = 0;
   const resetBtn = $('btn-reset');
-  function resetArm(on) {
-    clearTimeout(armTimer);
-    resetBtn.dataset.armed = on ? '1' : '';
-    resetBtn.textContent = on ? T('btn.confirm') : T('data.reset');
-    if (on) resetBtn.setAttribute('aria-label', T('data.reset.confirm')); else resetBtn.removeAttribute('aria-label');
-    if (on) armTimer = setTimeout(() => resetArm(false), 4000);
-  }
   resetBtn.addEventListener('click', () => {
     if (!resetBtn.dataset.armed) { resetArm(true); return; }   // solo "Azzera tutto" → "Conferma", nello stesso punto
     resetArm(false);
-    xp = blank(); touched = true; persist(); render(true);
+    xp = blank(); xpAbs = Date.now(); persist(); render(true);
     const months = new Set(missions.map(monthOf));
+    tombMissions(missions);
     missions = [];
+    routines.forEach(r => tombRoutine(r.id));
     routines = []; saveRoutinesLocal();
     months.forEach(touchMonth);
     renderMissionViews();
@@ -1145,18 +1557,24 @@
     while (luminance(a) > 0.2 && k < 24) { a = mixHex(a, '#000000', 0.08); k++; }
     return a;
   }
+  // variabili CSS delle finestre ricavate da un solo colore (le usa anche il profilo di un amico)
+  function paletteVars(color) {
+    const a = winBase(color), dk = mixHex(a, '#000000', 0.70);
+    return {
+      '--win-a': a,
+      '--win-b': mixHex(a, '#000000', 0.45),
+      '--win-c': dk,
+      '--win-edge': dk,
+      '--win-glow': mixHex(a, '#ffffff', 0.45),
+      '--ink-soft': mixHex(a, '#ffffff', 0.72),
+      '--track': mixHex(a, '#000000', 0.82),
+      '--btn': mixHex(a, '#ffffff', 0.06),
+    };
+  }
   function applyTheme() {
     const c = settings.winColor;
     if (!c) { WIN_VARS.forEach(v => rootStyle.removeProperty(v)); return; }
-    const a = winBase(c), dk = mixHex(a, '#000000', 0.70);
-    rootStyle.setProperty('--win-a', a);
-    rootStyle.setProperty('--win-b', mixHex(a, '#000000', 0.45));
-    rootStyle.setProperty('--win-c', dk);
-    rootStyle.setProperty('--win-edge', dk);
-    rootStyle.setProperty('--win-glow', mixHex(a, '#ffffff', 0.45));
-    rootStyle.setProperty('--ink-soft', mixHex(a, '#ffffff', 0.72));
-    rootStyle.setProperty('--track', mixHex(a, '#000000', 0.82));
-    rootStyle.setProperty('--btn', mixHex(a, '#ffffff', 0.06));
+    Object.entries(paletteVars(c)).forEach(([k, v]) => rootStyle.setProperty(k, v));
   }
   function applyFrame() { document.documentElement.dataset.frame = settings.frame; }
   // colori dei testi. --ink-soft dipende anche dal colore delle finestre: va applicato dopo di esso
@@ -1299,6 +1717,7 @@
   let setTimer = 0;
   function changed(soon) {
     settingsTouched = true;
+    sync.sAt = Date.now(); saveSync();   // le impostazioni vincono per intero: conta l'ultima modifica
     saveSettingsLocal();
     schedulePublish();
     clearTimeout(setTimer);
@@ -1506,15 +1925,6 @@
     });
   }
 
-  let custArmTimer = 0;
-  function custResetArm(on) {
-    clearTimeout(custArmTimer);
-    const b = $('btn-custom-reset');
-    b.dataset.armed = on ? '1' : '';
-    b.textContent = on ? T('btn.confirm') : T('look.reset');
-    if (on) b.setAttribute('aria-label', T('look.reset.confirm')); else b.removeAttribute('aria-label');
-    if (on) custArmTimer = setTimeout(() => custResetArm(false), 4000);
-  }
 
   /* ----- caricamento immagini ----- */
   // Le pagine pubblicate non possono aprire indirizzi web: le immagini arrivano da un file,
@@ -1527,16 +1937,18 @@
   async function flushImgs() {
     if (!dbRef || imgBusy) return;
     imgBusy = true;
+    let name = null;
     try {
-      while (imgQueue.size) {
-        const name = imgQueue.values().next().value;
+      while (imgQueue.size && dbRef) {
+        name = imgQueue.values().next().value;
         imgQueue.delete(name);
         const ref = dbImgs().doc(name);
         if (imgs[name]) { if (imgs[name].length <= CLOUD_IMG_MAX) await ref.set({ v: 1, data: imgs[name] }); } else await ref.delete();
+        name = null;
       }
     } catch (e) {
-      console.warn('db.imgs', e);
-      setSaveState('error');
+      if (name) imgQueue.add(name);   // si riprova più tardi
+      syncFail(e);
     }
     imgBusy = false;
   }
@@ -1698,24 +2110,62 @@
   // salvataggio: un documento per mese di creazione, così non crescono troppo
   const monthQueue = new Set();
   let monthBusy = false;
+  // ogni mese si scrive in una transazione: si legge quello che c'è nell'account, lo si unisce
+  // missione per missione con quello di questo dispositivo e si riscrive il risultato
+  async function flushMonth(ym) {
+    const ref = dbRef.collection('m').doc(ym);
+    let out = null;
+    await txDoc(ref, cur => {
+      const R = normalizeMissions(cur && cur.items).filter(m => monthOf(m) === ym);
+      const res = mergeItems(missions.filter(m => monthOf(m) === ym), sync.mDel[ym] || {}, R, normDel(cur && cur.del), missionSig);
+      out = JSON.parse(JSON.stringify({ v: 2, items: res.items, del: res.del }));
+      return out;
+    });
+    return mergeMonth(ym, normalizeMissions(out.items), out.del);
+  }
   async function flushMissions() {
     if (!dbRef || monthBusy) return;
     monthBusy = true;
+    let ym = null, redraw = false, xpAny = false;
     try {
-      while (monthQueue.size) {
-        const ym = monthQueue.values().next().value;
+      while (monthQueue.size && dbRef) {
+        ym = monthQueue.values().next().value;
         monthQueue.delete(ym);
-        const items = missions.filter(m => monthOf(m) === ym);
-        await dbRef.collection('m').doc(ym).set({ v: 1, items: JSON.parse(JSON.stringify(items)) });
+        const r = await flushMonth(ym);
+        redraw = redraw || r.changed; xpAny = xpAny || r.xpChanged;
+        ym = null;
       }
+      syncOk();
     } catch (e) {
-      console.warn('db.missions', e);
-      setSaveState('error');
+      if (ym) monthQueue.add(ym);   // si riprova più tardi
+      syncFail(e);
     }
     monthBusy = false;
+    if (xpAny) persist();
+    if (redraw || xpAny) { render(false); renderMissionViews(); }
+  }
+  // da chiamare dopo ogni modifica alle missioni di un mese: segna l'istante delle missioni cambiate, salva e manda
+  function stampMonth(ym) {
+    const now = Date.now();
+    missions.forEach(m => {
+      if (monthOf(m) !== ym) return;
+      const g = missionSig(m), was = mSeen.get(m.id);
+      if (was && was.g === g) return;
+      m.u = Math.max(now, (m.u || 0) + 1);
+      // quanto è cambiato qui l'effetto sugli XP: si aggiunge alla voce di questo dispositivo nel registro
+      const e = effOf(m), d = {};
+      addEff(d, e, 1); addEff(d, was ? was.e : {}, -1);
+      if (STATS.some(s => d[s.key])) {
+        const c = JSON.parse(JSON.stringify(m.c || {})), mine = c[DEV] || {};
+        STATS.forEach(s => { const v = (mine[s.key] || 0) + (d[s.key] || 0); if (v) mine[s.key] = v; else delete mine[s.key]; });
+        if (Object.keys(mine).length) c[DEV] = mine; else delete c[DEV];
+        if (Object.keys(c).length) m.c = c; else delete m.c;
+      }
+      mSeen.set(m.id, { g, e });
+    });
   }
   function touchMonth(ym) {
-    missionsTouched.add(ym);
+    stampMonth(ym);
     monthQueue.add(ym);
     saveMissionsLocal();
     flushMissions();
@@ -1776,7 +2226,6 @@
       rt.streak = rs.n; rt.streakDate = m.due; rt.best = Math.max(rt.best || 0, rs.n);
       saveRoutinesLocal();
     }
-    touched = true;
     persist();
     touchMonth(monthOf(m));
     const after = STATS.map(s => levelFromXp(xp[s.key]));
@@ -1804,7 +2253,6 @@
       rtBack.streakDate = rsBack.prevDate || addDaysStr(m.due, -1);
       saveRoutinesLocal();
     }
-    touched = true;
     persist();
     touchMonth(monthOf(m));
     const after = STATS.map(s => levelFromXp(xp[s.key]));
@@ -1828,7 +2276,6 @@
     m.failed = null;
     m.due = null;   // senza data (e senza ora), così non scade di nuovo
     m.dueTime = null;
-    touched = true;
     persist();
     touchMonth(monthOf(m));
     render(true);
@@ -1884,9 +2331,8 @@
       });
       m.failed = { date: today, t: Date.now() + i, applied: removed };
       list.push({ m, removed });
-      touchMonth(monthOf(m));
     });
-    touched = true;
+    new Set(due.map(monthOf)).forEach(touchMonth);   // un salvataggio per mese, non uno per missione
     persist();
     const after = STATS.map(s => levelFromXp(xp[s.key]));
     render(true);
@@ -1962,10 +2408,17 @@
   }
 
   // le penalità scattano appena la missione scade: all'apertura, al ritorno sulla pagina e, con l'app aperta, entro pochi secondi
-  let penaltyReady = false, lastSig = '';
+  let penaltyReady = false, lastSig = '', holdUntil = 0, holdT = 0;
+  // tornando sull'app, con l'account collegato, le penalità aspettano un paio di secondi: il tempo di ricevere
+  // quello che hai fatto su un altro dispositivo (per esempio una missione completata lì)
+  function holdPenalties(ms) {
+    holdUntil = Date.now() + ms;
+    clearTimeout(holdT);
+    holdT = setTimeout(checkPenalties, ms + 50);
+  }
   function checkPenalties() {
     // le penalità aspettano il caricamento dell'account e che non ci sia una finestra aperta; le schede si aggiornano comunque
-    if (penaltyReady && !activeModal) {
+    if (penaltyReady && !activeModal && Date.now() >= holdUntil) {
       if (syncRoutines()) renderMissionViews();
       applyPenalties();
     }
@@ -1974,7 +2427,11 @@
   }
   $('pen-ok').addEventListener('click', closeModal);
   $('pmodal').addEventListener('click', e => { if (e.target === $('pmodal')) closeModal(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkPenalties(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (dbRef) holdPenalties(2500);
+    checkPenalties();
+  });
   window.addEventListener('focus', checkPenalties);
   // con l'app aperta: a cavallo della mezzanotte compaiono le routine del nuovo giorno,
   // e una missione che scade diventa subito fallita (con una finestra aperta si aspetta che la chiudi)
@@ -2166,11 +2623,20 @@
   const LS_MUSIC = 'liferpg:music', LS_MUSIC_VOL = 'liferpg:music:vol';
   const MUSIC_FALLBACK = 'Avventuriero.mp3';
   const MUSIC_DUCK = 0.3;      // volume nelle schede diverse da Personaggio, rispetto a quello scelto
+  // un brano per ogni ruolo. I nomi dei file sono fissi: correggere o cambiare una traduzione (anche quella
+  // italiana, da cui erano stati ricavati) non cambia più il brano che suona.
+  const MUSIC_FILES = {
+    cls: { Vigore: 'Guerriero', Vitalita: 'Druido', Intelletto: 'Mago', Creativita: 'Bardo', Animo: 'Monaco', Legami: 'Custode' },
+    triple: { general: 'Generale', explorer: 'Esploratore', paladin: 'Paladino', pillar: 'Pilastro', architect: 'Architetto', stoic: 'Stoico', warlord: 'Condottiero', wanderer: 'Errante', catalyst: 'Trascinatore', protector: 'Protettore', naturalist: 'Naturalista', apothecary: 'Speziale', surgeon: 'Cerusico', enchanter: 'Incantatore', entertainer: 'Intrattenitore', shepherd: 'Pastore', philosopher: 'Filosofo', orator: 'Oratore', counselor: 'Consigliere', inspirer: 'Ispiratore' },
+    quad: { pioneer: 'Pioniere', spartan: 'Spartano', sovereign: 'Sovrano', savage: 'Selvaggio', busker: 'Saltimbanco', sentinel: 'Sentinella', loner: 'Solitario', entrepreneur: 'Imprenditore', commander: 'Comandante', revolutionary: 'Rivoluzionario', hermit: 'Eremita', humanist: 'Umanista', priest: 'Sacerdote', jester: 'Giullare', visionary: 'Visionario' },
+    quint: { oracle: 'Oracolo', ascetic: 'Asceta', barbarian: 'Barbaro', templar: 'Templare', conqueror: 'Conquistatore', ronin: 'Ronin' },
+    pair: { gladiator: 'Gladiatore', strategist: 'Stratega', acrobat: 'Acrobata', samurai: 'Samurai', knight: 'Cavaliere', alchemist: 'Alchimista', dancer: 'Danzatore', shaman: 'Sciamano', healer: 'Guaritore', inventor: 'Inventore', sage: 'Saggio', mentor: 'Mentore', poet: 'Poeta', storyteller: 'Cantastorie', peacemaker: 'Pacificatore' },
+    tier: { adventurer: 'Avventuriero', hero: 'Eroe', champion: 'Campione', legend: 'Leggenda', demigod: 'Semidio' },
+  };
   function roleFile(x = xp) {   // x: gli XP di chi ascoltiamo (di solito i tuoi, oppure quelli di un amico)
     const r = heroRole(x);
-    const it = (I18N.it && I18N.it[r.ns + '.' + r.id]) || '';
-    const base = it.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]/g, '');
-    return base ? base + '.mp3' : MUSIC_FALLBACK;
+    const f = MUSIC_FILES[r.ns] && MUSIC_FILES[r.ns][r.id];
+    return f ? f + '.mp3' : MUSIC_FALLBACK;
   }
   let musicOn = true, musicPct = 35;
   try {
@@ -2574,7 +3040,7 @@
   // finestra per creare e modificare una missione
   const mform = $('mform');
   const xpInputs = {}, penInputs = {};
-  let editingId = null, mfArmTimer = 0;
+  let editingId = null;
   let formRepeat = false, editingRid = null, routinesBack = false, editingDue = null, editingFrom = null, editingFromTime = null;
   const dayBtns = [];
   const formLabels = [];   // etichette dei nomi delle statistiche, da aggiornare cambiando lingua
@@ -2655,14 +3121,6 @@
     const sum = STATS.reduce((t, s) => t + (rewards[s.key] || 0), 0);
     const match = rewardMatch(sum);
     setRewardStars(match ? match[0] : 0, match ? match[1] : 0, match ? null : sum);
-  }
-  function mfDelArm(on) {
-    clearTimeout(mfArmTimer);
-    const b = $('mf-del');
-    b.dataset.armed = on ? '1' : '';
-    b.textContent = on ? T('btn.confirm') : T('btn.delete');
-    if (on) b.setAttribute('aria-label', T('btn.delete.confirm')); else b.removeAttribute('aria-label');
-    if (on) mfArmTimer = setTimeout(() => mfDelArm(false), 4000);
   }
   function mfMsg(t) { $('mf-msg').textContent = t; }   // (in rosso: sono errori)
   // giorni della settimana della routine (lunedì per primo)
@@ -2838,7 +3296,7 @@
     const months = new Set();
     missions.forEach(m => {
       if (m.rid === r.id && !m.done && !m.failed) {
-        Object.assign(m, { title, desc, rewards: { ...rewards }, penalty: { ...penalty }, dueTime: time });
+        Object.assign(m, { title, desc, rewards: { ...rewards }, penalty: { ...penalty }, dueTime: time, stars });
         months.add(monthOf(m));
       }
     });
@@ -2855,11 +3313,11 @@
     const r = routines.find(x => x.id === editingRid);
     if (!r) return;
     if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
-    const months = new Set();
-    missions = missions.filter(m => {
-      if (m.rid === r.id && !m.done && !m.failed) { months.add(monthOf(m)); return false; }
-      return true;
-    });
+    const drop = missions.filter(m => m.rid === r.id && !m.done && !m.failed);
+    const months = new Set(drop.map(monthOf));
+    tombMissions(drop);
+    missions = missions.filter(m => !drop.includes(m));
+    tombRoutine(r.id);
     routines = routines.filter(x => x !== r);
     saveRoutinesLocal();
     months.forEach(touchMonth);
@@ -2942,18 +3400,8 @@
   }
   // selezione di missioni completate o fallite, per eliminarle (gli XP guadagnati o persi restano)
   const sel = { list: null, ids: new Set() };
-  let selArmTimer = 0;
   function selStart(list) { sel.list = list; sel.ids.clear(); renderMissions(); }
   function selStop() { if (!sel.list) return; sel.list = null; sel.ids.clear(); renderMissions(); }
-  function selArm(on) {
-    clearTimeout(selArmTimer);
-    document.querySelectorAll('.sel-bar [data-sel="del"]').forEach(b => {
-      b.dataset.armed = on ? '1' : '';
-      b.textContent = on ? T('btn.confirm') : T('sel.del', { n: sel.ids.size });
-      if (on) b.setAttribute('aria-label', T('sel.del.confirm', { n: sel.ids.size })); else b.removeAttribute('aria-label');
-    });
-    if (on) selArmTimer = setTimeout(() => selArm(false), 4000);
-  }
   // trasforma le schede della lista in caselle da spuntare
   function selDecorate(box, list) {
     if (sel.list !== list) return;
@@ -2997,6 +3445,7 @@
     selArm(false);
     const gone = missions.filter(m => sel.ids.has(m.id) && (m.done || m.failed));
     const months = new Set(gone.map(monthOf));
+    tombMissions(gone);
     missions = missions.filter(m => !gone.includes(m));
     months.forEach(touchMonth);
     sfx('del');
@@ -3015,6 +3464,7 @@
     const m = editingId ? missions.find(x => x.id === editingId) : null;
     if (!m || m.done) return;
     if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
+    tombMissions([m]);
     missions = missions.filter(x => x !== m);
     touchMonth(monthOf(m));
     sfx('del');
@@ -3243,9 +3693,35 @@
     appId: '1:742342774863:web:ee6e00c69eae4da001da3a',
   };
   // l'accesso funziona solo da un indirizzo web (https o localhost), non aprendo il file dal dispositivo
-  function fbUsable() { return !!window.firebase && (location.protocol === 'https:' || location.hostname === 'localhost'); }
+  function fbUsable() { return location.protocol === 'https:' || location.hostname === 'localhost'; }
+  // Le librerie Firebase (circa 700 KB) si caricano solo se servono: all'avvio se avevi già fatto l'accesso,
+  // altrimenti quando apri le impostazioni (per essere pronte al tocco su "Accedi").
+  const LS_SIGNED = 'liferpg:signed';
+  function wasSignedIn() {
+    try {
+      const v = localStorage.getItem(LS_SIGNED);
+      return v === '1' || (v === null && !!localStorage.getItem('liferpg:acc'));   // versione precedente: basta essere stati collegati
+    } catch (e) { return false; }
+  }
+  const markSigned = on => lsSet(LS_SIGNED, on ? '1' : '0');
+  let fbLoading = null;
+  function loadFirebase() {
+    if (window.firebase && window.firebase.apps) return Promise.resolve(true);
+    if (!fbUsable()) return Promise.resolve(false);
+    if (!fbLoading) {
+      // una dopo l'altra: auth e firestore hanno bisogno di app
+      fbLoading = ['app', 'auth', 'firestore'].reduce((p, n) => p.then(() => new Promise((res, rej) => {
+        const sc = document.createElement('script');
+        sc.src = 'firebase/firebase-' + n + '-compat.js';
+        sc.onload = res;
+        sc.onerror = () => rej(new Error('firebase ' + n));
+        document.head.appendChild(sc);
+      })), Promise.resolve()).then(() => !!window.firebase, e => { console.warn(e); fbLoading = null; return false; });
+    }
+    return fbLoading;
+  }
   function fbInit() {
-    if (fbAuth || !fbUsable()) return !!fbAuth;
+    if (fbAuth || !fbUsable() || !window.firebase) return !!fbAuth;
     try {
       const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
       fbAuth = app.auth();
@@ -3265,15 +3741,20 @@
     isnap.docs.forEach(x => { const v = x.data() && x.data().data; if (validImg(v)) rImgs[x.id] = v; });
     const msnap = await ref.collection('m').get();
     const rM = {};
-    msnap.docs.forEach(x => { rM[x.id] = normalizeMissions(x.data() && x.data().items).filter(m => monthOf(m) === x.id); });
+    msnap.docs.forEach(x => {
+      if (!/^\d{4}-\d{2}$/.test(x.id)) return;
+      const v = x.data() || {};
+      rM[x.id] = { items: normalizeMissions(v.items).filter(m => monthOf(m) === x.id), del: normDel(v.del) };
+    });
     return { d, rImgs, rM };
   }
   // il dispositivo ricorda a quale account è già collegato: la scelta "quali dati tenere" si fa una volta sola
   const LS_ACC = 'liferpg:acc';
   const linkedUid = () => { try { return localStorage.getItem(LS_ACC) || ''; } catch (e) { return ''; } };
   const linkUid = uid => lsSet(LS_ACC, uid);
-  const sortedMissions = list => JSON.stringify([...list].sort((a, b) => a.id.localeCompare(b.id)));
-  const remoteMissions = r => Object.values(r.rM).flat();
+  // confronto senza "u": due copie degli stessi dati sono uguali anche se le modifiche hanno istanti diversi
+  const sortedSig = (list, sig) => [...list].sort((a, b) => a.id.localeCompare(b.id)).map(sig).join('\n');
+  const remoteMissions = r => Object.values(r.rM).flatMap(x => x.items);
   const deviceHasData = () => hasProgress(xp) || missions.length > 0 || routines.length > 0 || !isDefaultSettings() || IMG_NAMES.some(n => imgs[n]);
   function accountHasData(r) {
     return !!r.d && (hasProgress(normalize(r.d.xp)) || (Array.isArray(r.d.routines) && r.d.routines.length > 0)
@@ -3284,8 +3765,8 @@
     if (!r.d) return false;
     return JSON.stringify(normalize(r.d.xp)) === JSON.stringify(xp)
       && JSON.stringify(mergeSettings(r.d.settings || {})) === JSON.stringify(settings)
-      && JSON.stringify(normalizeRoutines(r.d.routines || [])) === JSON.stringify(routines)
-      && sortedMissions(remoteMissions(r)) === sortedMissions(missions)
+      && sortedSig(normalizeRoutines(r.d.routines || []), routineSig) === sortedSig(routines, routineSig)
+      && sortedSig(remoteMissions(r), missionSig) === sortedSig(missions, missionSig)
       && IMG_NAMES.every(n => {
         const here = imgs[n] || null;
         if (here && here.length > CLOUD_IMG_MAX) return true;   // troppo grande per l'account: non conta
@@ -3300,43 +3781,77 @@
 
   // carica i dati dall'account (ref = documento del giocatore) e li unisce a quelli di questo dispositivo.
   // uid: l'account Firebase; se il dispositivo non è ancora collegato e sia l'account sia il dispositivo
-  // hanno dati diversi, prima si chiede quali tenere.
-  async function cloudLoad(ref, uid) {
+  // hanno dati diversi, prima si chiede quali tenere. key: a chi appartiene lo stato di sincronizzazione.
+  async function cloudLoad(ref, uid, key) {
     const r = await cloudFetch(ref);
     if (uid && linkedUid() !== uid && accountHasData(r) && deviceHasData() && !sameData(r)) {
-      accPending = { ref, uid, r };
+      accPending = { ref, uid, r, key };
       $('acc-choice-acc').textContent = T('acc.choice.acc', { sum: dataSummary(normalize(r.d && r.d.xp), remoteMissions(r)) });
       $('acc-choice-dev').textContent = T('acc.choice.dev', { sum: dataSummary(xp, missions) });
       openModal($('accmodal'), $('acc-keep-acc'));
       return;
     }
-    cloudApply(ref, r, 'merge', !!uid && linkedUid() !== uid);
+    cloudApply(ref, r, 'merge', !!uid && linkedUid() !== uid, key || uid);
     if (uid) linkUid(uid);
   }
-  // mode: 'merge' = unisce (l'account vince, tranne ciò che hai cambiato in questa sessione);
-  //       'account' = tiene solo i dati dell'account; 'device' = tiene solo quelli di questo dispositivo
+  // mode: 'merge' = unisce (per ogni missione, routine e impostazione vince la modifica più recente; gli XP si sommano
+  //         come differenze); 'account' = tiene solo i dati dell'account; 'device' = tiene solo quelli di questo dispositivo
   // firstLink: primo collegamento di questo dispositivo all'account (un'immagine che manca nell'account non va tolta)
-  function cloudApply(ref, r, mode, firstLink) {
-    const d = r.d;
+  function cloudApply(ref, r, mode, firstLink, key) {
+    const d = r.d || {};
+    const S = normalize(d.xp);
     dbRef = ref;
     setSaveState('account');
-    if (mode === 'account') { touched = false; settingsTouched = false; routinesTouched = false; imgTouched.clear(); missionsTouched.clear(); }
-    if (mode === 'device') {
-      touched = true; settingsTouched = true; routinesTouched = true;
-      IMG_NAMES.forEach(n => { if (imgs[n] || r.rImgs[n]) imgTouched.add(n); });   // solo quelle da salvare o da togliere
-      new Set([...missions.map(monthOf), ...Object.keys(r.rM)]).forEach(ym => missionsTouched.add(ym));
+    if (mode === 'merge' && sync.key !== key) {
+      // primo collegamento (o un altro account): i dati di adesso sono il punto di partenza.
+      // Se l'account ha già dei progressi, gli XP di qui sono gli stessi (dati uguali) oppure zero (dispositivo nuovo);
+      // se l'account è vuoto, tutti gli XP di qui sono da mandare.
+      const keepAt = settingsTouched ? sync.sAt : 0;
+      sync = blankSync(key);
+      sync.sAt = keepAt;
+      sync.xpBase = hasProgress(S) ? { ...xp } : blank();
+      absorbLocal();
+      STATS.forEach(s => { sync.pend[s.key] = xp[s.key] - sync.xpBase[s.key]; });
     }
-    if (d && !touched) { xp = normalize(d.xp); saveLocal(); }
-    if (d && d.settings && !settingsTouched) {
-      settings = mergeSettings(d.settings);
-      saveSettingsLocal();
-      applyAll();
-      paintCustom();
-    }
-    if (d && Array.isArray(d.routines) && !routinesTouched) {
+    if (mode === 'account') {
+      sync = blankSync(key);
+      sync.xpBase = rawOf(d); sync.rev = Number(d.rev) || 0; recomputeXp();
+      settingsTouched = false; imgTouched.clear();
+      if (d.settings) { settings = mergeSettings(d.settings); sync.sAt = Number(d.sAt) || 0; saveSettingsLocal(); applyAll(); paintCustom(); }
+      else userDirty = true;   // l'account non ha ancora le impostazioni: si mandano quelle di qui
       routinesApplying = true;
-      routines = normalizeRoutines(d.routines); saveRoutinesLocal();
+      routines = normalizeRoutines(d.routines); sync.rDel = normDel(d.rDel); saveRoutinesLocal();
       routinesApplying = false;
+      rSeen.clear(); routines.forEach(x => rSeen.set(x.id, routineSig(x)));
+      missions = remoteMissions(r);
+      mSeen.clear(); missions.forEach(m => mSeen.set(m.id, seenOf(m)));
+      Object.entries(r.rM).forEach(([ym, x]) => { if (Object.keys(x.del).length) sync.mDel[ym] = x.del; });
+      saveLocal(); saveMissionsLocal(); saveSync();
+    } else if (mode === 'device') {
+      // i dati di qui vincono su tutto: si segnano come modificati adesso e ciò che c'è solo nell'account si elimina
+      const now = Date.now();
+      sync = blankSync(key);
+      sync.xpBase = { ...xp }; sync.xpSeen = { ...xp }; xpAbs = now; sync.sAt = now; sync.rev = Number(d.rev) || 0;
+      routines.forEach(x => { x.u = now; });
+      normalizeRoutines(d.routines).forEach(x => { if (!routines.some(y => y.id === x.id)) sync.rDel[x.id] = { t: now }; });
+      missions.forEach(m => { m.u = now; m.z = now; delete m.c; mSeen.set(m.id, seenOf(m)); });   // nuova epoca: gli XP sono già scritti per intero
+      Object.entries(r.rM).forEach(([ym, x]) => x.items.forEach(m => {
+        if (!missions.some(y => y.id === m.id)) (sync.mDel[ym] = sync.mDel[ym] || {})[m.id] = { t: now, z: now };
+      }));
+      new Set([...missions.map(monthOf), ...Object.keys(r.rM)]).forEach(ym => monthQueue.add(ym));
+      IMG_NAMES.forEach(n => { if (imgs[n] || r.rImgs[n]) imgTouched.add(n); });   // solo quelle da salvare o da togliere
+      userDirty = true;
+      saveMissionsLocal(); saveSync();
+      routinesApplying = true; saveRoutinesLocal(); routinesApplying = false;
+    } else {
+      const u = applyUserDoc(d, null, true);
+      if (u.dirty) userDirty = true;
+      new Set([...Object.keys(r.rM), ...missions.map(monthOf)]).forEach(ym => {
+        const x = r.rM[ym] || { items: [], del: {} };
+        mergeMonth(ym, x.items, x.del);
+      });
+      if (hasPend()) userDirty = true;   // XP fatti qui e non ancora nell'account
+      if (!r.d) userDirty = true;
     }
     // immagini: l'account è la fonte, tranne quelle modificate in questa sessione
     IMG_NAMES.forEach(n => {
@@ -3350,24 +3865,11 @@
     applyImages();
     paintCustom();
     if (imgQueue.size) flushImgs();
-    // missioni: un documento per mese; l'account è la fonte, tranne i mesi modificati in questa sessione
-    const localM = {};
-    missions.forEach(m => { (localM[monthOf(m)] = localM[monthOf(m)] || []).push(m); });
-    const mergedM = [];
-    new Set([...Object.keys(r.rM), ...Object.keys(localM)]).forEach(ym => {
-      if (missionsTouched.has(ym)) { mergedM.push(...(localM[ym] || [])); monthQueue.add(ym); }   // "device": un mese che c'è solo nell'account si svuota
-      else if (ym in r.rM) mergedM.push(...r.rM[ym]);
-      else if (mode !== 'account') { mergedM.push(...(localM[ym] || [])); if ((localM[ym] || []).length) monthQueue.add(ym); }
-    });
-    missions = mergedM;
-    saveMissionsLocal();
     renderMissionViews();
     if (monthQueue.size) flushMissions();
     render(true);
-    const needUpload = touched || settingsTouched || routinesTouched
-      || (!d && (hasProgress(xp) || !isDefaultSettings() || routines.length > 0))
-      || (d && !d.settings && !isDefaultSettings());
-    if (needUpload) flush();
+    if (userDirty) flush();
+    startListening();
     renderInfo();
     if (fbUser && ref !== null) { schedulePublish(true); checkFriendRequests(); }
   }
@@ -3376,7 +3878,7 @@
     if (!p) return;
     accPending = null;
     closeModal();
-    cloudApply(p.ref, p.r, mode);
+    cloudApply(p.ref, p.r, mode, false, p.key || p.uid);
     linkUid(p.uid);
     accMsg(T(mode === 'account' ? 'acc.msg.acc' : 'acc.msg.dev'));
     paintAccount();
@@ -3394,7 +3896,7 @@
         downloadsCap = dl || null;
         const uid = user ? await user.id() : null;
         if (!db || !uid) { setSaveState('local'); return; }
-        await cloudLoad(db.doc('data/users/' + uid + '/rpg'));
+        await cloudLoad(db.doc('data/users/' + uid + '/rpg'), null, 'claude:' + uid);
       } catch (e) {
         console.warn('cloud', e);
         if (!dbRef) setSaveState('local');
@@ -3402,10 +3904,11 @@
       return;
     }
     // app sul sito: account Firebase, se hai già fatto l'accesso
-    if (!fbInit()) { setSaveState('local'); paintAccount(); return; }
+    if (!wasSignedIn() || !(await loadFirebase()) || !fbInit()) { setSaveState('local'); paintAccount(); return; }
     fbUser = await fbFirstUser();
     paintAccount();
-    if (!fbUser) { setSaveState('local'); return; }
+    if (!fbUser) { markSigned(false); setSaveState('local'); return; }
+    markSigned(true);
     await fbConnect();
   }
   // collega l'account (carica e unisce i dati). Se in quel momento manca la connessione si riprova da soli:
@@ -3415,14 +3918,36 @@
     if (!fbUser || dbRef || accPending) return Promise.resolve();
     if (cloudJob) return cloudJob;
     cloudJob = (async () => {
-      try { await cloudLoad(fbDb.doc('users/' + fbUser.uid), fbUser.uid); }
+      try { await cloudLoad(fbDb.doc('users/' + fbUser.uid), fbUser.uid, fbUser.uid); }
       catch (e) { console.warn('cloud', e); if (!dbRef) setSaveState('local'); }
       paintAccount();
     })().finally(() => { cloudJob = null; });
     return cloudJob;
   }
-  window.addEventListener('online', () => { fbConnect(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) fbConnect(); });
+  // quando torna la rete o torni sull'app: ci si collega (se non lo si era) e si manda ciò che era rimasto indietro
+  window.addEventListener('online', () => { fbConnect(); syncKick(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    fbConnect();
+    syncKick();
+    if (dbRef && !unsubs.length) cloudRefresh();   // senza aggiornamenti in diretta (claude.ai): si rilegge l'account
+  });
+  // rilettura completa dell'account, per chi non ha gli aggiornamenti in diretta
+  let refreshing = false;
+  async function cloudRefresh() {
+    if (refreshing || !dbRef || writing) return;
+    refreshing = true;
+    try {
+      const r = await cloudFetch(dbRef);
+      if (r.d) onUserSnap(r.d);
+      let any = false, xpAny = false;
+      Object.entries(r.rM).forEach(([ym, x]) => { const m = mergeMonth(ym, x.items, x.del); any = any || m.changed; xpAny = xpAny || m.xpChanged; });
+      if (xpAny) persist();
+      if (any || xpAny) { render(false); renderMissionViews(); }
+      if (monthQueue.size) flushMissions();
+    } catch (e) { console.warn('refresh', e); }
+    refreshing = false;
+  }
 
   /* ================= amici ================= */
   // Ogni giocatore ha un codice amico (8 caratteri) e un profilo pubblico: nome, livello complessivo,
@@ -3657,26 +4182,7 @@
   $('fr-goacc').addEventListener('click', () => { closeModal(); openSettings('data'); });
 
   // profilo di un amico: la sua scheda Personaggio in sola lettura
-  let fpUid = '', fpArmTimer = 0;
-  function radarMarkup(x) {
-    const fr = STATS.map(s => fracLevel(x[s.key]));
-    const top = Math.min(MAX_LEVEL, Math.max(10, Math.ceil(Math.max(...fr) / 10) * 10));
-    let h = '';
-    [0.25, 0.5, 0.75, 1].forEach(f => { h += `<polygon class="r-ring${f === 1 ? ' outer' : ''}" points="${ptsStr(STATS.map((_, i) => pt(i, R * f)))}"/>`; });
-    STATS.forEach((_, i) => { const p = pt(i, R); h += `<line class="r-axis" x1="${CX}" y1="${CY}" x2="${p[0].toFixed(1)}" y2="${p[1].toFixed(1)}"/>`; });
-    h += `<polygon class="r-shape" points="${ptsStr(RADAR_IDX.map((k, i) => pt(i, R * Math.min(1, Math.max(fr[k] / top, 0.03)))))}"/>`;
-    RADAR_IDX.forEach((si, i) => {
-      const s = STATS[si], p = pt(i, LR);
-      let dyName = -6, dyLv = 16;
-      if (i === 0) { dyName = -22; dyLv = 0; }
-      if (i === 3) { dyName = 8; dyLv = 30; }
-      const dx = (i === 1 || i === 2) ? 18 : (i === 4 || i === 5) ? -18 : 0;
-      const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-      h += `<text class="r-name" x="${(p[0] + dx).toFixed(1)}" y="${(p[1] + dyName).toFixed(1)}" text-anchor="middle">${esc(s.name)}</text>`;
-      h += `<text class="r-lv" x="${(p[0] + dx).toFixed(1)}" y="${(p[1] + dyLv).toFixed(1)}" text-anchor="middle">${esc(T('lv') + ' ' + levelFromXp(x[s.key]))}</text>`;
-    });
-    return h;
-  }
+  let fpUid = '';
   // i colori dell'amico, come variabili CSS valide solo dentro la finestra del suo profilo
   const FP_VARS = ['--win-a', '--win-b', '--win-c', '--win-edge', '--win-glow', '--ink-soft', '--track', '--btn', '--ink', '--ink-strong', '--gold', '--name-color'];
   function applyFriendLook(el, look) {
@@ -3684,17 +4190,7 @@
     const ok = c => typeof c === 'string' && HEX.test(c) ? c.toLowerCase() : null;
     const L = look || {};
     const win = ok(L.winColor);
-    if (win) {
-      const a = winBase(win), dk = mixHex(a, '#000000', 0.70);
-      el.style.setProperty('--win-a', a);
-      el.style.setProperty('--win-b', mixHex(a, '#000000', 0.45));
-      el.style.setProperty('--win-c', dk);
-      el.style.setProperty('--win-edge', dk);
-      el.style.setProperty('--win-glow', mixHex(a, '#ffffff', 0.45));
-      el.style.setProperty('--ink-soft', mixHex(a, '#ffffff', 0.72));
-      el.style.setProperty('--track', mixHex(a, '#000000', 0.82));
-      el.style.setProperty('--btn', mixHex(a, '#ffffff', 0.06));
-    }
+    if (win) Object.entries(paletteVars(win)).forEach(([k, v]) => el.style.setProperty(k, v));
     if (ok(L.inkColor)) { el.style.setProperty('--ink', ok(L.inkColor)); el.style.setProperty('--ink-strong', ok(L.inkColor)); }
     if (ok(L.accentColor)) el.style.setProperty('--gold', ok(L.accentColor));
     if (ok(L.nameColor)) el.style.setProperty('--name-color', ok(L.nameColor));
@@ -3746,14 +4242,6 @@
       if (id) bgCache.put(uid, { id, data: d });
     } catch (e) { console.warn('friend bg', e); if (c) show(c.data); }   // senza rete: meglio la copia vecchia che niente
   }
-  function fpArm(on) {
-    clearTimeout(fpArmTimer);
-    const b = $('fp-remove');
-    b.dataset.armed = on ? '1' : '';
-    b.textContent = on ? T('btn.confirm') : T('fr.remove');
-    if (on) b.setAttribute('aria-label', T('fr.remove.confirm')); else b.removeAttribute('aria-label');
-    if (on) fpArmTimer = setTimeout(() => fpArm(false), 4000);
-  }
   function backToFriends(msg) { closeModal(); openFriends(msg); }
   $('fp-close').addEventListener('click', () => backToFriends());
   $('fpmodal').addEventListener('click', e => { if (e.target === $('fpmodal')) backToFriends(); });
@@ -3780,20 +4268,22 @@
   }
   function accMsg(t) { $('acc-msg').textContent = t || ''; }
   $('acc-in').addEventListener('click', async () => {
-    if (accBusy || !fbInit()) return;
+    if (accBusy) return;
     accBusy = true; accMsg(''); paintAccount();
+    if (!(await loadFirebase()) || !fbInit()) { accMsg(T('acc.err')); accBusy = false; paintAccount(); return; }
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     try {
       const r = await fbAuth.signInWithPopup(provider);
       fbUser = r.user;
+      markSigned(true);
       paintAccount();
       await fbConnect();
       sfx('ok');
     } catch (e) {
       const code = e && e.code || '';
       if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') {
-        try { await fbAuth.signInWithRedirect(provider); return; } catch (e2) { console.warn('auth', e2); }
+        try { markSigned(true); await fbAuth.signInWithRedirect(provider); return; } catch (e2) { markSigned(false); console.warn('auth', e2); }
       }
       if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') { accMsg(T('acc.err')); console.warn('auth', e); }
     }
@@ -3803,6 +4293,8 @@
     if (accBusy || !fbAuth) return;
     accBusy = true; paintAccount();
     try { await fbAuth.signOut(); } catch (e) { console.warn('auth', e); }
+    markSigned(false);
+    stopListening();
     fbUser = null; dbRef = null;
     friendsReset();
     setSaveState('local');
