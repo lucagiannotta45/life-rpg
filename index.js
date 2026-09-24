@@ -14,7 +14,8 @@
  * I disegni (icone e cifre a pixel, linguetta del livello, radar) sono in draw.js.
  * Le regole della sincronizzazione tra dispositivi (calcoli puri) sono in sync.js.
  * Effetti sonori e musica (con la tabella dei brani MUSIC_FILES) sono in audio.js.
- * L'ordine dei file in index.html è: i18n.js → game.js → draw.js → sync.js → audio.js → index.js.
+ * Le regole delle missioni, delle routine e del calendario (calcoli puri) sono in missions.js.
+ * L'ordine dei file in index.html è: i18n.js → game.js → draw.js → sync.js → missions.js → audio.js → index.js.
  *
  * Indice delle sezioni, nell'ordine in cui compaiono (cerca il titolo per saltare al punto giusto):
  *   1. lingue                                — collegamento ai testi di i18n.js
@@ -76,6 +77,14 @@
   const {
     normLedger, normDel, normRaw, rawOf, clampXp, effOf, canon, mergeItems,
   } = SYNC;
+  // Regole delle missioni, delle routine e del calendario (calcoli puri): sono in missions.js
+  const MISSIONS = window.LIFE_RPG_MISSIONS.create(GAME, SYNC);
+  const {
+    MAX_PER_MONTH, MAX_MISSIONS, MAX_ROUTINES,
+    pad2, isoDate, parseDate, todayStr, addDaysStr, monthOf, validDate, validTime,
+    rewardTotal, rewardMatch, normalizeMissions, normalizeRoutines,
+    startMs, dueEndMs, isLate, notYet, WD_ALL, gcalUrl, gcalRoutineUrl,
+  } = MISSIONS;
   const LS_KEY = 'liferpg:v1';
   const fmt = n => n.toLocaleString(locale());
 
@@ -242,96 +251,7 @@
 
   /* ----- missioni ----- */
   const LS_MIS = 'liferpg:missions:v1';
-  const MAX_PER_MONTH = 200;
-  const MAX_MISSIONS = 2000;
-  function validDate(s) {
-    if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-    const [y, m, d] = s.split('-').map(Number);
-    const t = new Date(y, m - 1, d);
-    return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d;
-  }
-  const validTime = s => typeof s === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
-  function normalizeRewards(o) {
-    const r = {};
-    for (const s of STATS) {
-      const n = Number(o && o[s.key]);
-      r[s.key] = Number.isInteger(n) && n > 0 ? Math.min(n, MAX_XP) : 0;
-    }
-    return r;
-  }
-  // Il totale di XP che si possono assegnare dipende da due valutazioni a stelle (1-5): la Durata e la Difficoltà.
-  // I pesi non sono lineari (1,2,3,5,8): ogni stella in più pesa un po' di più della precedente.
-  // Definiti qui, prima di caricare missioni e routine, perché servono già per controllare i dati salvati.
-  const REWARD_WEIGHT = [0, 1, 2, 3, 5, 8];
-  const REWARD_BASE = 4;
-  const rewardTotal = (d, f) => REWARD_WEIGHT[d] * REWARD_WEIGHT[f] * REWARD_BASE;
-  // trova una coppia (durata, difficoltà) che dia questo totale: serve solo per le missioni create prima di questo sistema,
-  // che non hanno "stars" salvato. Con lo stesso totale possono esistere più coppie valide (per esempio 4x3 e 3x4 fanno
-  // entrambe 60): qui si sceglie la prima trovata, ma se la missione ha già un campo "stars" quello vince sempre.
-  const rewardMatch = total => {
-    for (let d = 1; d <= 5; d++) for (let f = 1; f <= 5; f++) if (rewardTotal(d, f) === total) return [d, f];
-    return null;
-  };
-  // le stelle scelte davvero, salvate insieme alla missione; valide solo se il totale che danno combacia ancora con gli XP
-  function normalizeStars(rewards, st) {
-    if (!st || typeof st !== 'object') return null;
-    const d = Number(st.d), f = Number(st.f);
-    if (!Number.isInteger(d) || !Number.isInteger(f) || d < 1 || d > 5 || f < 1 || f > 5) return null;
-    const sum = STATS.reduce((t, s) => t + (rewards[s.key] || 0), 0);
-    return rewardTotal(d, f) === sum ? { d, f } : null;
-  }
-  function normalizeMissions(arr) {
-    if (!Array.isArray(arr)) return [];
-    const out = [], seen = new Set();
-    for (const m of arr) {
-      if (!m || typeof m !== 'object') continue;
-      const id = typeof m.id === 'string' && /^[\w-]{1,40}$/.test(m.id) ? m.id : null;
-      const title = typeof m.title === 'string' ? m.title.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
-      if (!id || seen.has(id) || !title || !validDate(m.created)) continue;
-      const rewards = normalizeRewards(m.rewards);
-      if (!Object.values(rewards).some(v => v > 0)) continue;
-      const it = {
-        id, title,
-        desc: typeof m.desc === 'string' ? m.desc.trim().slice(0, 500) : '',
-        rewards, penalty: normalizeRewards(m.penalty), due: validDate(m.due) ? m.due : null,
-        from: validDate(m.from) ? m.from : null,   // disponibile dal: prima non si può completare
-        fromTime: validDate(m.from) && validTime(m.fromTime) ? m.fromTime : null,
-        dueTime: validDate(m.due) && validTime(m.dueTime) ? m.dueTime : null,
-        created: m.created, done: null, failed: null, stars: normalizeStars(rewards, m.stars),
-      };
-      if (typeof m.rid === 'string' && /^\w{1,12}$/.test(m.rid)) it.rid = m.rid;
-      // sincronizzazione (vedi "sincronizzazione con l'account"): u = istante dell'ultima modifica,
-      // c = XP prodotti da ciascun dispositivo con questa missione, z = epoca (cambia con un backup importato)
-      const mu = Number(m.u);
-      if (Number.isFinite(mu) && mu > 0) it.u = Math.floor(mu);
-      const led = normLedger(m.c);
-      if (led) it.c = led;
-      const mz = Number(m.z);
-      if (Number.isFinite(mz) && mz > 0) it.z = Math.floor(mz);
-      if (m.failed && typeof m.failed === 'object' && validDate(m.failed.date)) {
-        it.failed = {
-          date: m.failed.date,
-          t: Number.isFinite(Number(m.failed.t)) ? Number(m.failed.t) : 0,
-          applied: normalizeRewards(m.failed.applied),
-        };
-      }
-      if (m.done && typeof m.done === 'object' && validDate(m.done.date)) {
-        it.done = {
-          date: m.done.date,
-          t: Number.isFinite(Number(m.done.t)) ? Number(m.done.t) : 0,
-          applied: normalizeRewards(m.done.applied),
-        };
-        const rs = m.done.rs;
-        if (rs && Number.isInteger(rs.prev) && rs.prev >= 0 && Number.isInteger(rs.n) && rs.n > 0) {
-          it.done.rs = { prev: rs.prev, prevDate: validDate(rs.prevDate) ? rs.prevDate : '', n: rs.n };
-        }
-      }
-      seen.add(id);
-      out.push(it);
-      if (out.length >= MAX_MISSIONS) break;
-    }
-    return out;
-  }
+  // limiti, controllo dei dati e stelle (Durata x Difficoltà): sono in missions.js
   function loadMissionsLocal() {
     try {
       const raw = localStorage.getItem(LS_MIS);
@@ -347,43 +267,7 @@
 
   /* ----- routine: missioni che si ripetono nei giorni scelti ----- */
   const LS_ROU = 'liferpg:routines:v1';
-  const MAX_ROUTINES = 30;
-  const KEEP_DAYS = 60;     // le routine completate o fallite più vecchie si tolgono dalla cronologia
-  function normalizeRoutines(arr) {
-    if (!Array.isArray(arr)) return [];
-    const out = [], seen = new Set();
-    const nn = (v, max) => { const n = Number(v); return Number.isInteger(n) && n >= 0 ? Math.min(n, max) : 0; };
-    for (const r of arr) {
-      if (!r || typeof r !== 'object') continue;
-      const id = typeof r.id === 'string' && /^\w{1,12}$/.test(r.id) ? r.id : null;
-      const title = typeof r.title === 'string' ? r.title.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
-      if (!id || seen.has(id) || !title || !validDate(r.start)) continue;
-      const rewards = normalizeRewards(r.rewards);
-      if (!Object.values(rewards).some(v => v > 0)) continue;
-      const days = [...new Set((Array.isArray(r.days) ? r.days : []).map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
-      if (!days.length) continue;
-      const b = r.bonus;
-      const bonus = b && Number.isInteger(b.every) && b.every >= 2 && b.every <= 365 && Number.isInteger(b.xp) && b.xp >= 1 && b.xp <= MAX_XP
-        ? { every: b.every, xp: b.xp } : null;
-      const pz = r.pause;
-      seen.add(id);
-      out.push({
-        id, title,
-        desc: typeof r.desc === 'string' ? r.desc.trim().slice(0, 500) : '',
-        rewards, penalty: normalizeRewards(r.penalty), days,
-        time: validTime(r.time) ? r.time : null,
-        start: r.start,
-        pause: pz && validDate(pz.from) && validDate(pz.until) && pz.from <= pz.until ? { from: pz.from, until: pz.until } : null,
-        streak: nn(r.streak, 100000), streakDate: validDate(r.streakDate) ? r.streakDate : '', best: nn(r.best, 100000),
-        bonus, stars: normalizeStars(rewards, r.stars),
-        made: validDate(r.made) ? r.made : '',   // fin qui le missioni della routine sono già state create
-      });
-      const ru = Number(r.u);
-      if (Number.isFinite(ru) && ru > 0) out[out.length - 1].u = Math.floor(ru);   // istante dell'ultima modifica
-      if (out.length >= MAX_ROUTINES) break;
-    }
-    return out;
-  }
+  // limiti e controllo dei dati delle routine: sono in missions.js
   function loadRoutinesLocal() {
     try { const raw = localStorage.getItem(LS_ROU); if (raw) return normalizeRoutines(JSON.parse(raw)); } catch (e) { /* ignora */ }
     return [];
@@ -1685,30 +1569,9 @@
   ['dragover', 'drop'].forEach(t => window.addEventListener(t, e => e.preventDefault()));
 
   /* ================= missioni e calendario ================= */
-  const pad2 = n => String(n).padStart(2, '0');
-  const isoDate = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-  const parseDate = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
-  const todayStr = () => isoDate(new Date());
-  const monthOf = m => m.created.slice(0, 7);
+  // Le regole (date, scadenze, ordine, routine, penalità, Google Calendar) sono in missions.js:
+  // qui ci sono i salvataggi, i disegni, i messaggi e i suoni.
   const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
-  // istante (in millisecondi) dopo il quale la missione è scaduta, con l'orologio del dispositivo:
-  // alla fine dell'ora scelta (minuto compreso) oppure, senza ora, alla fine del giorno
-  // istante da cui la missione si può completare (senza ora: da mezzanotte)
-  function startMs(m) {
-    if (!m.from) return -Infinity;
-    const d = parseDate(m.from);
-    if (m.fromTime) { const [hh, mm] = m.fromTime.split(':').map(Number); d.setHours(hh, mm, 0, 0); }
-    return d.getTime();
-  }
-  function dueEndMs(m) {
-    if (!m.due) return Infinity;
-    const d = parseDate(m.due);
-    if (m.dueTime) { const [hh, mm] = m.dueTime.split(':').map(Number); d.setHours(hh, mm, 0, 0); return d.getTime() + 60000; }
-    d.setDate(d.getDate() + 1);
-    return d.getTime();
-  }
-  const isLate = m => !m.done && Date.now() >= dueEndMs(m);
-  const dueKey = m => (m.due || m.from || '9999-99-99') + ' ' + (m.dueTime || '99:99');
   const fmtClock = ms => new Date(ms).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const fmtDay = (s, long) => cap1(parseDate(s).toLocaleDateString(locale(),
     long ? { weekday: 'long', day: 'numeric', month: 'long' } : { day: 'numeric', month: 'short' }));
@@ -1796,10 +1659,7 @@
     return parts.length ? parts.join(', ') : T('xp.none.lower');
   };
 
-  // completare e annullare
-  // ancora non completabile: la data è nel futuro
-  // non ancora completabile: una missione prima della sua disponibilità (giorno e ora), una routine prima del suo giorno
-  const notYet = m => !m.done && !m.failed && (m.rid ? !!m.due && m.due > todayStr() : !!m.from && Date.now() < startMs(m));
+  // completare e annullare ("non ancora completabile" è notYet, in missions.js)
   function completeMission(id) {
     const m = missions.find(x => x.id === id);
     if (!m || m.done || m.failed) return;   // scaduta: non si completa più (si può solo riprogrammare)
@@ -1813,21 +1673,10 @@
     if (notYet(m)) { missionMsg(T('m.locked', { when: m.rid ? fmtDay(m.due) : fromLabel(m) }), 'bad', true); sfx('err'); return; }
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const ovFrom = overallOf(before);
-    const applied = {};
     // routine: la serie cresce solo se la completi entro il giorno previsto
     const rt = routineOf(m);
-    let rs = null;
-    const bonus = {};
-    if (rt && m.due && todayStr() <= m.due && m.due > (rt.streakDate || '')) {
-      const n = (rt.streak || 0) + 1;
-      rs = { prev: rt.streak || 0, prevDate: rt.streakDate || '', n };
-      if (rt.bonus && n % rt.bonus.every === 0) STATS.forEach(s => { if (m.rewards[s.key] > 0) bonus[s.key] = rt.bonus.xp; });
-    }
-    STATS.forEach(s => {
-      const b = xp[s.key];
-      xp[s.key] = Math.min(MAX_XP, b + (m.rewards[s.key] || 0) + (bonus[s.key] || 0));
-      applied[s.key] = xp[s.key] - b;
-    });
+    const { rs, bonus } = MISSIONS.streakStep(rt, m, todayStr());
+    const applied = MISSIONS.gainXp(xp, m.rewards, bonus);
     const lastT = missions.reduce((mx, x) => x.done ? Math.max(mx, x.done.t) : mx, 0);
     m.done = { date: todayStr(), t: Math.max(Date.now(), lastT + 1), applied };   // t cresce sempre: ordina le completate
     if (rs) {
@@ -1849,19 +1698,10 @@
     const m = missions.find(x => x.id === id);
     if (!m || !m.done) return;
     const before = STATS.map(s => levelFromXp(xp[s.key]));
-    const removed = {};
-    STATS.forEach(s => {
-      const b = xp[s.key];
-      xp[s.key] = Math.max(0, b - (m.done.applied[s.key] || 0));
-      removed[s.key] = b - xp[s.key];
-    });
+    const removed = MISSIONS.undoXp(xp, m.done.applied);
     const rsBack = m.done.rs, rtBack = routineOf(m);
     m.done = null;
-    if (rsBack && rtBack && rtBack.streakDate === m.due) {   // la serie torna com'era prima
-      rtBack.streak = rsBack.prev;
-      rtBack.streakDate = rsBack.prevDate || addDaysStr(m.due, -1);
-      saveRoutinesLocal();
-    }
+    if (MISSIONS.streakUndo(rtBack, rsBack, m.due)) saveRoutinesLocal();   // la serie torna com'era prima
     persist();
     touchMonth(monthOf(m));
     const after = STATS.map(s => levelFromXp(xp[s.key]));
@@ -1876,12 +1716,7 @@
   function revertPenalty(id) {
     const m = missions.find(x => x.id === id);
     if (!m || !m.failed || m.done || m.rid) return;
-    const restored = {};
-    STATS.forEach(s => {
-      const b = xp[s.key];
-      xp[s.key] = Math.min(MAX_XP, b + (m.failed.applied[s.key] || 0));
-      restored[s.key] = xp[s.key] - b;
-    });
+    const restored = MISSIONS.gainXp(xp, m.failed.applied);
     m.failed = null;
     m.due = null;   // senza data (e senza ora), così non scade di nuovo
     m.dueTime = null;
@@ -1925,19 +1760,12 @@
   function applyPenalties() {
     if (activeModal) return false;   // non interrompere chi sta scrivendo: si riprova dopo
     const today = todayStr();
-    const due = missions
-      .filter(m => !m.done && !m.failed && m.due && isLate(m))
-      .sort((a, b) => dueKey(a).localeCompare(dueKey(b)) || a.created.localeCompare(b.created));
+    const due = MISSIONS.lateMissions(missions);
     if (!due.length) return true;
     const before = STATS.map(s => levelFromXp(xp[s.key]));
     const list = [];
     due.forEach((m, i) => {
-      const removed = {};
-      STATS.forEach(s => {
-        const r = Math.min(xp[s.key], m.penalty[s.key] || 0);
-        xp[s.key] -= r;
-        removed[s.key] = r;
-      });
+      const removed = MISSIONS.penaltyXp(xp, m.penalty);
       m.failed = { date: today, t: Date.now() + i, applied: removed };
       list.push({ m, removed });
     });
@@ -1954,66 +1782,17 @@
     return true;
   }
   /* ----- routine: creazione delle volte e serie ----- */
-  const WD_ALL = [1, 2, 3, 4, 5, 6, 0];   // giorni nel modulo, lunedì per primo (numeri di Date.getDay)
-  const addDaysStr = (ds, n) => { const d = parseDate(ds); d.setDate(d.getDate() + n); return isoDate(d); };
-  const inPause = (r, d) => !!r.pause && r.pause.from <= d && d <= r.pause.until;
-  const dayCounts = (r, d) => d >= r.start && r.days.includes(parseDate(d).getDay()) && !inPause(r, d);
-  const occId = (r, d) => r.id + '-' + d.replace(/-/g, '');
-  const routineOf = m => (m && m.rid ? routines.find(r => r.id === m.rid) || null : null);
+  // (giorni previsti, pause, serie e il "giro di oggi" sono in missions.js)
+  const routineOf = m => MISSIONS.routineOf(routines, m);
   // crea le volte di oggi, aggiorna la serie e pulisce le volte saltate; true se qualcosa è cambiato
   let routinesDay = '';
   function syncRoutines() {
     routinesDay = todayStr();
-    if (!routines.length && !missions.some(m => m.rid)) return false;
-    const today = todayStr();
-    const yesterday = addDaysStr(today, -1);
-    const months = new Set();
-    let changed = false, routinesChanged = false;
-    routines.forEach(r => {
-      // la serie si interrompe se un giorno previsto (già passato) non è stato completato in tempo
-      if ((r.streakDate || '') < yesterday) {
-        let d = r.streakDate ? addDaysStr(r.streakDate, 1) : r.start;
-        for (let guard = 0; d <= yesterday && guard < 800; guard++, d = addDaysStr(d, 1)) {
-          if (r.streak && dayCounts(r, d)) r.streak = 0;
-        }
-        r.streakDate = yesterday;
-        routinesChanged = true;
-      }
-      if (r.pause && r.pause.until < today) { r.pause = null; routinesChanged = true; }
-      // le volte di oggi e quelle saltate dall'ultima apertura: ogni giorno previsto conta,
-      // con o senza penalità (chi non ha messo una penalità perde comunque la serie, ma non XP).
-      // Si parte dal giorno dopo "made": un giorno già fatto non si ricrea mai, anche se la sua missione
-      // è stata tolta (dalla pulizia dei 60 giorni o eliminata da te). Senza "made" (routine di prima):
-      // al massimo gli ultimi 60 giorni, così le volte vecchie già tolte non tornano a fallire.
-      const existing = new Set(missions.filter(mm => mm.rid === r.id).map(mm => mm.id));
-      const oldest = addDaysStr(today, -(KEEP_DAYS - 1));   // un giorno dentro il confine della pulizia, per sicurezza
-      const from = r.made ? addDaysStr(r.made, 1) : (r.start > oldest ? r.start : oldest);
-      for (let d = from, guard = 0; d <= today && guard < 3660; guard++, d = addDaysStr(d, 1)) {
-        if (!dayCounts(r, d)) continue;
-        const id = occId(r, d);
-        if (existing.has(id) || missions.length >= MAX_MISSIONS) continue;
-        missions.push({ id, title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
-          due: d, dueTime: r.time, created: d, done: null, failed: null, rid: r.id, stars: r.stars });
-        existing.add(id);
-        months.add(d.slice(0, 7));
-        changed = true;
-      }
-      if (r.start <= today && r.made !== today) { r.made = today; routinesChanged = true; }
-    });
-    // pulizia: volte saltate senza penalità, volte in pausa, cronologia vecchia
-    const keepFrom = addDaysStr(today, -KEEP_DAYS);
-    missions = missions.filter(m => {
-      if (!m.rid) return true;
-      const r = routineOf(m);
-      let drop = false;
-      if (!m.done && !m.failed) drop = !!r && (inPause(r, m.due) || m.due < r.start);
-      else drop = (m.done || m.failed).date < keepFrom;
-      if (drop) { months.add(monthOf(m)); changed = true; }
-      return !drop;
-    });
-    if (routinesChanged) saveRoutinesLocal();
-    if (changed) months.forEach(touchMonth);
-    return changed;
+    const res = MISSIONS.routineDay(routines, missions, todayStr());
+    missions = res.missions;
+    if (res.routinesChanged) saveRoutinesLocal();
+    if (res.changed) res.months.forEach(touchMonth);
+    return res.changed;
   }
 
   // le penalità scattano appena la missione scade: all'apertura, al ritorno sulla pagina e, con l'app aperta, entro pochi secondi
@@ -2094,22 +1873,6 @@
     return box;
   }
   // Google Calendar: apre un evento già compilato; l'avviso (promemoria) lo decide il calendario di chi lo salva
-  function gcalUrl(m) {
-    const d8 = ds => ds.replace(/-/g, '');
-    const p2 = n => String(n).padStart(2, '0');
-    let dates;
-    if (m.dueTime) {
-      const [hh, mm] = m.dueTime.split(':').map(Number);
-      const e = parseDate(m.due); e.setHours(hh, mm + 30, 0, 0);
-      dates = d8(m.due) + 'T' + p2(hh) + p2(mm) + '00/' + d8(isoDate(e)) + 'T' + p2(e.getHours()) + p2(e.getMinutes()) + '00';
-    } else {
-      const n = parseDate(m.due); n.setDate(n.getDate() + 1);
-      dates = d8(m.due) + '/' + d8(isoDate(n));
-    }
-    let u = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(m.title) + '&dates=' + dates;
-    if (m.desc) u += '&details=' + encodeURIComponent(m.desc);
-    return u;
-  }
   // le stesse 5 stelle del modulo, in piccolo e non toccabili, per vedere durata e difficoltà nell'elenco
   function miniStars(n) {
     const wrap = mk('span', 'mini-stars');
@@ -2251,30 +2014,12 @@
 
   /* ================= missioni e calendario (seguito) ================= */
   function renderMissions() {
-    const pending = missions.filter(m => !m.done);
-    const todo = pending.filter(m => !m.failed).sort((a, b) =>
-      dueKey(a).localeCompare(dueKey(b)) || a.created.localeCompare(b.created) || a.title.localeCompare(b.title));
-    const failed = pending.filter(m => m.failed).sort((a, b) =>
-      b.failed.date.localeCompare(a.failed.date) || dueKey(b).localeCompare(dueKey(a)) || a.title.localeCompare(b.title));
-    const done = missions.filter(m => m.done).sort((a, b) =>
-      b.done.date.localeCompare(a.done.date) || b.done.t - a.done.t);
+    const { todo, failed, done, groups } = MISSIONS.missionLists(missions);
     const tl = $('m-todo'), fl = $('m-failed'), dl = $('m-done');
     tl.textContent = ''; fl.textContent = ''; dl.textContent = '';
 
     // da fare: raggruppate per scadenza
     if (!todo.length) tl.appendChild(mk('p', 'empty', T('mis.empty.todo')));
-    const today = todayStr();
-    const soon = parseDate(today); soon.setDate(soon.getDate() + 7);
-    const soonEnd = isoDate(soon);
-    const groups = { late: [], routine: [], today: [], soon: [], later: [], nodate: [] };
-    todo.forEach(m => {
-      const key = m.due || m.from;
-      if (!key) groups.nodate.push(m);
-      else if (isLate(m)) groups.late.push(m);
-      else if (key === today) (m.rid ? groups.routine : groups.today).push(m);
-      else if (key <= soonEnd) groups.soon.push(m);
-      else groups.later.push(m);
-    });
     groupBlock(tl, 'late', T('grp.late'), groups.late);
     groupBlock(tl, 'routine', T('grp.routine'), groups.routine);
     groupBlock(tl, 'today', T('grp.today'), groups.today);
@@ -2312,10 +2057,7 @@
     calY = t.getFullYear(); calM = t.getMonth(); selDate = isoDate(t);
   }
   // routine previste nei giorni futuri (non sono ancora missioni: compaiono il giorno stesso)
-  function plannedRoutines(ds, ids) {
-    if (ds <= todayStr()) return [];
-    return routines.filter(r => dayCounts(r, ds) && !ids.has(occId(r, ds)));
-  }
+  const plannedRoutines = (ds, ids) => MISSIONS.plannedRoutines(routines, ds, ids);
   function renderCalendar(focusDate) {
     const grid = $('cal-grid');
     grid.textContent = '';
@@ -2323,12 +2065,7 @@
     const offset = (new Date(calY, calM, 1).getDay() + 6) % 7;
     const days = new Date(calY, calM + 1, 0).getDate();
     for (let i = 0; i < offset; i++) grid.appendChild(mk('div', 'cal-blank'));
-    const todo = {}, done = {}, fail = {};
-    missions.forEach(m => {
-      if (m.done) done[m.done.date] = (done[m.done.date] || 0) + 1;
-      else if (m.due && m.failed) fail[m.due] = (fail[m.due] || 0) + 1;
-      else if (m.due || m.from) { const k = m.due || m.from; todo[k] = (todo[k] || 0) + 1; }
-    });
+    const { todo, done, fail } = MISSIONS.calendarMarks(missions);
     const today = todayStr();
     const ids = new Set(missions.map(m => m.id));
     for (let d = 1; d <= days; d++) {
@@ -2414,10 +2151,7 @@
     $('day-title').textContent = fmtDay(selDate, true) + (selDate === todayStr() ? T('day.today') : '');
     const box = $('day-list');
     box.textContent = '';
-    const byTime = (a, b) => dueKey(a).localeCompare(dueKey(b)) || a.title.localeCompare(b.title);
-    const todo = missions.filter(m => !m.done && !m.failed && (m.due || m.from) === selDate).sort(byTime);
-    const failed = missions.filter(m => !m.done && m.failed && m.due === selDate).sort(byTime);
-    const done = missions.filter(m => m.done && m.done.date === selDate).sort((a, b) => b.done.t - a.done.t || a.title.localeCompare(b.title));   // le più recenti in alto
+    const { todo, failed, done } = MISSIONS.dayLists(missions, selDate);
     const planned = plannedRoutines(selDate, new Set(missions.map(m => m.id)));
     if (!todo.length && !failed.length && !done.length && !planned.length) box.appendChild(mk('p', 'empty', T('day.empty')));
     if (planned.length) {
@@ -2455,14 +2189,7 @@
   function scheduleExpiry() {
     clearTimeout(expiryTimer);
     const now = Date.now();
-    const next = missions.reduce((mn, m) => {
-      if (m.done || m.failed) return mn;
-      const st = startMs(m);
-      if (st > now) mn = Math.min(mn, st);   // diventa disponibile
-      if (!m.due) return mn;
-      const e = dueEndMs(m);
-      return e > now ? Math.min(mn, e) : mn;   // scade
-    }, Infinity);
+    const next = MISSIONS.nextChange(missions, now);
     if (next === Infinity) return;
     expiryTimer = setTimeout(() => { renderMissionViews(); checkPenalties(); }, Math.min(next - now + 50, 3600000));   // al massimo un'ora: si ricontrolla
   }
@@ -2973,27 +2700,6 @@
   $('mf-pause-clear').addEventListener('click', () => { $('mf-pause-from').value = ''; $('mf-pause-until').value = ''; });
 
   // Google Calendar per una routine: un evento che si ripete negli stessi giorni (l'avviso lo decide il calendario)
-  function gcalRoutineUrl(r) {
-    const d8 = ds => ds.replace(/-/g, '');
-    const p2 = n => String(n).padStart(2, '0');
-    let d = todayStr();
-    for (let i = 0; i < 400 && !dayCounts(r, d); i++) d = addDaysStr(d, 1);   // il primo giorno previsto (dopo un'eventuale pausa)
-    if (!dayCounts(r, d)) { d = todayStr(); for (let i = 0; i < 7 && !r.days.includes(parseDate(d).getDay()); i++) d = addDaysStr(d, 1); }
-    const BY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
-    const rule = r.days.length === 7 ? 'RRULE:FREQ=DAILY' : 'RRULE:FREQ=WEEKLY;BYDAY=' + WD_ALL.filter(x => r.days.includes(x)).map(x => BY[x]).join(',');
-    let dates;
-    if (r.time) {
-      const [hh, mm] = r.time.split(':').map(Number);
-      const e = parseDate(d); e.setHours(hh, mm + 30, 0, 0);
-      dates = d8(d) + 'T' + p2(hh) + p2(mm) + '00/' + d8(isoDate(e)) + 'T' + p2(e.getHours()) + p2(e.getMinutes()) + '00';
-    } else {
-      dates = d8(d) + '/' + d8(addDaysStr(d, 1));
-    }
-    let u = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(r.title) + '&dates=' + dates + '&recur=' + encodeURIComponent(rule);
-    if (r.desc) u += '&details=' + encodeURIComponent(r.desc);
-    return u;
-  }
-
   // elenco delle routine
   const rmodal = $('rmodal');
   function daysText(r) {
