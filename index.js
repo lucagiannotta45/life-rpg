@@ -295,7 +295,6 @@
   let dbRef = null, writing = false, again = false;
   let fbAuth = null, fbDb = null, fbUser = null, accBusy = false;   // account Firebase (vedi la sezione "account")
   let accPending = null;                                            // scelta "quali dati tenere" in attesa
-  let downloadsCap = null;
 
   // Alcuni browser non lasciano salvare dati quando si apre un file HTML dal dispositivo
   let storageOk = true;
@@ -718,17 +717,8 @@
     render(true);
   }
 
-  $('btn-export').addEventListener('click', async () => {
+  $('btn-export').addEventListener('click', () => {
     const text = JSON.stringify(buildBackup(), null, 2);
-    if (downloadsCap) {
-      try {
-        await downloadsCap.save({ filename: 'life_rpg_save.json', data: text });
-        dataMsg(T('data.msg.exported'));
-        return;
-      } catch (e) {
-        if (e && e.code === 'declined') { dataMsg(T('data.msg.cancelled')); return; }
-      }
-    }
     const started = tryDownload(text);
     const box = $('json-box');
     box.value = text; box.hidden = false;
@@ -1180,7 +1170,6 @@
     get fbUser() { return fbUser; }, set fbUser(v) { fbUser = v; },
     get accBusy() { return accBusy; }, set accBusy(v) { accBusy = v; },
     get accPending() { return accPending; }, set accPending(v) { accPending = v; },
-    get downloadsCap() { return downloadsCap; }, set downloadsCap(v) { downloadsCap = v; },
     get sync() { return sync; }, set sync(v) { sync = v; },
     get xpAbs() { return xpAbs; }, set xpAbs(v) { xpAbs = v; },
     get deferredUser() { return deferredUser; }, set deferredUser(v) { deferredUser = v; },

@@ -46,7 +46,7 @@
       if (name === 'info') renderInfo();
     }
     function openSettings(name) {
-      if (!S.fbAuth && !(window.claude && typeof window.claude.use === 'function')) loadFirebase();   // pronte per "Accedi"
+      if (!S.fbAuth) loadFirebase();   // pronte per "Accedi"
       showTab(name);
       openModal(settingsWin, name === 'look' ? $('in-name') : name === 'lang' ? $('tab-lang') : name === 'sound' ? $('btn-sound') : name === 'data' ? $('btn-export') : $('tab-info'));
     }

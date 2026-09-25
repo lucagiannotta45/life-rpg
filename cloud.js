@@ -130,18 +130,13 @@
       return { xpChanged, routinesChanged: rr.changed, dirty: rr.dirty || setDirty };
     }
 
-    // legge, unisce e riscrive un documento in modo sicuro: con Firebase in una transazione
-    // (se nel frattempo un altro dispositivo lo cambia, si rifà da capo); altrove lettura e poi scrittura
+    // legge, unisce e riscrive un documento in modo sicuro, in una transazione
+    // (se nel frattempo un altro dispositivo lo cambia, si rifà da capo)
     async function txDoc(ref, make) {
-      if (ST.fbDb && ST.dbRef && typeof ST.fbDb.runTransaction === 'function' && ref.firestore) {
-        await ST.fbDb.runTransaction(async t => {
-          const snap = await t.get(ref);
-          t.set(ref, make(snap.exists ? snap.data() : null));
-        });
-      } else {
-        const snap = await ref.get();
-        await ref.set(make(snap.exists ? snap.data() : null));
-      }
+      await ST.fbDb.runTransaction(async t => {
+        const snap = await t.get(ref);
+        t.set(ref, make(snap.exists ? snap.data() : null));
+      });
     }
 
     // se la scrittura non riesce si riprova da soli: subito quando torna la rete, altrimenti dopo un po'
@@ -209,12 +204,12 @@
       if (r.xpChanged || r.routinesChanged) afterRemote(r.routinesChanged);
     }
 
-    // aggiornamenti in diretta dall'account (solo Firebase): documento del giocatore, missioni, immagini
+    // aggiornamenti in diretta dall'account: documento del giocatore, missioni, immagini
     let unsubs = [];
     function stopListening() { unsubs.forEach(f => { try { f(); } catch (e) { /* ignora */ } }); unsubs = []; }
     function startListening() {
       stopListening();
-      if (!ST.dbRef || typeof ST.dbRef.onSnapshot !== 'function' || !ST.dbRef.firestore) return;
+      if (!ST.dbRef) return;
       const ref = ST.dbRef;
       const err = e => console.warn('listen', e);
       unsubs.push(ref.onSnapshot(s => {
@@ -348,19 +343,19 @@
     }
 
     // carica i dati dall'account (ref = documento del giocatore) e li unisce a quelli di questo dispositivo.
-    // uid: l'account Firebase; se il dispositivo non è ancora collegato e sia l'account sia il dispositivo
-    // hanno dati diversi, prima si chiede quali tenere. key: a chi appartiene lo stato di sincronizzazione.
-    async function cloudLoad(ref, uid, key) {
+    // uid: l'account Firebase (è anche la chiave dello stato di sincronizzazione); se il dispositivo non è ancora
+    // collegato e sia l'account sia il dispositivo hanno dati diversi, prima si chiede quali tenere.
+    async function cloudLoad(ref, uid) {
       const r = await cloudFetch(ref);
-      if (uid && linkedUid() !== uid && accountHasData(r) && deviceHasData() && !sameData(r)) {
-        ST.accPending = { ref, uid, r, key };
+      if (linkedUid() !== uid && accountHasData(r) && deviceHasData() && !sameData(r)) {
+        ST.accPending = { ref, uid, r };
         $('acc-choice-acc').textContent = T('acc.choice.acc', { sum: dataSummary(normalize(r.d && r.d.xp), remoteMissions(r)) });
         $('acc-choice-dev').textContent = T('acc.choice.dev', { sum: dataSummary(ST.xp, ST.missions) });
         openModal($('accmodal'), $('acc-keep-acc'));
         return;
       }
-      cloudApply(ref, r, 'merge', !!uid && linkedUid() !== uid, key || uid);
-      if (uid) linkUid(uid);
+      cloudApply(ref, r, 'merge', linkedUid() !== uid, uid);
+      linkUid(uid);
     }
     // mode: 'merge' = unisce (per ogni missione, routine e impostazione vince la modifica più recente; gli XP si sommano
     //         come differenze); 'account' = tiene solo i dati dell'account; 'device' = tiene solo quelli di questo dispositivo
@@ -439,14 +434,14 @@
       if (userDirty) flush();
       startListening();
       renderInfo();
-      if (ST.fbUser && ref !== null) { schedulePublish(true); checkFriendRequests(); }
+      if (ST.fbUser) { schedulePublish(true); checkFriendRequests(); }
     }
     function accChoose(mode) {
       const p = ST.accPending;
       if (!p) return;
       ST.accPending = null;
       closeModal();
-      cloudApply(p.ref, p.r, mode, false, p.key || p.uid);
+      cloudApply(p.ref, p.r, mode, false, p.uid);
       linkUid(p.uid);
       accMsg(T(mode === 'account' ? 'acc.msg.acc' : 'acc.msg.dev'));
       paintAccount();
@@ -455,23 +450,7 @@
     $('acc-keep-dev').addEventListener('click', () => accChoose('device'));
 
     async function initCloudInner() {
-      // pagina pubblicata come artifact su claude.ai: usa il salvataggio di quella piattaforma
-      if (window.claude && typeof window.claude.use === 'function') {
-        try {
-          const [db, user, dl] = await Promise.all([
-            window.claude.use('db'), window.claude.use('user'), window.claude.use('downloads'),
-          ]);
-          ST.downloadsCap = dl || null;
-          const uid = user ? await user.id() : null;
-          if (!db || !uid) { setSaveState('local'); return; }
-          await cloudLoad(db.doc('data/users/' + uid + '/rpg'), null, 'claude:' + uid);
-        } catch (e) {
-          console.warn('cloud', e);
-          if (!ST.dbRef) setSaveState('local');
-        }
-        return;
-      }
-      // app sul sito: account Firebase, se hai già fatto l'accesso
+      // account Firebase, se hai già fatto l'accesso
       if (!wasSignedIn() || !(await loadFirebase()) || !fbInit()) { setSaveState('local'); paintAccount(); return; }
       ST.fbUser = await fbFirstUser();
       paintAccount();
@@ -486,7 +465,7 @@
       if (!ST.fbUser || ST.dbRef || ST.accPending) return Promise.resolve();
       if (cloudJob) return cloudJob;
       cloudJob = (async () => {
-        try { await cloudLoad(ST.fbDb.doc('users/' + ST.fbUser.uid), ST.fbUser.uid, ST.fbUser.uid); }
+        try { await cloudLoad(ST.fbDb.doc('users/' + ST.fbUser.uid), ST.fbUser.uid); }
         catch (e) { console.warn('cloud', e); if (!ST.dbRef) setSaveState('local'); }
         paintAccount();
       })().finally(() => { cloudJob = null; });
@@ -498,31 +477,13 @@
       if (document.hidden) return;
       fbConnect();
       syncKick();
-      if (ST.dbRef && !unsubs.length) cloudRefresh();   // senza aggiornamenti in diretta (claude.ai): si rilegge l'account
     });
-    // rilettura completa dell'account, per chi non ha gli aggiornamenti in diretta
-    let refreshing = false;
-    async function cloudRefresh() {
-      if (refreshing || !ST.dbRef || ST.writing) return;
-      refreshing = true;
-      try {
-        const r = await cloudFetch(ST.dbRef);
-        if (r.d) onUserSnap(r.d);
-        let any = false, xpAny = false;
-        Object.entries(r.rM).forEach(([ym, x]) => { const m = mergeMonth(ym, x.items, x.del); any = any || m.changed; xpAny = xpAny || m.xpChanged; });
-        if (xpAny) persist();
-        if (any || xpAny) { render(false); renderMissionViews(); }
-        if (monthQueue.size) flushMissions();
-      } catch (e) { console.warn('refresh', e); }
-      refreshing = false;
-    }
 
     // riquadro "Account" nella scheda Dati delle impostazioni
     function paintAccount() {
       const box = $('acc-box');
       if (!box) return;
       const usable = fbUsable();
-      box.hidden = !!(window.claude && typeof window.claude.use === 'function');   // su claude.ai l'account è già quello della piattaforma
       $('acc-in').hidden = !usable || !!ST.fbUser;
       $('acc-out').hidden = !ST.fbUser;
       $('acc-in').disabled = $('acc-out').disabled = ST.accBusy;
