@@ -10,21 +10,29 @@
 <meta name="theme-color" content="#0e0c08">
 <title>Life RPG</title>
 <!--
-  Struttura del progetto (refactoring):
-    index.html  -> solo markup (questo file)
-    style.css   -> tutti gli stili
-    i18n.js     -> testi in italiano/inglese/portoghese (nessuna logica)
-    index.js    -> tutta la logica dell'app (IIFE, "use strict")
-  In precedenza CSS, testi e JS erano tutti incorporati in questo unico
-  file; ora sono stati separati per rendere il codice più leggibile,
-  più facile da mantenere (editor dedicati, diff più puliti) e per
-  poter modificare le traduzioni senza toccare la logica dell'app.
+  Struttura del progetto:
+    index.html      -> solo markup (questo file)
+    style.css       -> tutti gli stili
+    i18n.js         -> testi in italiano, inglese e portoghese (nessuna logica)
+    game.js         -> regole del gioco: statistiche, livelli, titoli
+    draw.js         -> disegni: icone e cifre a pixel, linguetta del livello, radar
+    look.js         -> calcoli dei colori
+    sync.js         -> regole della sincronizzazione tra dispositivi
+    missions.js     -> regole di missioni, routine e calendario
+    missions-ui.js  -> missioni e calendario sullo schermo
+    settings-ui.js  -> Impostazioni e Personalizza
+    cloud.js        -> account e sincronizzazione (Firebase)
+    friends.js      -> amici
+    audio.js        -> effetti sonori e musica
+    index.js        -> dati dell'app e collegamento di tutti i pezzi
+    sw.js           -> service worker (funzionamento offline)
+    privacy.html    -> informativa sulla privacy
+    firebase/       -> librerie Firebase, caricate solo quando servono
+    musica/         -> un brano mp3 per ogni ruolo
 
-  Nota su i18n.js: index.js legge da esso i testi tradotti (tramite
-  window.LIFE_RPG_I18N), quindi l'ordine dei due <script> qui sotto è
-  importante: i18n.js deve stare PRIMA di index.js.
--->
-<link rel="stylesheet" href="style.css">
+  Gli script qui sotto (con "defer") vengono eseguiti nell'ordine in cui
+  compaiono: ognuno usa i precedenti, quindi l'ordine va mantenuto.
+--><link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="bg-fill" hidden aria-hidden="true"></div>

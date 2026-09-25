@@ -10,7 +10,7 @@
  * modificare senza dover cercare tra la logica dell'app.
  *
  * Anche le regole del gioco (statistiche, livelli, titoli del personaggio)
- * sono in un file a parte: game.js, caricato subito prima di questo.
+ * sono in un file a parte: game.js.
  * I disegni (icone e cifre a pixel, linguetta del livello, radar) sono in draw.js.
  * Le regole della sincronizzazione tra dispositivi (calcoli puri) sono in sync.js.
  * Effetti sonori e musica (con la tabella dei brani MUSIC_FILES) sono in audio.js.
@@ -41,10 +41,9 @@
  *  10b. schede e icone                       — navigazione Personaggio/Statistiche/Missioni/Calendario,
  *                                              icone delle Impostazioni
  *  11. info: la guida del giocatore          — testo di aiuto in-app
- *  12. avvio                                 — inizializzazione dell'app
- *  13. account (Firebase)                    — (il motore è in cloud.js, creato prima dell'avvio)
- *  14. amici                                 — collegamento a friends.js; poi il riquadro Account
- *                                              (accesso/uscita) e l'avvio della connessione
+ *                                              (subito dopo si creano cloud.js e friends.js)
+ *  12. avvio                                 — inizializzazione dell'app, service worker e
+ *                                              avvio della connessione all'account
  *
  * Tutta l'app resta racchiusa in un'unica IIFE (subito sotto) per non
  * inquinare lo scope globale della pagina: le funzioni e variabili
@@ -78,7 +77,7 @@
   // Regole del gioco (statistiche, livelli, titoli): sono in game.js, caricato prima di questo file
   const GAME = window.LIFE_RPG_GAME.create(T);
   const {
-    STATS, ICONS, ALIASES, MAX_LEVEL, MAX_XP, xpForLevel, levelFromXp, fracLevel, overallOf, PAIRS, TRIPLES,
+    STATS, ICONS, ALIASES, MAX_LEVEL, xpForLevel, levelFromXp, fracLevel, overallOf, PAIRS, TRIPLES,
     QUADS, QUINTS, TIERS, GRADES, SPEC_MIN_LEVEL, blank, normalize,
   } = GAME;
   const heroRole = (x = xp) => GAME.heroRole(x);     // di solito si guardano i tuoi XP
@@ -86,19 +85,16 @@
   // Regole della sincronizzazione tra dispositivi (calcoli puri): sono in sync.js
   const SYNC = window.LIFE_RPG_SYNC.create(GAME);
   const {
-    normLedger, normDel, normRaw, rawOf, clampXp, effOf, canon, mergeItems,
+    normDel, normRaw, rawOf, clampXp, effOf, canon, mergeItems,
   } = SYNC;
   // Calcoli dei colori (luminosità, mescolanze, colori delle finestre...): sono in look.js
-  const { luminance, mixHex, hslToHex, winBase, paletteVars, readable, normHex } = window.LIFE_RPG_LOOK;
+  const { mixHex, hslToHex, winBase, paletteVars, readable, normHex } = window.LIFE_RPG_LOOK;
   // Regole delle missioni, delle routine e del calendario (calcoli puri): sono in missions.js
   const MISSIONS = window.LIFE_RPG_MISSIONS.create(GAME, SYNC);
-  const {
-    MAX_PER_MONTH, MAX_MISSIONS, MAX_ROUTINES,
-    pad2, isoDate, parseDate, todayStr, addDaysStr, monthOf, validDate, validTime,
-    rewardTotal, rewardMatch, normalizeMissions, normalizeRoutines,
-    startMs, dueEndMs, isLate, notYet, WD_ALL, gcalUrl, gcalRoutineUrl,
-  } = MISSIONS;
+  // qui servono solo queste: le altre le usa missions-ui.js direttamente da MISSIONS
+  const { monthOf, normalizeMissions, normalizeRoutines } = MISSIONS;
   const LS_KEY = 'liferpg:v1';
+  const LS_ACC = 'liferpg:acc';   // l'account a cui è collegato questo dispositivo (lo usa anche cloud.js)
   const fmt = n => n.toLocaleString(locale());
 
   /* ================= stato e salvataggio ================= */
@@ -380,7 +376,7 @@
     s.xpBase = { ...xp }; s.xpSeen = { ...xp };
     return s;
   }
-  function linkedUidRaw() { try { return localStorage.getItem('liferpg:acc') || ''; } catch (e) { return ''; } }
+  function linkedUidRaw() { try { return localStorage.getItem(LS_ACC) || ''; } catch (e) { return ''; } }
   function saveSync() { lsSet(LS_SYNC, JSON.stringify(sync)); }
   let sync = loadSync();
   saveSync();
@@ -459,7 +455,6 @@
     if (window.ResizeObserver) new ResizeObserver(measure).observe(nav);
   })();
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const NS = 'http://www.w3.org/2000/svg';
 
   // disegni a pixel (icone, cifre, linguetta del livello) e radar: sono in draw.js
   const DRAW = window.LIFE_RPG_DRAW.create(T, GAME);
@@ -1154,6 +1149,11 @@
     b = section('data', T('info.data.h'));
     p(b, dbRef ? T('info.data.cloud') : storageOk ? T('info.data.local') : T('info.data.nostorage'));
     p(b, T(dbRef ? 'info.data.p3' : 'info.data.p3.local'));   // con l'account il backup è una copia di sicurezza, senza è l'unico modo di trasferire i dati
+    // informativa sulla privacy (privacy.html, accanto a index.html), nella sezione della lingua attiva
+    const pv = mk('a', null, T('info.data.privacy'));
+    pv.href = 'privacy.html#' + (lang === 'it' ? 'it' : lang === 'pt-BR' ? 'pt' : 'en');
+    pv.target = '_blank'; pv.rel = 'noopener';
+    b.appendChild(mk('p')).appendChild(pv);
   }
 
   /* ----- account e sincronizzazione (cloud.js): creati qui, prima degli amici e dell'avvio ----- */
@@ -1164,7 +1164,7 @@
     saveRoutinesLocal, setSaveState, lsSet, blankSync, DEV, absorbLocal, recomputeXp, hasPend, saveSync, missionSig,
     routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
     applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
-    renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests,
+    renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC,
   }, {
     get settings() { return settings; }, set settings(v) { settings = v; },
     get settingsTouched() { return settingsTouched; }, set settingsTouched(v) { settingsTouched = v; },
@@ -1228,11 +1228,6 @@
   applyLang();   // di nuovo: ora esistono anche le voci create da buildCustom
   wireDrops();
   render(false);
-
-  /* ================= account (Firebase) ================= */
-  // Il motore dell'account e della sincronizzazione è in cloud.js (creato più sopra, prima dell'avvio).
-  /* ================= amici ================= */
-  // (la parte degli amici è in friends.js: si crea subito prima dell'avvio, vedi sopra)
 
   // sull'app installata chiede al browser di non cancellare i dati quando lo spazio scarseggia
   try {

@@ -9,7 +9,7 @@
  * e il profilo di un amico (la sua scheda Personaggio in sola lettura, con i suoi colori, il suo sfondo
  * e la musica del suo ruolo).
  *
- * L'accesso all'account (Firebase) resta in index.js. Come gli altri file riceve:
+ * L'accesso all'account (Firebase) è in cloud.js. Come gli altri file riceve:
  * - D: funzioni e valori che non cambiano;
  * - S: lo stato che cambia (lingua, impostazioni, XP, account), letto sempre "fresco".
  *
@@ -26,9 +26,6 @@
     let myCode = '', codeJob = null, pubTimer = 0, lastPub = '', pubBgId;
     let friends = { rows: [], profs: {}, loaded: false };
 
-    // Ogni giocatore ha un codice amico (8 caratteri) e un profilo pubblico: nome, livello complessivo,
-    // XP delle sei statistiche (da cui l'app dell'amico ricalcola titolo e grafico nella sua lingua).
-    // Il profilo lo leggono solo gli amici (regole su Firebase). Le missioni non escono mai dall'account.
     const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // niente 0/O e 1/I, che si confondono
     const fmtCode = c => c ? c.slice(0, 4) + '-' + c.slice(4) : '';
     const cleanCode = t => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '');

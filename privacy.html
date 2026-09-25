@@ -10,61 +10,154 @@
   h2 { font-size: 21px; margin: 32px 0 8px; }
   a { color: #2a45c8; }
   hr { border: 0; border-top: 2px solid #c9d2ff; margin: 40px 0; }
-  .lang { font-size: 15px; color: #5a648f; }
+  .lang, .upd { font-size: 15px; color: #5a648f; }
+  ul { padding-left: 22px; }
 </style>
 </head>
 <body>
 
-<p class="lang"><a href="#it">Italiano</a> | <a href="#en">English</a> | <a href="./">Life RPG</a></p>
+<p class="lang"><a href="#it">Italiano</a> | <a href="#en">English</a> | <a href="#pt">Português</a> | <a href="./">Life RPG</a></p>
 
-<section id="it">
+<section id="it" lang="it">
 <h1>Life RPG: informativa sulla privacy</h1>
-<p>Life RPG è un'app per tenere traccia di missioni e abitudini in stile gioco di ruolo. Questa pagina spiega cosa succede ai tuoi dati.</p>
+<p class="upd">Ultimo aggiornamento: 25 settembre 2026</p>
+<p>Life RPG è un'app per tenere traccia di missioni e abitudini in stile gioco di ruolo. Questa pagina spiega quali dati usa, dove finiscono e come cancellarli.</p>
 
-<h2>Quali dati usa l'app</h2>
-<p>I progressi (punti esperienza), le missioni, l'aspetto scelto (nome, colori, immagini) e la lingua. Li inserisci tu e restano <strong>sul tuo dispositivo</strong>, nella memoria del browser.</p>
+<h2>Senza account: tutto resta sul dispositivo</h2>
+<p>Progressi (punti esperienza), missioni, routine, aspetto (nome, colori, immagini), lingua e preferenze audio li inserisci tu e restano <strong>nella memoria del browser</strong> del tuo dispositivo. Non vengono inviati a nessuno.</p>
 
-<h2>Google Drive (facoltativo)</h2>
-<p>Se scegli "Collega Google Drive", l'app chiede a Google il permesso di usare una cartella nascosta e riservata all'app nel tuo Google Drive (l'accesso <code>drive.appdata</code>). In quella cartella salva una copia dei dati elencati sopra, così puoi ritrovarli se cambi dispositivo o cancelli i dati del browser.</p>
-<p>L'app <strong>non può vedere né modificare gli altri file</strong> del tuo Drive. Nessun altro, compreso chi ha creato l'app, ha accesso a quella cartella.</p>
+<h2>Con l'account (facoltativo): "Accedi con Google"</h2>
+<p>Se accedi, l'app usa <a href="https://firebase.google.com/support/privacy">Firebase</a>, un servizio di Google, per due cose:</p>
+<ul>
+  <li><strong>l'accesso</strong>: Google comunica all'app un identificativo del tuo account, il tuo nome, il tuo indirizzo email e l'immagine del profilo;</li>
+  <li><strong>il salvataggio</strong>: una copia dei dati elencati sopra (progressi, missioni, routine, aspetto, immagini, lingua) viene salvata nel database dell'app, così li ritrovi su ogni dispositivo.</li>
+</ul>
+<p>I dati sono conservati sui server di Google per conto di chi gestisce l'app. Il gestore dell'app, in quanto proprietario del progetto Firebase, può tecnicamente accedervi, ma non li usa per nessuno scopo diverso dal far funzionare l'app.</p>
+<p>Quando elimini una missione o una routine, per 90 giorni resta una piccola traccia (identificativo, data dell'eliminazione, XP collegati), che serve a non farla ricomparire da un altro dispositivo. Poi viene cancellata da sola.</p>
+
+<h2>Amici</h2>
+<p>Con l'account hai un codice amico e un profilo che vedono <strong>solo gli amici</strong> che hai accettato: il nome scelto nell'app, il livello, gli XP delle sei statistiche, i colori, la lingua e il codice amico. L'immagine di sfondo compare solo se scegli di condividerla. Chi riceve una tua richiesta di amicizia vede il tuo nome e il tuo codice.</p>
+<p>Le missioni, le routine e il tuo indirizzo email <strong>non vengono mai mostrati</strong> agli amici.</p>
+
+<h2>Google Calendar</h2>
+<p>Il pulsante "Aggiungi a Google Calendar" apre Google Calendar con il titolo e la data della missione già scritti. Parte qualcosa solo se lo premi tu e confermi su Google Calendar.</p>
 
 <h2>Cosa non facciamo</h2>
-<p>Non raccogliamo, non riceviamo, non vendiamo e non condividiamo i tuoi dati. L'app non ha un server proprio: i dati viaggiano solo tra il tuo dispositivo e il tuo Google Drive. Non usiamo pubblicità né strumenti di analisi.</p>
+<p>Non vendiamo e non condividiamo i tuoi dati, non usiamo pubblicità né strumenti di analisi. Come ogni sito, il servizio che ospita queste pagine può registrare dati tecnici delle visite (per esempio l'indirizzo IP).</p>
 
 <h2>Conformità con Google</h2>
 <p>L'uso delle informazioni ricevute dalle API di Google rispetta la <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, compresi i requisiti di Limited Use.</p>
 
 <h2>Come cancellare i dati</h2>
-<p>Dall'app, in Impostazioni, scheda Dati, puoi premere "Scollega" e "Azzera tutto". Per togliere del tutto l'accesso e la cartella nascosta, vai nel tuo Account Google, sezione Sicurezza, "Collegamenti ai servizi di terze parti", scegli Life RPG e rimuovi l'accesso, cancellando anche i dati dell'app.</p>
+<ul>
+  <li><strong>Azzera tutto</strong> (Impostazioni, scheda Dati) cancella progressi, missioni e routine, sul dispositivo e, se hai fatto l'accesso, anche nell'account. L'aspetto, il profilo per gli amici e il codice amico restano.</li>
+  <li><strong>Esci</strong> (stessa scheda) interrompe il salvataggio nell'account: da quel momento i dati restano solo sul dispositivo.</li>
+  <li>Per cancellare <strong>tutti</strong> i dati dall'account (profilo, amicizie, codice amico compresi), scrivi al gestore dell'app (vedi Contatti): verranno eliminati.</li>
+  <li>Per togliere all'app il permesso di accesso, vai nel tuo Account Google, sezione Sicurezza, "Collegamenti ai servizi di terze parti", e rimuovi Life RPG.</li>
+  <li>I dati sul dispositivo si cancellano con i dati del sito nelle impostazioni del browser.</li>
+</ul>
+
+<h2>I tuoi diritti</h2>
+<p>Puoi chiedere di vedere, correggere o cancellare i tuoi dati scrivendo al gestore dell'app. Puoi anche rivolgerti all'autorità per la protezione dei dati del tuo paese (in Italia, il Garante per la protezione dei dati personali).</p>
 
 <h2>Contatti</h2>
-<p>Per domande, scrivi al proprietario di questo sito tramite il suo profilo GitHub.</p>
+<p>Per domande o richieste, scrivi al proprietario di questo sito tramite il suo profilo GitHub.</p>
 </section>
 
 <hr>
 
-<section id="en">
+<section id="en" lang="en">
 <h1>Life RPG: privacy policy</h1>
-<p>Life RPG is an app for tracking missions and habits in a role-playing-game style. This page explains what happens to your data.</p>
+<p class="upd">Last updated: 25 September 2026</p>
+<p>Life RPG is an app for tracking missions and habits in a role-playing-game style. This page explains what data it uses, where it goes and how to delete it.</p>
 
-<h2>What data the app uses</h2>
-<p>Your progress (experience points), missions, chosen appearance (name, colors, images) and language. You enter them yourself and they stay <strong>on your device</strong>, in the browser's storage.</p>
+<h2>Without an account: everything stays on your device</h2>
+<p>Progress (experience points), missions, routines, appearance (name, colors, images), language and sound preferences are entered by you and stay <strong>in the browser's storage</strong> on your device. They are not sent to anyone.</p>
 
-<h2>Google Drive (optional)</h2>
-<p>If you choose "Connect Google Drive", the app asks Google for permission to use a hidden folder reserved for the app in your Google Drive (the <code>drive.appdata</code> access). It saves a copy of the data listed above in that folder, so you can get it back if you change device or clear your browser data.</p>
-<p>The app <strong>cannot see or change any other file</strong> in your Drive. Nobody else, including the person who created the app, has access to that folder.</p>
+<h2>With an account (optional): "Sign in with Google"</h2>
+<p>If you sign in, the app uses <a href="https://firebase.google.com/support/privacy">Firebase</a>, a Google service, for two things:</p>
+<ul>
+  <li><strong>signing in</strong>: Google gives the app an identifier for your account, your name, your email address and your profile picture;</li>
+  <li><strong>saving</strong>: a copy of the data listed above (progress, missions, routines, appearance, images, language) is stored in the app's database, so you find it on every device.</li>
+</ul>
+<p>The data is kept on Google's servers on behalf of whoever runs the app. As the owner of the Firebase project, the app's operator can technically access it, but does not use it for anything other than making the app work.</p>
+<p>When you delete a mission or a routine, a small record (identifier, deletion date, related XP) is kept for 90 days, so that it doesn't reappear from another device. After that it is deleted automatically.</p>
+
+<h2>Friends</h2>
+<p>With an account you get a friend code and a profile that <strong>only friends you have accepted</strong> can see: the name you chose in the app, your level, the XP of the six stats, your colors, language and friend code. Your background image appears only if you choose to share it. Anyone who receives a friend request from you sees your name and code.</p>
+<p>Your missions, routines and email address are <strong>never shown</strong> to friends.</p>
+
+<h2>Google Calendar</h2>
+<p>The "Add to Google Calendar" button opens Google Calendar with the mission's title and date already filled in. Nothing is sent unless you press it and confirm in Google Calendar.</p>
 
 <h2>What we don't do</h2>
-<p>We do not collect, receive, sell or share your data. The app has no server of its own: data only travels between your device and your Google Drive. We use no advertising and no analytics tools.</p>
+<p>We do not sell or share your data, and we use no advertising and no analytics tools. Like any website, the service hosting these pages may log technical data about visits (for example your IP address).</p>
 
 <h2>Google compliance</h2>
 <p>The use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
 
 <h2>How to delete your data</h2>
-<p>In the app, under Settings, Data tab, you can press "Disconnect" and "Wipe everything". To remove the access and the hidden folder completely, go to your Google Account, Security, "Third-party access", choose Life RPG and remove the access, also deleting the app's data.</p>
+<ul>
+  <li><strong>Reset everything</strong> (Settings, Data tab) deletes progress, missions and routines on the device and, if you are signed in, in your account too. Appearance, your profile for friends and your friend code remain.</li>
+  <li><strong>Sign out</strong> (same tab) stops saving to your account: from then on your data stays only on the device.</li>
+  <li>To delete <strong>all</strong> your data from the account (including profile, friendships and friend code), write to the app's operator (see Contact) and it will be deleted.</li>
+  <li>To remove the app's access, go to your Google Account, Security, "Third-party connections", and remove Life RPG.</li>
+  <li>Data on the device is deleted by clearing this site's data in your browser settings.</li>
+</ul>
+
+<h2>Your rights</h2>
+<p>You can ask to see, correct or delete your data by writing to the app's operator. You can also contact the data protection authority in your country.</p>
 
 <h2>Contact</h2>
-<p>For questions, contact the owner of this site through their GitHub profile.</p>
+<p>For questions or requests, contact the owner of this site through their GitHub profile.</p>
+</section>
+
+<hr>
+
+<section id="pt" lang="pt-BR">
+<h1>Life RPG: política de privacidade</h1>
+<p class="upd">Última atualização: 25 de setembro de 2026</p>
+<p>Life RPG é um app para acompanhar missões e hábitos no estilo de um jogo de RPG. Esta página explica quais dados ele usa, para onde vão e como apagá-los.</p>
+
+<h2>Sem conta: tudo fica no seu dispositivo</h2>
+<p>Progresso (pontos de experiência), missões, rotinas, aparência (nome, cores, imagens), idioma e preferências de som são inseridos por você e ficam <strong>no armazenamento do navegador</strong> do seu dispositivo. Não são enviados a ninguém.</p>
+
+<h2>Com conta (opcional): "Entrar com o Google"</h2>
+<p>Se você entrar, o app usa o <a href="https://firebase.google.com/support/privacy">Firebase</a>, um serviço do Google, para duas coisas:</p>
+<ul>
+  <li><strong>o login</strong>: o Google informa ao app um identificador da sua conta, seu nome, seu endereço de e-mail e sua foto de perfil;</li>
+  <li><strong>o salvamento</strong>: uma cópia dos dados listados acima (progresso, missões, rotinas, aparência, imagens, idioma) é guardada no banco de dados do app, para você encontrá-los em qualquer dispositivo.</li>
+</ul>
+<p>Os dados ficam nos servidores do Google em nome de quem mantém o app. Como proprietário do projeto Firebase, o responsável pelo app pode tecnicamente acessá-los, mas não os usa para nada além de fazer o app funcionar.</p>
+<p>Quando você apaga uma missão ou rotina, um pequeno registro (identificador, data da exclusão, XP relacionado) é mantido por 90 dias, para que ela não reapareça a partir de outro dispositivo. Depois disso, é apagado automaticamente.</p>
+
+<h2>Amigos</h2>
+<p>Com uma conta você tem um código de amigo e um perfil que <strong>só os amigos que você aceitou</strong> podem ver: o nome escolhido no app, seu nível, o XP das seis estatísticas, suas cores, idioma e código de amigo. A imagem de fundo aparece só se você escolher compartilhá-la. Quem recebe um pedido de amizade seu vê seu nome e seu código.</p>
+<p>Suas missões, rotinas e seu endereço de e-mail <strong>nunca são mostrados</strong> aos amigos.</p>
+
+<h2>Google Agenda</h2>
+<p>O botão "Adicionar ao Google Agenda" abre o Google Agenda com o título e a data da missão já preenchidos. Nada é enviado a menos que você o toque e confirme no Google Agenda.</p>
+
+<h2>O que não fazemos</h2>
+<p>Não vendemos nem compartilhamos seus dados, e não usamos publicidade nem ferramentas de análise. Como qualquer site, o serviço que hospeda estas páginas pode registrar dados técnicos das visitas (por exemplo, o endereço IP).</p>
+
+<h2>Conformidade com o Google</h2>
+<p>O uso das informações recebidas das APIs do Google segue a <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, incluindo os requisitos de Uso Limitado.</p>
+
+<h2>Como apagar seus dados</h2>
+<ul>
+  <li><strong>Zerar tudo</strong> (Configurações, aba Dados) apaga progresso, missões e rotinas no dispositivo e, se você entrou com sua conta, também na conta. A aparência, o perfil para os amigos e o código de amigo continuam.</li>
+  <li><strong>Sair</strong> (mesma aba) interrompe o salvamento na conta: a partir daí os dados ficam só no dispositivo.</li>
+  <li>Para apagar <strong>todos</strong> os seus dados da conta (incluindo perfil, amizades e código de amigo), escreva ao responsável pelo app (veja Contato) e eles serão apagados.</li>
+  <li>Para remover o acesso do app, vá à sua Conta do Google, Segurança, "Conexões com apps e serviços de terceiros", e remova o Life RPG.</li>
+  <li>Os dados no dispositivo são apagados limpando os dados deste site nas configurações do navegador.</li>
+</ul>
+
+<h2>Seus direitos</h2>
+<p>Você pode pedir para ver, corrigir ou apagar seus dados escrevendo ao responsável pelo app. Também pode recorrer à autoridade de proteção de dados do seu país (no Brasil, a ANPD).</p>
+
+<h2>Contato</h2>
+<p>Para dúvidas ou pedidos, fale com o proprietário deste site pelo perfil dele no GitHub.</p>
 </section>
 
 </body>

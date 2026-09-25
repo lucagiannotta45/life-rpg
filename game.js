@@ -93,7 +93,6 @@
     const QUINTS = { Vigore: 'oracle', Vitalita: 'ascetic', Intelletto: 'barbarian', Creativita: 'templar', Animo: 'conqueror', Legami: 'ronin' };
     // Titoli per chi è equilibrato, in base al livello complessivo
     const TIERS = [[75, 'demigod'], [50, 'legend'], [25, 'champion'], [10, 'hero'], [0, 'adventurer']];
-    const tierOf = ov => T('tier.' + (TIERS.find(x => ov >= x[0]) || TIERS[TIERS.length - 1])[1]);
     // Grado davanti al titolo delle classi specializzate, in base al livello
     // (statistica in testa, oppure media delle due per le coppie)
     const GRADES = [[75, 'grandmaster'], [50, 'master'], [25, ''], [0, 'apprentice']];
@@ -155,7 +154,7 @@
       return out;
     }
 
-    return { statDef, STATS, ICONS, ALIASES, MAX_LEVEL, MAX_XP, xpForLevel, levelFromXp, fracLevel, overallOf, PAIRS, TRIPLES, QUADS, QUINTS, TIERS, tierOf, GRADES, gradeOf, withGrade, SPEC_MIN_LEVEL, SPEC_RATIO, NEAR_RATIO, heroRole, heroClass, blank, normalize };
+    return { statDef, STATS, ICONS, ALIASES, MAX_LEVEL, MAX_XP, xpForLevel, levelFromXp, fracLevel, overallOf, PAIRS, TRIPLES, QUADS, QUINTS, TIERS, GRADES, gradeOf, withGrade, SPEC_MIN_LEVEL, SPEC_RATIO, NEAR_RATIO, heroRole, heroClass, blank, normalize };
   }
   window.LIFE_RPG_GAME = { create };
 })();

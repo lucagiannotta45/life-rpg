@@ -1,6 +1,6 @@
 # Ruoli e file musicali
 
-Ogni ruolo ha il suo brano. Il file si chiama come il ruolo, **con la prima lettera maiuscola** e l'estensione `.mp3` (per esempio `Eroe.mp3`), e va messo nella stessa cartella di `index.html`.
+Ogni ruolo ha il suo brano. Il file si chiama come il ruolo, **con la prima lettera maiuscola** e l'estensione `.mp3` (per esempio `Eroe.mp3`), e va messo nella cartella `musica/`, accanto a `index.html` (maiuscole e minuscole contano).
 
 - Il **grado** davanti al nome (Apprendista, Maestro, Gran Maestro) non conta: «Gran Maestro Mago» usa lo stesso `Mago.mp3`.
 - Il nome del file è sempre **italiano**, anche se il gioco è in inglese o in portoghese.

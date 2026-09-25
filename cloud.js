@@ -25,7 +25,7 @@
       saveRoutinesLocal, setSaveState, lsSet, blankSync, DEV, absorbLocal, recomputeXp, hasPend, saveSync, missionSig,
       routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
       applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
-      renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests,
+      renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC,
     } = D;
 
     function stampRoutines() {
@@ -269,7 +269,7 @@
     function wasSignedIn() {
       try {
         const v = localStorage.getItem(LS_SIGNED);
-        return v === '1' || (v === null && !!localStorage.getItem('liferpg:acc'));   // versione precedente: basta essere stati collegati
+        return v === '1' || (v === null && !!localStorage.getItem(LS_ACC));   // versione precedente: basta essere stati collegati
       } catch (e) { return false; }
     }
     const markSigned = on => lsSet(LS_SIGNED, on ? '1' : '0');
@@ -318,7 +318,6 @@
       return { d, rImgs, rM };
     }
     // il dispositivo ricorda a quale account è già collegato: la scelta "quali dati tenere" si fa una volta sola
-    const LS_ACC = 'liferpg:acc';
     const linkedUid = () => { try { return localStorage.getItem(LS_ACC) || ''; } catch (e) { return ''; } };
     const linkUid = uid => lsSet(LS_ACC, uid);
     // confronto senza "u": due copie degli stessi dati sono uguali anche se le modifiche hanno istanti diversi
