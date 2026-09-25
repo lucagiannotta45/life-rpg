@@ -43,7 +43,8 @@
     const TN = (key, n, vars) => T(key + (n === 1 ? '_one' : '_other'), Object.assign({ n }, vars));
 
     /* ---------- documenti condivisi: copia in memoria ---------- */
-    // docs: { sid: dati del documento + _srv (ultima volta che il server l'ha confermato) + _pw (scritture in attesa) }
+    // docs: { sid: dati del documento + _srv (fino a quando, con l'orologio di qui, il server l'ha di sicuro confermato)
+    //        + _pw (scritture in attesa) }
     let docs = {}, uidOf = '', unsub = null, listening = false, serverSeen = false;
     // Documenti che stai togliendo tu (uscendo, rifiutando, eliminando), con la scrittura non ancora confermata.
     // Firebase li toglie subito dall'elenco, prima della risposta del server: se poi la rifiuta, ricompaiono.
@@ -86,10 +87,36 @@
     // 'invite' (nessun amico ha ancora accettato, o tu non hai ancora accettato), 'open', 'done', 'failed',
     // 'release' (esci senza fallire: eri in sospeso quando è finita; oppure, per chi l'ha creata, alla scadenza
     // non è rimasto nessun amico dentro), 'wait' (scaduta: si aspetta la conferma del server)
-    // margine per gli orologi dei dispositivi non perfettamente giusti: il fallimento per scadenza si decide
-    // solo con dati del server arrivati almeno 2 minuti dopo la scadenza (secondo l'orologio di qui)
-    const CLOCK_SKEW = 120000;
-    function outcome(d, now = Date.now()) {
+    /* ---------- l'orologio del server ---------- */
+    // Le regole di Firebase usano l'ora del server; il telefono ha la sua, che può essere avanti o indietro.
+    // All'avvio si misura la differenza: si scrive l'ora del server (serverTimestamp) in users/{uid}/meta/clock
+    // e la si confronta con quella del telefono. clockOff = di quanto il server è avanti; clockErr = margine di errore
+    // (metà del tempo di andata e ritorno). Finché non si sa, si usa un margine prudente di 2 minuti.
+    let clockOff = null, clockErr = 0, clockAt = 0;
+    const serverNow = () => Date.now() + (clockOff || 0);
+    const CLOCK_SKEW = 120000;   // margine se la differenza non è ancora stata misurata
+    const SETTLE = 1500;         // piccolo margine in più dopo la scadenza
+    const LISTEN_LAG = 5000;     // un aggiornamento in diretta può descrivere il server di qualche istante prima
+    async function measureClock() {
+      if (!online() || (clockAt && Date.now() - clockAt < 3600000)) return;   // al massimo una volta l'ora
+      clockAt = Date.now();
+      try {
+        const r = S.fbDb.collection('users').doc(me()).collection('meta').doc('clock');
+        const t0 = Date.now();
+        await r.set({ t: FV().serverTimestamp() });
+        const t1 = Date.now();
+        const x = await r.get({ source: 'server' });
+        const srv = x.data().t.toMillis();
+        // l'ora del server è stata presa tra t0 e t1 (orologio di qui)
+        clockOff = srv - (t0 + t1) / 2;
+        clockErr = (t1 - t0) / 2;
+        evaluate(); MUI().renderMissionViews();
+      } catch (e) { clockAt = 0; console.warn('shared clock', e && e.code, e); }
+    }
+    // da quando (orologio di qui) i dati del server descrivono di sicuro un momento dopo la scadenza
+    const safeAfter = d => (clockOff == null ? d.dueAt + CLOCK_SKEW : d.dueAt - clockOff + clockErr + SETTLE);
+
+    function outcome(d, now = serverNow()) {
       const joined = joinedOf(d);
       if (!joined.length) return 'invite';
       const mine = roleOf(d) === 'g' ? d.g[me()] : null;
@@ -101,7 +128,7 @@
         if (iPend) return 'release';
         // dopo la scadenza si decide solo con dati del server arrivati dopo la scadenza:
         // un completamento fatto in tempo da qualcuno potrebbe non essere ancora arrivato qui
-        if ((d._srv || 0) < d.dueAt + CLOCK_SKEW || d._pw) return 'wait';
+        if ((d._srv || 0) < safeAfter(d) || d._pw) return 'wait';
         const act = joined.filter(x => x.a === d.ver);
         if (!act.length) return 'release';   // gli amici erano tutti in sospeso: la missione torna di chi l'ha creata
         return d.oDone != null && act.every(x => x.d != null) ? 'done' : 'failed';
@@ -187,6 +214,7 @@
       if (!online() || listening) return;
       if (uidOf !== me()) loadCache(me());
       listening = true; serverSeen = false;
+      measureClock();
       unsub = S.fbDb.collection('shared').where('members', 'array-contains', me())
         .onSnapshot({ includeMetadataChanges: true }, onSnap, e => { console.warn('shared listen', e); listening = false; unsub = null; });
     }
@@ -194,6 +222,8 @@
       if (unsub) { try { unsub(); } catch (e) { /* ignora */ } }
       unsub = null; listening = false; serverSeen = false;
       docs = {}; uidOf = ''; leaving.clear();
+      Object.values(refetchT).forEach(clearTimeout); Object.keys(refetchT).forEach(k => delete refetchT[k]);
+      clockOff = null; clockErr = 0; clockAt = 0; clearTimeout(dueTimer);
       try { localStorage.removeItem(LS_SHARED); } catch (e) { /* ignora */ }
     }
     function onSnap(qs) {
@@ -203,7 +233,9 @@
         const prev = docs[x.id];
         const d = { ...x.data() };
         d._pw = x.metadata.hasPendingWrites;
-        d._srv = fromServer ? now : (prev ? prev._srv || 0 : 0);
+        // dati più nuovi non descrivono mai un momento precedente: _srv può solo crescere
+        const before = prev ? prev._srv || 0 : 0;
+        d._srv = fromServer ? Math.max(before, now - LISTEN_LAG) : before;
         docs[x.id] = d;
         seen.add(x.id);
       });
@@ -261,7 +293,7 @@
     const openL = L => L && !L.done && !L.failed;
     function evaluate() {
       if (!uidOf || uidOf !== me()) return;
-      const now = Date.now();
+      const now = serverNow();
       checkOrphans();
       Object.entries(docs).forEach(([sid, d]) => {
         let L = S.missions.find(m => m.sid === sid);
@@ -324,6 +356,17 @@
           } else if (d.seenO && guests(d).filter(x => isActive(d, x)).every(x => x.s)) deleteDoc(sid);
         }
       });
+      scheduleDue();
+    }
+    // Allo scoccare della prossima scadenza (ora del server) si ricontrolla subito, invece di aspettare
+    // il controllo periodico: così la missione passa a "controllo in corso" e poi all'esito senza ritardi.
+    let dueTimer = 0;
+    function scheduleDue() {
+      clearTimeout(dueTimer);
+      const now = serverNow();
+      const next = Object.values(docs).reduce((mn, d) => (d.dueAt != null && d.dueAt > now ? Math.min(mn, d.dueAt) : mn), Infinity);
+      if (next === Infinity) return;
+      dueTimer = setTimeout(() => { evaluate(); MUI().renderMissionViews(); }, Math.min(next - now + 50, 3600000));
     }
     // "created" decide in quale documento mensile finisce la missione: lo si ricava dal documento condiviso,
     // così tutti i tuoi dispositivi la mettono nello stesso mese (con todayStr() due dispositivi a cavallo
@@ -354,13 +397,22 @@
         .then(() => { leaving.delete(sid); if (docs[sid]) { delete docs[sid]; gone(sid); saveCache(); MUI().renderMissionViews(); } })
         .catch(e => { leaving.delete(sid); console.warn('shared delete', e && e.code, e); });
     }
-    // dopo la scadenza si chiede al server lo stato vero (al massimo ogni 30 secondi per documento)
+    // Dopo la scadenza si chiede al server lo stato vero: appena i dati descrivono di sicuro un momento dopo la
+    // scadenza (safeAfter), poi, se serve ancora, al massimo ogni 5 secondi per documento.
+    const refetchT = {};
     function refetch(sid) {
-      if (!online() || (fetching[sid] && Date.now() - fetching[sid] < 30000)) return;
-      fetching[sid] = Date.now();
+      const d = docs[sid];
+      if (!online() || !d || refetchT[sid]) return;
+      const at = Math.max(safeAfter(d), (fetching[sid] || 0) + 5000);
+      refetchT[sid] = setTimeout(() => { delete refetchT[sid]; fetchNow(sid); }, Math.max(0, at - Date.now()));
+    }
+    function fetchNow(sid) {
+      if (!online()) return;
+      const start = Date.now();   // i dati letti descrivono il server almeno da questo momento
+      fetching[sid] = start;
       ref(sid).get({ source: 'server' }).then(x => {
         if (!x.exists) { delete docs[sid]; gone(sid); }
-        else docs[sid] = { ...x.data(), _pw: false, _srv: Date.now() };
+        else docs[sid] = { ...x.data(), _pw: false, _srv: Math.max(docs[sid] ? docs[sid]._srv || 0 : 0, start) };
         saveCache(); evaluate(); MUI().renderMissionViews();
       }).catch(e => {
         if (notMine(e)) { delete docs[sid]; gone(sid); saveCache(); MUI().renderMissionViews(); return; }
@@ -435,7 +487,7 @@
       const d = docOf(m);
       if (!d || !isV2(d)) return T('sh.err.offline');   // senza il documento la modifica non arriverebbe agli amici
       if (isFinal(d)) return T('sh.err.final');
-      if (joinedOf(d).length && d.dueAt != null && Date.now() >= d.dueAt) return T('sh.err.late');
+      if (joinedOf(d).length && d.dueAt != null && serverNow() >= d.dueAt) return T('sh.err.late');
       if (!online()) return T('sh.err.offline');
       return '';
     }
@@ -443,7 +495,7 @@
     function afterEdit(m) {
       const d = docOf(m);
       if (!d || !isV2(d) || roleOf(d) !== 'o' || !online()) return;
-      if (d.dueAt != null && Date.now() >= d.dueAt) return;   // inviti scaduti: si annullano da soli, non serve aggiornarli
+      if (d.dueAt != null && serverNow() >= d.dueAt) return;   // inviti scaduti: si annullano da soli, non serve aggiornarli
       const f = fieldsOf(m);
       const rulesChanged = RULE_KEYS.some(k => !same(f[k], d[k]));
       const data = { ...f, ownerName: myName(), ver: rulesChanged ? d.ver + 1 : d.ver };
@@ -507,7 +559,7 @@
           const x = await ref(sid).get({ source: 'server' });
           if (x.exists) {
             if (x.data().ver !== ver) why = 'sh.msg.stale';
-            docs[sid] = { ...x.data(), _pw: false, _srv: Date.now() };
+            docs[sid] = { ...x.data(), _pw: false, _srv: Math.max(docs[sid] ? docs[sid]._srv || 0 : 0, Date.now() - LISTEN_LAG) };
           } else {
             // l'invito non c'è più: chi l'ha creata l'ha annullato, oppure ha completato la missione da solo
             why = 'sh.msg.gone';
@@ -569,7 +621,7 @@
     /* ---------- inviti ricevuti ---------- */
     function invites() {
       if (!uidOf || uidOf !== me()) return [];
-      const now = Date.now();
+      const now = serverNow();
       return Object.entries(docs)
         .filter(([, d]) => isV2(d) && roleOf(d) === 'g' && !d.g[me()].j && !d.left && !allDone(d) && !(d.dueAt != null && now >= d.dueAt))
         .map(([sid, d]) => ({
