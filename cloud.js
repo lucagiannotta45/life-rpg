@@ -389,16 +389,17 @@
     function paintGate() {
       const open = !ST.dbRef;
       gate.hidden = !open;
-      if (!open) $('gate-note').textContent = '';
       appEl.inert = open;
       appEl.setAttribute('aria-hidden', String(open));
       if (!open) return;
       let key, signin = false, retry = false;
       if (!fbUsable()) key = 'acc.unavail';
       else if (gateOffline) { key = 'gate.offline'; retry = true; }
-      else if (fbReady && !ST.fbUser) { key = 'gate.signin'; signin = true; }
+      else if (fbReady && !ST.fbUser) { key = ''; signin = true; }
       else key = 'gate.loading';
-      $('gate-msg').textContent = gateErr || T(key);
+      const msg = gateErr || (key ? T(key) : '');
+      $('gate-msg').textContent = msg;
+      $('gate-msg').hidden = !msg;
       $('gate-in').hidden = !signin;
       $('gate-retry').hidden = !retry;
       $('gate-in').disabled = $('gate-retry').disabled = ST.accBusy;
@@ -545,11 +546,8 @@
       friendsReset();
       sharedReset();
       await wipeLocalData();
-      try { sessionStorage.setItem('liferpg:bye', '1'); } catch (e) { /* ignora */ }
       location.reload();   // si riparte da zero: in memoria non resta niente dell'account
     });
-    // dopo il ricaricamento seguito all'uscita: lo si dice nel riquadro Account
-    try { if (sessionStorage.getItem('liferpg:bye')) { sessionStorage.removeItem('liferpg:bye'); $('gate-note').textContent = T('acc.bye'); } } catch (e) { /* ignora */ }
     // chiudendo o ricaricando la pagina con modifiche non ancora nell'account (per esempio senza rete)
     // il browser chiede conferma: sul dispositivo non c'è una copia, quindi andrebbero perse
     window.addEventListener('beforeunload', e => {
