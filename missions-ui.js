@@ -126,9 +126,7 @@
       render(true);
       STATS.forEach(s => { if (removed[s.key] > 0) floatText(s.key, '-' + fmt(removed[s.key]), true); });
       renderMissionViews();
-      // accanto al titolo: chi ha abbandonato; se invece è scaduta, la data della scadenza (come per le altre missioni)
-      const why = kind === 'me' ? T('sh.why.me') : kind === 'friend' ? T('sh.why.friend', { name }) : '';
-      showPenalties([{ m, removed, why, kind, name }], before, after, overallOf(before), overallOf(after));
+      showPenalties([{ m, removed, kind, name }], before, after, overallOf(before), overallOf(after));
       return true;
     }
     function undoMission(id) {
@@ -175,12 +173,13 @@
       $('pen-sum').textContent = sum + (list.some(x => hasAny(x.removed)) ? ' ' + T('pen.lost') : '');
       const box = $('pen-list');
       box.textContent = '';
-      list.forEach(({ m, removed, why }) => {
+      list.forEach(({ m, removed, kind }) => {
         const card = mk('article', 'mission failed');
         const head = mk('div', 'm-head');
         head.appendChild(mk('h3', 'm-title', m.title));
-        // why: il motivo di una missione condivisa fallita (per esempio "l'amico ha abbandonato"); altrimenti la scadenza
-        head.appendChild(mk('span', 'm-date late', why || (m.due ? T('m.late.on', { when: dueLabel(m) }) : T('sh.failed'))));
+        // accanto al titolo la scadenza; per un abbandono no: chi ha abbandonato lo dice già il riepilogo qui sopra
+        const label = kind === 'me' || kind === 'friend' ? '' : m.due ? T('m.late.on', { when: dueLabel(m) }) : T('sh.failed');
+        if (label) head.appendChild(mk('span', 'm-date late', label));
         card.appendChild(head);
         card.appendChild(lossChips(removed));
         box.appendChild(card);

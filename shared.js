@@ -389,7 +389,8 @@
         myDone: role === 'o' ? d.oDone != null : !!(mine && mine.d != null),
         name: joinNames(others.map(p => p.name)),                          // con chi (dentro la missione)
         invitedNames: joinNames(invitedNames), invitedCount: invitedNames.length,
-        waitingFor: joinNames(others.filter(p => !p.done || p.pend).map(p => p.name)),
+        // chi manca: chi non ha fatto la sua parte (chi è in sospeso ha una riga sua, "devono ancora accettare…")
+        waitingFor: joinNames(others.filter(p => !p.done && !p.pend).map(p => p.name)),
         doneNames: joinNames(doneOthers), doneCount: doneOthers.length,
         pendNames: joinNames(others.filter(p => p.pend).map(p => p.name)),
         // role 'o': quanti si possono togliere (inviti senza risposta + in sospeso)
