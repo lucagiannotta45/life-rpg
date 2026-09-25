@@ -301,6 +301,9 @@
       const failedNow = !!m.failed && !m.done;
       const card = mk('article', 'mission' + (m.done ? ' done' : '') + (failedNow ? ' failed' : ''));
       card.dataset.id = m.id;
+      const rtn = routineOf(m);
+      // etichetta "Routine" in cima, sopra il titolo
+      if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
       const head = mk('div', 'm-head');
       head.appendChild(mk('h3', 'm-title', m.title));
       if (m.done) head.appendChild(mk('span', 'm-date', T('m.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
@@ -312,8 +315,6 @@
         head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), txt));
       } else if (notYet(m)) head.appendChild(mk('span', 'm-date', T('m.from', { when: fromLabel(m) })));
       card.appendChild(head);
-      const rtn = routineOf(m);
-      if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
       if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
       const msl = starsLine(m.stars);
       if (msl) card.appendChild(msl);
@@ -526,11 +527,11 @@
         box.appendChild(mk('h4', 'sub', T('day.routines') + ' (' + planned.length + ')'));
         planned.forEach(r => {
           const card = mk('article', 'mission');
+          card.appendChild(routineTag(T('m.routine')));
           const head = mk('div', 'm-head');
           head.appendChild(mk('h3', 'm-title', r.title));
           if (r.time) head.appendChild(mk('span', 'm-date', T('r.at', { time: r.time })));
           card.appendChild(head);
-          card.appendChild(routineTag(T('m.routine')));
           if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
           card.appendChild(chips(r.rewards));
           const act = mk('div', 'm-actions');
@@ -772,7 +773,7 @@
       $('mf-start').min = todayStr();
       $('mf-start').max = addDaysStr(todayStr(), 365);
       $('mf-start').value = r ? r.start : todayStr();
-      $('mf-start').disabled = !!r && r.start <= todayStr();     // una routine già iniziata non cambia data di inizio
+      // anche una routine già iniziata può cambiare data di inizio, ma solo da oggi in poi (la serie riparte da zero)
       $('mf-pause-from').min = todayStr();
       $('mf-pause-from').value = r && r.pause ? r.pause.from : '';
       $('mf-pause-until').value = r && r.pause ? r.pause.until : '';
@@ -812,18 +813,21 @@
       if (pf && pf < todayStr() && !(cur && cur.pause && cur.pause.from === pf)) return fail(T('mf.err.past'), $('mf-pause-from'));
       if (pu && pf && pu < pf) return fail(T('mf.err.pause'), $('mf-pause-until'));
       let r = editingRid ? S.routines.find(x => x.id === editingRid) : null;
-      const started = !!r && r.start <= today;
-      const start = started ? r.start : ($('mf-start').value || today);
+      // data di inizio: se non la tocchi resta quella di prima (anche se è già passata); una data nuova va da oggi a un anno
+      const start = $('mf-start').value || (r ? r.start : today);
+      const newStart = !r || start !== r.start;
       if (!validDate(start)) return fail(T('mf.err.date'), $('mf-start'));
-      if (!started && start < today) return fail(T('mf.err.past'), $('mf-start'));
-      if (!started && start > addDaysStr(today, 365)) return fail(T('mf.err.far'), $('mf-start'));
+      if (newStart && start < today) return fail(T('mf.err.past'), $('mf-start'));
+      if (newStart && start > addDaysStr(today, 365)) return fail(T('mf.err.far'), $('mf-start'));
       const pause = pu && pu >= today ? { from: pf || today, until: pu } : null;
       const desc = $('mf-desc').value.trim().slice(0, 500);
       const time = timeRaw || null;
       if (r) {
         Object.assign(r, { title, desc, rewards, penalty, days, time, pause, bonus, stars });
         if (r.made && r.made >= today) r.made = addDaysStr(today, -1);   // se oggi ora è un giorno previsto, compare subito
-        if (!started && r.start !== start) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); }
+        // nuova data di inizio: la serie riparte da zero; le volte ancora da fare prima di quella data spariscono
+        // (le toglie il "giro di oggi", come per la pausa), quelle già completate o fallite restano nella cronologia
+        if (newStart) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); }
       } else {
         if (S.routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
         r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty, days, time,

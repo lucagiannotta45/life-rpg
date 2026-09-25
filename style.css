@@ -820,7 +820,7 @@
   /* etichetta della routine sotto il titolo della missione */
   .m-tag { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0; padding: 3px 8px; font-size: var(--fs-s); line-height: 1.2; color: var(--gold); border: 2px solid currentColor; border-radius: 6px; }
   .m-tag-ico svg { display: block; }
-  .mission .m-tag + .m-desc { margin-top: 8px; }
+  .mission > .m-tag:first-child { margin: 0 0 8px; }   /* etichetta "Routine" in cima, sopra il titolo */
   /* selezione di completate e fallite da eliminare */
   .sel-bar { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
   .mission.selecting { cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; }
