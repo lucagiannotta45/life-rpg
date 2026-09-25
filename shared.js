@@ -350,17 +350,21 @@
       try { await update(sid, data); return true; }
       catch (e) {
         console.warn('shared', e);
-        let changed = false;
+        let why = 'sh.msg.err';
         try {
           const x = await ref(sid).get({ source: 'server' });
           if (x.exists) {
-            changed = x.data().ver !== ver;
+            if (x.data().ver !== ver) why = 'sh.msg.stale';
             docs[sid] = { ...x.data(), _pw: false, _srv: Date.now() };
-            saveCache();
-            MUI().renderMissionViews();
+          } else {
+            // l'invito non c'è più: chi l'ha creata l'ha annullato, oppure ha completato la missione da solo
+            why = 'sh.msg.gone';
+            delete docs[sid];
           }
+          saveCache();
+          MUI().renderMissionViews();
         } catch (e2) { /* senza rete: resta il messaggio generico */ }
-        MUI().missionMsg(T(changed ? 'sh.msg.stale' : 'sh.msg.err'), 'bad', true);
+        MUI().missionMsg(T(why), 'bad', true);
         sfx('err');
         return false;
       }
@@ -408,7 +412,13 @@
     async function declineInvite(sid) {
       const d = docs[sid];
       if (!d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      if (!(await write(() => update(sid, leaveData(d))))) return;
+      try { await update(sid, leaveData(d)); }
+      catch (e) {
+        // se l'invito nel frattempo è stato annullato, rifiutarlo non serve più: sparisce e basta
+        let gone = false;
+        try { gone = !(await ref(sid).get({ source: 'server' })).exists; } catch (e2) { /* senza rete */ }
+        if (!gone) { console.warn('shared', e); MUI().missionMsg(T('sh.msg.err'), 'bad', true); sfx('err'); return; }
+      }
       delete docs[sid]; saveCache();
       sfx('close');
       MUI().renderMissionViews();

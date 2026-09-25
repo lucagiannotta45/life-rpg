@@ -423,7 +423,11 @@
       } else if (m.sid && m.sh === 'g') {
         // sei l'invitato, ma le informazioni sulla missione non sono ancora arrivate: niente pulsanti per ora
       } else {
-        const cb = btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
+        // con un invito in attesa, completarla da solo annulla l'invito: si chiede conferma (secondo tocco)
+        const cb = shi && shi.invited
+          ? armedBtn(' add', T('btn.complete'), T('aria.complete') + ' ' + m.title, T('sh.solo.aria'),
+            () => missionMsg(T('sh.solo.warn', { name: shi.name }), '', true), () => completeMission(m.id))
+          : btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
         if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }   // data nel futuro: si completa dal giorno stesso; scaduta: mai più
         act.append(cb, btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
         if (shi && shi.invited) act.appendChild(btn('', T('sh.cancel'), T('sh.cancel'), () => SH().cancelInvite(m.id)));
@@ -432,23 +436,27 @@
       if (act.childElementCount) card.appendChild(act);   // una routine fallita non ha pulsanti
       return card;
     }
-    // "Abbandona" chiede conferma: al primo tocco diventa "Conferma" per 4 secondi (come "Elimina")
-    function abandonBtn(m) {
-      const b = mk('button', 'btn small sub', T('sh.abandon'));
+    // pulsante che chiede conferma: al primo tocco diventa "Conferma" per 4 secondi (come "Elimina"), al secondo agisce.
+    // onArm: cosa fare al primo tocco (per esempio spiegare cosa succederà)
+    function armedBtn(cls, text, label, confirmLabel, onArm, fn) {
+      const b = mk('button', 'btn small' + cls, text);
       b.type = 'button';
-      b.setAttribute('aria-label', T('sh.abandon') + ' ' + m.title);
+      b.setAttribute('aria-label', label);
       let timer = 0;
       b.addEventListener('click', () => {
         if (!b.dataset.armed) {
-          b.dataset.armed = '1'; b.textContent = T('btn.confirm'); b.setAttribute('aria-label', T('sh.abandon.confirm'));
-          timer = setTimeout(() => { b.dataset.armed = ''; b.textContent = T('sh.abandon'); b.setAttribute('aria-label', T('sh.abandon') + ' ' + m.title); }, 4000);
+          b.dataset.armed = '1'; b.textContent = T('btn.confirm'); b.setAttribute('aria-label', confirmLabel);
+          if (onArm) onArm();
+          timer = setTimeout(() => { b.dataset.armed = ''; b.textContent = text; b.setAttribute('aria-label', label); }, 4000);
           return;
         }
         clearTimeout(timer);
-        SH().abandon(m.id);
+        fn();
       });
       return b;
     }
+    // "Abbandona": fa fallire la missione per entrambi, quindi chiede conferma
+    const abandonBtn = m => armedBtn(' sub', T('sh.abandon'), T('sh.abandon') + ' ' + m.title, T('sh.abandon.confirm'), null, () => SH().abandon(m.id));
     // invito ricevuto: la missione come la vedresti, con "Accetta" e "Rifiuta"
     function inviteCard(x) {
       const m = x.m;
