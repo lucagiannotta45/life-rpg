@@ -103,8 +103,12 @@
         // missione condivisa con un amico (vedi shared.js): sid = il documento condiviso, sh = il tuo ruolo
         // ('o' = l'hai creata tu, 'g' = sei stato invitato)
         if (!it.rid && typeof m.sid === 'string' && /^[\w-]{1,40}$/.test(m.sid)) { it.sid = m.sid; it.sh = m.sh === 'g' ? 'g' : 'o'; }
-        // shn = il nome dell'amico, salvato quando la missione finisce: il documento condiviso poi si elimina
-        if (it.sid && typeof m.shn === 'string' && m.shn.trim()) it.shn = m.shn.trim().slice(0, 30);
+        // shn = i nomi degli altri partecipanti, salvati nella missione: il documento condiviso a un certo punto si elimina
+        // (prima c'era un solo nome, come testo: lo si accetta ancora)
+        if (it.sid) {
+          const names = (Array.isArray(m.shn) ? m.shn : [m.shn]).filter(x => typeof x === 'string' && x.trim()).map(x => x.trim().slice(0, 30)).slice(0, 3);
+          if (names.length) it.shn = names;
+        }
         // sincronizzazione (vedi sync.js): u = istante dell'ultima modifica,
         // c = XP prodotti da ciascun dispositivo con questa missione, z = epoca (cambia con un backup importato)
         const mu = Number(m.u);

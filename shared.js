@@ -1,21 +1,25 @@
 /*
- * Life RPG — missioni condivise con un amico
+ * Life RPG — missioni condivise con gli amici (fino a 3)
  * ---------------------------------------------------------------
- * Chi crea una missione può invitare un amico. Se l'amico accetta, la missione è di tutti e due:
- * - è superata quando la completate entrambi (gli XP arrivano a tutti e due in quel momento);
- * - fallisce per entrambi se uno dei due abbandona, oppure se alla scadenza non l'avete completata tutti e due;
- * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla quando vuole;
- *   se cambia XP, penalità o scadenza, l'amico sceglie "Accetta" oppure "Esci" (uscire così non è un fallimento).
+ * Chi crea una missione può invitare fino a 3 amici. Ognuno sceglie da solo se accettare o rifiutare.
+ * - La missione è superata quando tutti quelli che l'hanno accettata hanno fatto la loro parte
+ *   (gli XP arrivano a tutti in quel momento);
+ * - fallisce per tutti se uno abbandona, oppure se alla scadenza anche uno solo non ha fatto la sua parte;
+ * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla quando vuole. Se cambia XP,
+ *   penalità o scadenza, oppure invita altri amici, chi è dentro va "in sospeso" e sceglie "Accetta" oppure
+ *   "Esci" (uscire così non è un fallimento); in sospeso non può fare la sua parte né abbandonare.
+ *   Chi è ancora in sospeso quando la missione finisce (scadenza o abbandono di un altro) esce senza penalità;
+ * - un invito senza risposta non blocca nessuno: se la missione finisce, o arriva la scadenza, si annulla da solo.
  *
  * Come funziona:
- * - su Firebase c'è un documento condiviso, shared/{sid}, che leggono e scrivono solo i due giocatori
- *   (le regole di sicurezza controllano chi può cambiare cosa, e che nessuno completi dopo la scadenza);
- * - ognuno dei due ha anche una missione normale nel suo elenco, con sid (il documento) e sh (il ruolo:
- *   'o' = l'hai creata tu, 'g' = sei l'invitato). Così XP, penalità, calendario e sincronizzazione tra i tuoi
+ * - su Firebase c'è un documento condiviso, shared/{sid}, che leggono e scrivono solo i partecipanti
+ *   (le regole di sicurezza controllano chi può cambiare cosa, e che nessuno completi dopo la scadenza).
+ *   Gli amici sono nella mappa g: { uid: { n: nome, j: ha accettato, a: versione accettata, d: parte fatta, s: esito visto } };
+ * - ognuno ha anche una missione normale nel suo elenco, con sid (il documento) e sh (il ruolo:
+ *   'o' = l'hai creata tu, 'g' = sei stato invitato). Così XP, penalità, calendario e sincronizzazione tra i tuoi
  *   dispositivi funzionano come per tutte le altre missioni;
  * - l'esito (superata, fallita) non lo scrive nessuno: ogni app lo ricava dal documento, allo stesso modo;
- * - la scadenza è un istante preciso (dueAt), valido per tutti e due anche con fusi orari diversi:
- *   ognuno la vede nella sua ora.
+ * - la scadenza è un istante preciso (dueAt), valido per tutti anche con fusi orari diversi: ognuno la vede nella sua ora.
  *
  * Qui c'è la logica; le schede delle missioni le disegna missions-ui.js, che chiede qui le informazioni.
  *
@@ -23,6 +27,7 @@
  */
 (() => {
   'use strict';
+  const MAX_GUESTS = 3;   // amici al massimo per missione (lo stesso limite è nelle regole di Firebase: members fino a 4)
   function create(D, S) {
     const {
       T, MISSIONS, $, mk, sfx, openModal, closeModal, touchMonth, tombMissions, lsSet, friendsList, loadFriendsList, fbConnect,
@@ -34,8 +39,10 @@
     const LS_SHARED = 'liferpg:shared:v1';
     const myTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } };
     const me = () => (S.fbUser ? S.fbUser.uid : '');
+    const FV = () => window.firebase.firestore.FieldValue;
+    const TN = (key, n, vars) => T(key + (n === 1 ? '_one' : '_other'), Object.assign({ n }, vars));
 
-    /* ---------- documenti condivisi: copia in memoria (sul dispositivo non si salva: lsSet la ignora) ---------- */
+    /* ---------- documenti condivisi: copia in memoria ---------- */
     // docs: { sid: dati del documento + _srv (ultima volta che il server l'ha confermato) + _pw (scritture in attesa) }
     let docs = {}, uidOf = '', unsub = null, listening = false, serverSeen = false;
     // Documenti che stai togliendo tu (uscendo, rifiutando, eliminando), con la scrittura non ancora confermata.
@@ -52,30 +59,70 @@
     }
     function saveCache() { lsSet(LS_SHARED, JSON.stringify({ uid: uidOf, docs })); }
     const docOf = m => (m && m.sid && uidOf === me() ? docs[m.sid] || null : null);
-    const roleOf = d => (d.owner === me() ? 'o' : 'g');
-    const partnerName = d => (roleOf(d) === 'o' ? d.guestName : d.ownerName) || T('fr.noname');
 
-    /* ---------- l'esito, ricavato dal documento ---------- */
-    // 'invite' (non ancora accettata), 'open', 'done', 'failed', 'release' (scaduta mentre l'amico doveva
-    // ancora accettare una modifica: esce senza fallire), 'wait' (scaduta: si aspetta la conferma del server)
-    const isPending = d => d.joined && d.gAcc !== d.ver;
+    /* ---------- chi c'è nel documento ---------- */
+    const isV2 = d => d && d.v === 2 && d.g && typeof d.g === 'object';
+    // il tuo ruolo: 'o' (l'hai creata), 'g' (sei invitato), '' (non ne fai parte)
+    const roleOf = d => (d.owner === me() ? 'o' : isV2(d) && d.g[me()] ? 'g' : '');
+    const noname = n => String(n || '').trim() || T('fr.noname');
+    // gli amici, nell'ordine di members
+    const guests = d => (d.members || []).slice(1).filter(u => d.g[u]).map(u => ({ uid: u, ...d.g[u] }));
+    const isPend = (d, x) => !!x && x.j && x.a !== d.ver;           // ha accettato, ma non l'ultima modifica
+    const isActive = (d, x) => !!x && x.j && x.a === d.ver;         // dentro, con le regole attuali
+    const joinedOf = d => guests(d).filter(x => x.j);
+    // tutti i partecipanti attivi (chi l'ha creata + gli amici dentro con le regole attuali), con "ha fatto la sua parte"
+    const actives = d => [{ uid: d.owner, name: noname(d.ownerName), done: d.oDone != null }]
+      .concat(guests(d).filter(x => isActive(d, x)).map(x => ({ uid: x.uid, name: noname(x.n), done: x.d != null })));
+    const allDone = d => { const j = joinedOf(d); return j.length > 0 && d.oDone != null && j.every(x => x.a === d.ver && x.d != null); };
+    const nameOf = (d, uid) => (uid === d.owner ? noname(d.ownerName) : noname(d.g[uid] && d.g[uid].n));
+    // "Anna, Marco e Luca" (sep: la congiunzione, " e " oppure " né ")
+    function joinNames(list, sep) {
+      const a = list.filter(Boolean);
+      if (a.length <= 1) return a[0] || '';
+      return a.slice(0, -1).join(', ') + (sep || T('sh.and')) + a[a.length - 1];
+    }
+
+    /* ---------- l'esito, ricavato dal documento (dal tuo punto di vista) ---------- */
+    // 'invite' (nessun amico ha ancora accettato, o tu non hai ancora accettato), 'open', 'done', 'failed',
+    // 'release' (esci senza fallire: eri in sospeso quando è finita; oppure, per chi l'ha creata, alla scadenza
+    // non è rimasto nessun amico dentro), 'wait' (scaduta: si aspetta la conferma del server)
     // margine per gli orologi dei dispositivi non perfettamente giusti: il fallimento per scadenza si decide
     // solo con dati del server arrivati almeno 2 minuti dopo la scadenza (secondo l'orologio di qui)
     const CLOCK_SKEW = 120000;
-    const bothDone = d => d.oDone != null && d.gDone != null;
     function outcome(d, now = Date.now()) {
-      if (!d.joined) return 'invite';
-      if (d.left) return 'failed';
-      if (bothDone(d) && !isPending(d)) return 'done';
+      const joined = joinedOf(d);
+      if (!joined.length) return 'invite';
+      const mine = roleOf(d) === 'g' ? d.g[me()] : null;
+      if (mine && !mine.j) return 'invite';
+      const iPend = isPend(d, mine);
+      if (d.left) return iPend ? 'release' : 'failed';
+      if (allDone(d)) return 'done';
       if (d.dueAt != null && now >= d.dueAt) {
-        if (isPending(d)) return 'release';
-        // il fallimento per scadenza si decide solo con dati del server arrivati dopo la scadenza:
-        // un completamento dell'amico fatto in tempo potrebbe non essere ancora arrivato qui
-        return (d._srv || 0) >= d.dueAt + CLOCK_SKEW && !d._pw ? 'failed' : 'wait';
+        if (iPend) return 'release';
+        // dopo la scadenza si decide solo con dati del server arrivati dopo la scadenza:
+        // un completamento fatto in tempo da qualcuno potrebbe non essere ancora arrivato qui
+        if ((d._srv || 0) < d.dueAt + CLOCK_SKEW || d._pw) return 'wait';
+        const act = joined.filter(x => x.a === d.ver);
+        if (!act.length) return 'release';   // gli amici erano tutti in sospeso: la missione torna di chi l'ha creata
+        return d.oDone != null && act.every(x => x.d != null) ? 'done' : 'failed';
       }
       return 'open';
     }
-    const isFinal = d => { const o = outcome(d); return o === 'done' || o === 'failed' || o === 'release'; };
+    const isFinal = d => ['done', 'failed', 'release'].includes(outcome(d));
+    // perché è fallita, dal tuo punto di vista: kind per la finestra "Missioni fallite" e i nomi da mostrare
+    function failInfo(d) {
+      const u = me();
+      const others = actives(d).filter(p => p.uid !== u);
+      if (d.left) {
+        if (d.left === u) return { kind: 'me', name: joinNames(others.map(p => p.name)) };
+        return { kind: 'friend', name: nameOf(d, d.left) };
+      }
+      const iMissing = !actives(d).some(p => p.uid === u && p.done);
+      const missing = others.filter(p => !p.done).map(p => p.name);
+      if (iMissing && missing.length) return { kind: 'both', name: joinNames(missing, T('sh.nor')) };
+      if (iMissing) return { kind: 'mine', name: joinNames(others.map(p => p.name)) };
+      return { kind: missing.length > 1 ? 'theirs_many' : 'theirs', name: joinNames(missing) };
+    }
 
     /* ---------- dalla missione al documento (e ritorno) ---------- */
     const hhmm = dt => pad2(dt.getHours()) + ':' + pad2(dt.getMinutes());
@@ -103,7 +150,7 @@
         oFrom: m.from || null, oFromTime: m.from ? m.fromTime || null : null,
       };
     }
-    // i campi della missione che arrivano dal documento (per l'invitato)
+    // i campi della missione che arrivano dal documento (per gli invitati)
     function missionFields(d) {
       const rewards = normalizeRewards(d.rewards);
       return {
@@ -112,12 +159,16 @@
         ...localDue(d.dueAt), ...localFrom(d.fromAt),
       };
     }
-    const RULE_KEYS = ['rewards', 'penalty', 'dueAt'];   // cambiandoli, l'amico deve accettare di nuovo
+    const RULE_KEYS = ['rewards', 'penalty', 'dueAt'];   // cambiandoli, gli amici devono accettare di nuovo
     // confronto che non dipende dall'ordine delle chiavi: Firebase restituisce le mappe (rewards, penalty...)
     // con le chiavi in ordine alfabetico, mentre qui sono nell'ordine delle statistiche
     const sortKeys = v => Array.isArray(v) ? v.map(sortKeys)
       : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sortKeys(v[k])])) : v;
     const same = (a, b) => JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
+    // i nomi degli altri partecipanti (dentro la missione), da salvare nella missione: servono all'etichetta
+    // "Condivisa con…" quando il documento non ci sarà più
+    const otherNames = d => [d.owner].concat(joinedOf(d).map(x => x.uid)).filter(u => u !== me())
+      .map(u => nameOf(d, u).slice(0, 30)).slice(0, MAX_GUESTS);
 
     /* ---------- scritture ---------- */
     const ref = sid => S.fbDb.collection('shared').doc(sid);
@@ -129,6 +180,7 @@
       catch (e) { console.warn('shared', e && e.code, e); MUI().missionMsg(errText || T(errKey(e)), 'bad', true); sfx('err'); return false; }
     }
     const update = (sid, data) => ref(sid).update({ ...data, updated: Date.now() });
+    const gPath = (...k) => ['g', me()].concat(k).join('.');   // la tua voce in g: "g.<uid>" o "g.<uid>.d"
 
     /* ---------- ascolto ---------- */
     function start() {
@@ -165,12 +217,14 @@
       evaluate();
       MUI().renderMissionViews();
     }
-    // il documento non c'è più: la missione torna solo tua (se l'avevi creata tu) oppure sparisce (se eri l'invitato)
+    // la missione non è più collegata a un documento condiviso: torna solo tua
+    function unlink(L) { delete L.sid; delete L.sh; delete L.shn; touchMonth(monthOf(L)); }
+    // il documento non c'è più: la missione torna solo tua (se l'avevi creata tu) oppure sparisce (se eri invitato)
     function gone(sid) {
       const L = S.missions.find(m => m.sid === sid);
       if (!L || L.done || L.failed) return;   // le missioni finite restano nella cronologia, con la loro etichetta
-      if (L.sh === 'o') { delete L.sid; delete L.sh; delete L.shn; touchMonth(monthOf(L)); }
-      else dropLocal(L);
+      if (L.sh === 'o') unlink(L);
+      else { dropLocal(L); MUI().missionMsg(T('sh.msg.removed', { title: L.title }), ''); }   // per esempio: tolto da chi l'ha creata
     }
     // Una missione ancora aperta collegata a un documento che qui non è mai arrivato (per esempio arrivata da un altro
     // dispositivo dopo che il documento era stato eliminato) resterebbe bloccata: non si completa, non fallisce e
@@ -198,66 +252,70 @@
     // Si chiama a ogni aggiornamento e, con l'app aperta, di continuo (insieme alle penalità).
     // Gli esiti (XP dati o tolti) si applicano solo quando non c'è una finestra aperta: MUI lo controlla.
     let fetching = {};
+    const openL = L => L && !L.done && !L.failed;
     function evaluate() {
       if (!uidOf || uidOf !== me()) return;
       const now = Date.now();
       checkOrphans();
       Object.entries(docs).forEach(([sid, d]) => {
-        const role = roleOf(d);
         let L = S.missions.find(m => m.sid === sid);
+        if (!isV2(d)) return;   // documento non riconosciuto: si ignora
+        const role = roleOf(d);
+        if (!role) return;
         const out = outcome(d, now);
         // Chi ha creata la missione ce l'ha già nel suo elenco: se qui non c'è ancora (per esempio su un altro
         // dispositivo, prima che arrivi la sincronizzazione) non si fa niente e si aspetta.
         if (role === 'o' && !L) return;
         if (out === 'invite') {
           if (role === 'o') {
-            // l'amico è uscito o ha rifiutato, l'invito è scaduto, oppure la missione è già finita da sola: l'invito non serve più
+            // nessun amico dentro: se non c'è più nessuno invitato (tutti usciti o hanno rifiutato), l'invito è scaduto,
+            // oppure la missione è già finita da sola, gli inviti non servono più
             const expired = d.dueAt != null && now >= d.dueAt;
-            if (!d.guest || L.done || L.failed || expired) {
-              if (!L.done && !L.failed && !d.guest) {
+            const none = !guests(d).length;
+            if (none || L.done || L.failed || expired) {
+              if (openL(L) && none) {
                 if (d.oDone != null && !MUI().grantShared(L)) return;   // la tua parte vale (si riprova se ora non si può)
                 MUI().missionMsg(T('sh.msg.released', { title: L.title }), '');
               }
-              delete L.sid; delete L.sh; delete L.shn; touchMonth(monthOf(L));
+              if (L.sid === sid) unlink(L);
               deleteDoc(sid);
             }
-          } else if (L && !L.done && !L.failed) dropLocal(L);   // accettazione non andata a buon fine
+          } else if (openL(L)) dropLocal(L);   // non hai (ancora) accettato: l'accettazione non è andata a buon fine
           return;
         }
-        if (out === 'wait') { refetch(sid, d); return; }
+        if (out === 'wait') { refetch(sid); return; }
         if (out === 'release') {
-          if (role === 'g') { if (L && !L.done && !L.failed) { dropLocal(L); MUI().missionMsg(T('sh.msg.exit.late', { title: L.title }), ''); } }
-          else {
-            if (!L.done && !L.failed && d.oDone != null && !MUI().grantShared(L)) return;
-            if (!L.done && !L.failed) MUI().missionMsg(T('sh.msg.released', { title: L.title }), '');
-            delete L.sid; delete L.sh; delete L.shn; touchMonth(monthOf(L));
+          if (role === 'g') {
+            if (openL(L)) { dropLocal(L); MUI().missionMsg(T(d.left ? 'sh.msg.exit.left' : 'sh.msg.exit.late', { title: L.title }), ''); }
+          } else {
+            if (openL(L) && d.oDone != null && !MUI().grantShared(L)) return;
+            if (openL(L)) MUI().missionMsg(T('sh.msg.released', { title: L.title }), '');
+            unlink(L);
             deleteDoc(sid);
           }
           return;
         }
-        const seenKey = role === 'o' ? 'seenO' : 'seenG';
-        // l'invitato riceve la missione nel suo elenco (anche già finita, se non l'aveva ancora vista)
-        if (!L && (out === 'open' || !d[seenKey])) L = addLocal(sid, d, role);
+        // gli invitati ricevono la missione nel loro elenco (anche già finita, se non avevano ancora visto l'esito)
+        const seenMine = role === 'o' ? d.seenO : !!d.g[me()].s;
+        if (!L && (out === 'open' || !seenMine)) L = addLocal(sid, d, role);
         if (!L) return;
-        if (role === 'g' && !L.done && !L.failed) syncContent(L, d);
-        // il nome dell'amico resta nella missione: serve all'etichetta quando il documento non ci sarà più
-        const pn = String((role === 'o' ? d.guestName : d.ownerName) || '').trim().slice(0, 30);
-        if (d.joined && pn && L.shn !== pn) { L.shn = pn; touchMonth(monthOf(L)); }
-        if (out === 'done' && !L.done && !L.failed) {
+        if (role === 'g' && openL(L)) syncContent(L, d);
+        // i nomi degli altri restano nella missione: servono all'etichetta quando il documento non ci sarà più
+        const names = otherNames(d);
+        if (names.length && !same(L.shn, names)) { L.shn = names; touchMonth(monthOf(L)); }
+        if (out === 'done' && openL(L)) {
           if (d._pw) return;   // aspetta che il server confermi
           if (!MUI().grantShared(L)) return;
-        } else if (out === 'failed' && !L.done && !L.failed) {
+        } else if (out === 'failed' && openL(L)) {
           if (d._pw) return;
-          // perché è fallita: qualcuno ha abbandonato, oppure alla scadenza mancava la tua parte, quella dell'amico o entrambe
-          const myDone = role === 'o' ? d.oDone != null : d.gDone != null;
-          const partnerDone = role === 'o' ? d.gDone != null : d.oDone != null;
-          const kind = d.left ? (d.left === me() ? 'me' : 'friend') : myDone ? 'theirs' : partnerDone ? 'mine' : 'both';
-          if (!MUI().failShared(L, kind, partnerName(d))) return;
+          const f = failInfo(d);
+          if (!MUI().failShared(L, f.kind, f.name)) return;
         }
-        // esito applicato qui: lo si segna; quando l'hanno segnato entrambi, il documento si elimina
+        // esito applicato qui: lo si segna; quando l'hanno segnato tutti quelli che dovevano, il documento si elimina
         if ((out === 'done' || out === 'failed') && !d._pw) {
-          if (!d[seenKey]) { if (online()) update(sid, { [seenKey]: true }).catch(e => console.warn('shared seen', e)); }
-          else if (d.seenO && d.seenG) deleteDoc(sid);
+          if (!seenMine) {
+            if (online()) update(sid, role === 'o' ? { seenO: true } : { [gPath('s')]: true }).catch(e => console.warn('shared seen', e && e.code, e));
+          } else if (d.seenO && guests(d).filter(x => isActive(d, x)).every(x => x.s)) deleteDoc(sid);
         }
       });
     }
@@ -266,10 +324,11 @@
     // della fine del mese creerebbero due copie con lo stesso id in due mesi diversi)
     const createdOf = d => (Number.isFinite(d.created) && d.created > 0 ? isoDate(new Date(d.created)) : todayStr());
     function addLocal(sid, d, role) {
-      const m = { id: sid, ...missionFields(d), created: createdOf(d), done: null, failed: null, sid, sh: role };
-      const pn = String((role === 'o' ? d.guestName : d.ownerName) || '').trim().slice(0, 30);
-      if (pn) m.shn = pn;
+      if (role === 'g' && !d.g[me()].j) return null;
       if (S.missions.some(x => x.id === sid)) return null;
+      const m = { id: sid, ...missionFields(d), created: createdOf(d), done: null, failed: null, sid, sh: role };
+      const names = otherNames(d);
+      if (names.length) m.shn = names;
       S.missions.push(m);
       touchMonth(monthOf(m));
       return m;
@@ -280,8 +339,8 @@
       Object.assign(L, f);
       touchMonth(monthOf(L));
     }
-    // La chiamano tutti e due i giocatori, e a ogni aggiornamento: si prova una volta sola alla volta.
-    // Se l'altro l'ha già eliminato, il server rifiuta: non importa, il documento sparisce comunque con l'ascolto.
+    // La chiamano tutti i partecipanti, e a ogni aggiornamento: si prova una volta sola alla volta.
+    // Se un altro l'ha già eliminato, il server rifiuta: non importa, il documento sparisce comunque con l'ascolto.
     function deleteDoc(sid) {
       if (!online() || leaving.has(sid)) return;
       leaving.add(sid);
@@ -290,7 +349,7 @@
         .catch(e => { leaving.delete(sid); console.warn('shared delete', e && e.code, e); });
     }
     // dopo la scadenza si chiede al server lo stato vero (al massimo ogni 30 secondi per documento)
-    function refetch(sid, d) {
+    function refetch(sid) {
       if (!online() || (fetching[sid] && Date.now() - fetching[sid] < 30000)) return;
       fetching[sid] = Date.now();
       ref(sid).get({ source: 'server' }).then(x => {
@@ -304,101 +363,135 @@
     // informazioni per disegnare la scheda di una missione condivisa (null se non lo è, o non si sa ancora)
     function info(m) {
       const d = docOf(m);
-      if (!d) return null;
-      const role = roleOf(d), out = outcome(d);
-      const myDone = role === 'o' ? d.oDone != null : d.gDone != null;
-      const partnerDone = role === 'o' ? d.gDone != null : d.oDone != null;
+      if (!d || !isV2(d)) return null;
+      const role = roleOf(d);
+      if (!role) return null;
+      const out = outcome(d);
+      const u = me(), mine = role === 'g' ? d.g[u] : null;
+      const joined = joinedOf(d);
+      const anyJ = joined.length > 0;
+      const others = [{ uid: d.owner, name: noname(d.ownerName), done: d.oDone != null, pend: false }]
+        .concat(joined.map(x => ({ uid: x.uid, name: noname(x.n), done: x.d != null, pend: isPend(d, x) })))
+        .filter(p => p.uid !== u);
+      const invitedNames = guests(d).filter(x => !x.j).map(x => noname(x.n));
       let ownerWhen = '';
       if (role === 'g' && d.oDue && d.tz && d.tz !== myTz()) {
-        ownerWhen = T('sh.ownertime', { when: MUI().fmtDay(d.oDue) + (d.oDueTime ? T('time.at', { time: d.oDueTime }) : ''), name: d.ownerName || T('fr.noname') });
+        ownerWhen = T('sh.ownertime', { when: MUI().fmtDay(d.oDue) + (d.oDueTime ? T('time.at', { time: d.oDueTime }) : ''), name: noname(d.ownerName) });
       }
+      const doneOthers = others.filter(p => p.done && !p.pend).map(p => p.name);
       return {
-        role, out, name: partnerName(d), joined: !!d.joined, invited: !d.joined && role === 'o' && !!d.guest,
-        myDone, partnerDone, pending: role === 'g' && isPending(d), ownerWhen,
+        role, out, ownerWhen,
+        // role 'o': c'è almeno un amico dentro; role 'g': hai accettato
+        joined: role === 'o' ? anyJ : !!(mine && mine.j),
+        // role 'o': ci sono solo inviti senza risposta
+        invited: role === 'o' && !anyJ && invitedNames.length > 0,
+        pending: isPend(d, mine),
+        myDone: role === 'o' ? d.oDone != null : !!(mine && mine.d != null),
+        name: joinNames(others.map(p => p.name)),                          // con chi (dentro la missione)
+        invitedNames: joinNames(invitedNames), invitedCount: invitedNames.length,
+        waitingFor: joinNames(others.filter(p => !p.done || p.pend).map(p => p.name)),
+        doneNames: joinNames(doneOthers), doneCount: doneOthers.length,
+        pendNames: joinNames(others.filter(p => p.pend).map(p => p.name)),
+        // role 'o': quanti si possono togliere (inviti senza risposta + in sospeso)
+        removable: role === 'o' ? guests(d).filter(x => !isActive(d, x)).length : 0,
+        ownerName: noname(d.ownerName),
       };
     }
     // la missione è "tenuta" dalla condivisione: le penalità normali non la toccano (decide l'esito condiviso).
-    // Vale anche se il documento non è ancora arrivato; non vale per un invito non ancora accettato.
+    // Vale anche se il documento non è ancora arrivato; non vale se ci sono solo inviti senza risposta.
     function holds(m) {
       if (!m.sid) return false;
       const d = docOf(m);
-      return !d || !!d.joined;
+      return !d || joined(m);
     }
-    const joined = m => { const d = docOf(m); return !!(d && d.joined); };
-    // "Invita" compare solo a chi ha fatto l'accesso, su una missione normale ancora da fare
+    function joined(m) {
+      const d = docOf(m);
+      if (!d || !isV2(d)) return false;
+      const role = roleOf(d);
+      return role === 'o' ? joinedOf(d).length > 0 : role === 'g' ? !!d.g[me()].j : false;
+    }
+    // "Invita" compare solo a chi ha fatto l'accesso: su una missione normale ancora da fare, oppure
+    // (per chi l'ha creata) su una condivisa ancora aperta, con meno di 3 amici
     function canInvite(m) {
-      return !!S.fbUser && !m.sid && !m.rid && !m.done && !m.failed && !MISSIONS.isLate(m);
+      if (!S.fbUser || m.rid || m.done || m.failed || MISSIONS.isLate(m)) return false;
+      if (!m.sid) return true;
+      const d = docOf(m);
+      return !!(d && isV2(d) && roleOf(d) === 'o' && ['invite', 'open'].includes(outcome(d)) && guests(d).length < MAX_GUESTS);
     }
     // chi l'ha creata può modificarla, ma non dopo la scadenza (se è già condivisa) né quando è finita
     function editBlock(m) {
       if (!m.sid) return '';
       if (m.sh === 'g') return T('sh.err.guest');
       const d = docOf(m);
-      if (!d) return T('sh.err.offline');   // senza il documento la modifica non arriverebbe all'amico
+      if (!d || !isV2(d)) return T('sh.err.offline');   // senza il documento la modifica non arriverebbe agli amici
       if (isFinal(d)) return T('sh.err.final');
-      if (d.joined && d.dueAt != null && Date.now() >= d.dueAt) return T('sh.err.late');
+      if (joinedOf(d).length && d.dueAt != null && Date.now() >= d.dueAt) return T('sh.err.late');
       if (!online()) return T('sh.err.offline');
       return '';
     }
     // dopo una modifica di chi l'ha creata: il documento prende i valori nuovi (e, se cambiano le regole, una versione nuova)
     function afterEdit(m) {
       const d = docOf(m);
-      if (!d || roleOf(d) !== 'o' || !online()) return;
-      if (d.dueAt != null && Date.now() >= d.dueAt) return;   // invito scaduto: si annulla da solo, non serve aggiornarlo
+      if (!d || !isV2(d) || roleOf(d) !== 'o' || !online()) return;
+      if (d.dueAt != null && Date.now() >= d.dueAt) return;   // inviti scaduti: si annullano da soli, non serve aggiornarli
       const f = fieldsOf(m);
       const rulesChanged = RULE_KEYS.some(k => !same(f[k], d[k]));
       const data = { ...f, ownerName: myName(), ver: rulesChanged ? d.ver + 1 : d.ver };
       write(() => update(m.sid, data));
-      if (rulesChanged && d.joined) MUI().missionMsg(T('sh.msg.changed', { name: partnerName(d) }), '');
+      const j = joinedOf(d);
+      if (rulesChanged && j.length) MUI().missionMsg(T('sh.msg.changed', { name: joinNames(j.map(x => noname(x.n))) }), '');
     }
-    // eliminare una missione condivisa: un invito si annulla; se l'amico ha già accettato, si può solo abbandonare
-    // checkOnly: solo il controllo (al primo tocco su "Elimina"), senza annullare ancora l'invito
+    // eliminare una missione condivisa: gli inviti si annullano; se qualcuno ha già accettato, si può solo abbandonare
+    // checkOnly: solo il controllo (al primo tocco su "Elimina"), senza annullare ancora gli inviti
     function beforeDelete(m, checkOnly) {
       const d = docOf(m);
       if (!m.sid) return '';
       if (!d && !m.done && !m.failed) return T('sh.err.offline');
-      if (d && d.joined && !isFinal(d)) return T('sh.err.delete');
-      if (!checkOnly && d && !d.joined && roleOf(d) === 'o') deleteDoc(m.sid);
+      if (d && isV2(d) && joinedOf(d).length && !isFinal(d)) return T('sh.err.delete');
+      if (!checkOnly && d && isV2(d) && d.owner === me() && !joinedOf(d).length) deleteDoc(m.sid);
       return '';
     }
     const myName = () => String((S.settings && S.settings.name) || '').trim().slice(0, 30);
 
     /* ---------- azioni sulle schede ---------- */
     const byId = id => S.missions.find(x => x.id === id);
+    // la tua parte: chi l'ha creata usa oDone, gli amici la loro voce in g
+    const partData = (d, v) => (roleOf(d) === 'o' ? { oDone: v } : { [gPath('d')]: v });
+    function ready(m, d) {
+      if (!m || !d || !isV2(d) || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return false; }
+      return true;
+    }
     async function completePart(id) {
       const m = byId(id), d = docOf(m);
-      if (!m || !d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      const key = roleOf(d) === 'o' ? 'oDone' : 'gDone';
-      const ok = await write(() => update(m.sid, { [key]: Date.now() }));
-      if (!ok) return;
+      if (!ready(m, d)) return;
+      if (!(await write(() => update(m.sid, partData(d, Date.now()))))) return;
       sfx('save');
-      const partnerDone = roleOf(d) === 'o' ? d.gDone != null : d.oDone != null;
-      if (!partnerDone) MUI().missionMsg(T('sh.msg.part', { title: m.title, name: partnerName(d) }), 'good');
+      const dd = docs[m.sid] || d;
+      if (!allDone(dd)) MUI().missionMsg(T('sh.msg.part', { title: m.title }), 'good');
     }
     async function undoPart(id) {
       const m = byId(id), d = docOf(m);
-      if (!m || !d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      const key = roleOf(d) === 'o' ? 'oDone' : 'gDone';
-      if (await write(() => update(m.sid, { [key]: null }))) { sfx('sub'); MUI().missionMsg(T('sh.msg.unpart', { title: m.title }), ''); }
+      if (!ready(m, d)) return;
+      if (await write(() => update(m.sid, partData(d, null)))) { sfx('sub'); MUI().missionMsg(T('sh.msg.unpart', { title: m.title }), ''); }
     }
     async function abandon(id) {
       const m = byId(id), d = docOf(m);
-      if (!m || !d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
+      if (!ready(m, d)) return;
       if (await write(() => update(m.sid, { left: me() }))) sfx('del');
     }
     async function acceptChange(id) {
       const m = byId(id), d = docOf(m);
       // senza rete Firebase non conferma finché la connessione non torna: la scelta resterebbe "sospesa"
-      if (!m || !d || !online() || !navigator.onLine) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      if (await acceptVersion(m.sid, { gAcc: d.ver }, d.ver)) { sfx('ok'); MUI().missionMsg(T('sh.msg.accepted.change', { title: m.title }), 'good'); }
+      if (!navigator.onLine || !ready(m, d)) { if (!navigator.onLine) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); } return; }
+      if (await guestWrite(m.sid, { [gPath('a')]: d.ver }, d.ver)) { sfx('ok'); MUI().missionMsg(T('sh.msg.accepted.change', { title: m.title }), 'good'); }
     }
-    // Accettare vale solo per l'ultima versione della missione (lo controllano le regole di Firebase).
+    // Le scelte dell'invitato (accettare, uscire) valgono per l'ultima versione della missione.
     // Se chi l'ha creata l'ha appena modificata e qui non era ancora arrivato, Firebase rifiuta:
     // si chiede al server la versione attuale e, se è cambiata, lo si dice chiaramente (e la scheda si aggiorna).
-    async function acceptVersion(sid, data, ver) {
+    async function guestWrite(sid, data, ver) {
       try { await update(sid, data); return true; }
       catch (e) {
-        console.warn('shared', e);
+        console.warn('shared', e && e.code, e);
         let why = errKey(e);
         try {
           const x = await ref(sid).get({ source: 'server' });
@@ -419,14 +512,14 @@
       }
     }
     // l'invitato esce dalla missione (dopo una modifica, oppure rifiutando l'invito): nessun fallimento
-    const leaveData = d => ({ guest: '', guestName: '', members: [d.owner], joined: false, gAcc: 0, gDone: null });
+    const leaveData = () => ({ [gPath()]: FV().delete(), members: FV().arrayRemove(me()) });
     async function exitChange(id) {
       const m = byId(id), d = docOf(m);
       // senza rete Firebase non conferma finché la connessione non torna: la scelta resterebbe "sospesa"
-      if (!m || !d || !online() || !navigator.onLine) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
+      if (!navigator.onLine || !ready(m, d)) { if (!navigator.onLine) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); } return; }
       const sid = m.sid;
       leaving.add(sid);
-      const ok = await acceptVersion(sid, leaveData(d), d.ver);
+      const ok = await guestWrite(sid, leaveData(), d.ver);
       leaving.delete(sid);
       if (!ok) return;
       delete docs[sid]; saveCache();
@@ -435,18 +528,30 @@
       MUI().missionMsg(T('sh.msg.exit', { title: m.title }), '');
       MUI().renderMissionViews();
     }
+    // chi l'ha creata toglie chi non ha risposto: gli inviti senza risposta e chi è in sospeso (senza penalità per nessuno).
+    // Chi è dentro con le regole attuali resta; se non resta nessuno, la missione torna solo sua.
     async function cancelInvite(id) {
-      const m = byId(id);
+      const m = byId(id), d = docOf(m);
       if (!m || !m.sid) return;
+      if (!ready(m, d)) return;
       const sid = m.sid;
-      if (!online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      leaving.add(sid);
-      const ok = await write(() => ref(sid).delete());
-      leaving.delete(sid);
-      if (!ok) return;
-      delete docs[sid]; saveCache();
-      delete m.sid; delete m.sh; delete m.shn;
-      touchMonth(monthOf(m));
+      const waiting = guests(d).filter(x => !isActive(d, x)).map(x => x.uid);
+      if (!waiting.length) return;
+      const removedNames = joinNames(guests(d).filter(x => waiting.includes(x.uid)).map(x => noname(x.n)));
+      if (!joinedOf(d).length) {
+        // nessuno dentro: il documento non serve più
+        leaving.add(sid);
+        const ok = await write(() => ref(sid).delete());
+        leaving.delete(sid);
+        if (!ok) return;
+        delete docs[sid]; saveCache();
+        unlink(m);
+      } else {
+        const data = { members: FV().arrayRemove(...waiting) };
+        waiting.forEach(u => { data['g.' + u] = FV().delete(); });
+        if (!(await write(() => update(sid, data)))) return;
+        MUI().missionMsg(T('sh.msg.removed.by', { name: removedNames }), '');
+      }
       sfx('close');
       MUI().renderMissionViews();
     }
@@ -456,21 +561,26 @@
       if (!uidOf || uidOf !== me()) return [];
       const now = Date.now();
       return Object.entries(docs)
-        .filter(([, d]) => !d.joined && d.guest === me() && roleOf(d) === 'g' && !(d.dueAt != null && now >= d.dueAt))
-        .map(([sid, d]) => ({ sid, from: d.ownerName || T('fr.noname'), m: { id: sid, ...missionFields(d), created: todayStr(), done: null, failed: null } }));
+        .filter(([, d]) => isV2(d) && roleOf(d) === 'g' && !d.g[me()].j && !d.left && !allDone(d) && !(d.dueAt != null && now >= d.dueAt))
+        .map(([sid, d]) => ({
+          sid, from: noname(d.ownerName),
+          // gli altri invitati (dentro o in attesa), per sapere con chi sarà la missione
+          others: joinNames(guests(d).filter(x => x.uid !== me()).map(x => noname(x.n))),
+          m: { id: sid, ...missionFields(d), created: todayStr(), done: null, failed: null },
+        }));
     }
     async function acceptInvite(sid) {
       const d = docs[sid];
-      if (!d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      if (!(await acceptVersion(sid, { joined: true, gAcc: d.ver, guestName: myName() }, d.ver))) return;
+      if (!d || !isV2(d) || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
+      if (!(await guestWrite(sid, { [gPath('j')]: true, [gPath('a')]: d.ver, [gPath('n')]: myName() }, d.ver))) return;
       sfx('ok');
       MUI().missionMsg(T('sh.msg.joined', { title: d.title }), 'good');
     }
     async function declineInvite(sid) {
       const d = docs[sid];
-      if (!d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
+      if (!d || !isV2(d) || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
       leaving.add(sid);
-      try { await update(sid, leaveData(d)); leaving.delete(sid); }
+      try { await update(sid, leaveData()); leaving.delete(sid); }
       catch (e) {
         leaving.delete(sid);
         // se l'invito nel frattempo è stato annullato, rifiutarlo non serve più: sparisce e basta
@@ -483,70 +593,118 @@
       MUI().renderMissionViews();
     }
 
-    /* ---------- finestra "Invita un amico" ---------- */
+    /* ---------- finestra "Invita amici" ---------- */
     const shmodal = $('shmodal');
     let inviteFor = '';
+    const picked = new Set();
     function shMsg(t, kind) { const e = $('sh-msg'); e.textContent = t || ''; e.className = 'msg' + (kind ? ' ' + kind : ''); }
+    // posti ancora liberi nella missione
+    function slotsFor(m) {
+      const d = m && m.sid ? docOf(m) : null;
+      return MAX_GUESTS - (d && isV2(d) ? guests(d).length : 0);
+    }
+    function paintSend() {
+      const b = $('sh-send');
+      b.textContent = picked.size ? T('sh.send.n', { n: picked.size }) : T('sh.send');
+      b.disabled = !picked.size;
+    }
     async function openInvite(id) {
       inviteFor = id;
+      picked.clear();
       const list = $('sh-list');
       list.textContent = '';
       shMsg('');
+      $('sh-send').hidden = true;
       openModal(shmodal, $('sh-close'));
       if (!S.fbUser) { shMsg(T('sh.pick.noacc')); return; }
       if (!S.dbRef) { shMsg(T('fr.connecting')); await fbConnect(); if (!S.dbRef) { shMsg(T('fr.offline'), 'bad'); return; } }
       shMsg(T('fr.msg.wait'));
       try { await loadFriendsList(); } catch (e) { console.warn('shared friends', e); }
       if (shmodal.hidden || inviteFor !== id) return;
-      const friends = friendsList();
-      shMsg(friends.length ? '' : T('sh.pick.none'));
+      const m = byId(id), d = m && m.sid ? docOf(m) : null;
+      const inside = new Set(d && isV2(d) ? guests(d).map(x => x.uid) : []);
+      const slots = slotsFor(m);
+      const all = friendsList();
+      const friends = all.filter(f => !inside.has(f.uid));
+      if (!all.length) { shMsg(T('sh.pick.none')); return; }
+      if (slots <= 0) { shMsg(T('sh.pick.full')); return; }
+      if (!friends.length) { shMsg(T('sh.pick.allin')); return; }
+      shMsg(TN('sh.pick.left', slots));
       friends.forEach(f => {
         const b = mk('button', 'fr-friend');
         b.type = 'button';
+        b.setAttribute('aria-pressed', 'false');
         b.append(mk('span', 'fr-who', f.name || T('fr.noname')), mk('span', 'fr-lv', f.level != null ? T('lv') + ' ' + f.level : ''));
         b.setAttribute('aria-label', T('sh.pick.aria', { name: f.name || T('fr.noname') }));
-        b.addEventListener('click', () => sendInvite(id, f));
+        b.addEventListener('click', () => {
+          if (picked.has(f.uid)) picked.delete(f.uid);
+          else if (picked.size >= slots) { shMsg(TN('sh.pick.max', slots), 'bad'); sfx('err'); return; }
+          else picked.add(f.uid);
+          b.setAttribute('aria-pressed', picked.has(f.uid) ? 'true' : 'false');
+          shMsg(TN('sh.pick.left', slots));
+          paintSend();
+        });
         list.appendChild(b);
       });
+      $('sh-send').hidden = false;
+      paintSend();
     }
-    async function sendInvite(id, f) {
-      const m = byId(id);
-      if (!m || !canInvite(m)) { shMsg(T('sh.err.cannot'), 'bad'); sfx('err'); return; }
+    async function sendInvite() {
+      const id = inviteFor, m = byId(id);
+      const chosen = friendsList().filter(f => picked.has(f.uid));
+      if (!chosen.length) { shMsg(T('sh.pick.sel'), 'bad'); sfx('err'); return; }
+      if (!m || !canInvite(m) || chosen.length > slotsFor(m)) { shMsg(T('sh.err.cannot'), 'bad'); sfx('err'); return; }
       // senza rete Firebase non conferma la scrittura finché la connessione non torna: meglio dirlo subito
       if (!navigator.onLine) { shMsg(T('fr.offline'), 'bad'); sfx('err'); return; }
-      const sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      const now = Date.now();
-      const data = {
-        owner: me(), ownerName: myName(), guest: f.uid, guestName: String(f.name || '').slice(0, 30), members: [me(), f.uid], joined: false,
-        ...fieldsOf(m), ver: 1, gAcc: 0, oDone: null, gDone: null, left: '', seenO: false, seenG: false, created: now, updated: now,
-      };
+      const entry = f => ({ n: String(f.name || '').slice(0, 30), j: false, a: 0, d: null, s: false });
+      const names = joinNames(chosen.map(f => f.name || T('fr.noname')));
       shMsg(T('fr.msg.wait'));
-      // la missione si collega al documento PRIMA di scriverlo: l'aggiornamento in diretta arriva già durante la scrittura
-      m.sid = sid; m.sh = 'o';
-      docs[sid] = { ...data, _pw: true, _srv: 0 };
-      try { await ref(sid).set(data); }
-      catch (e) {
-        console.warn('shared invite', e);
-        delete m.sid; delete m.sh; delete docs[sid];
-        shMsg(T('sh.msg.err'), 'bad'); sfx('err'); return;
+      $('sh-send').disabled = true;
+      if (m.sid) {
+        // missione già condivisa: si aggiungono i nuovi amici; vale come modifica (chi è dentro deve riaccettare)
+        const d = docOf(m);
+        const data = { members: FV().arrayUnion(...chosen.map(f => f.uid)), ver: FV().increment(1) };
+        chosen.forEach(f => { data['g.' + f.uid] = entry(f); });
+        try { await update(m.sid, data); }
+        catch (e) { console.warn('shared invite', e && e.code, e); shMsg(T(errKey(e)), 'bad'); sfx('err'); paintSend(); return; }
+        const j = d ? joinedOf(d) : [];
+        if (j.length) MUI().missionMsg(T('sh.msg.changed', { name: joinNames(j.map(x => noname(x.n))) }), '');
+      } else {
+        const sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        const now = Date.now();
+        const data = {
+          v: 2, owner: me(), ownerName: myName(), members: [me()].concat(chosen.map(f => f.uid)),
+          g: Object.fromEntries(chosen.map(f => [f.uid, entry(f)])),
+          ...fieldsOf(m), ver: 1, oDone: null, left: '', seenO: false, created: now, updated: now,
+        };
+        // la missione si collega al documento PRIMA di scriverlo: l'aggiornamento in diretta arriva già durante la scrittura
+        m.sid = sid; m.sh = 'o';
+        docs[sid] = { ...data, _pw: true, _srv: 0 };
+        try { await ref(sid).set(data); }
+        catch (e) {
+          console.warn('shared invite', e && e.code, e);
+          delete m.sid; delete m.sh; delete docs[sid];
+          shMsg(T(errKey(e)), 'bad'); sfx('err'); paintSend(); return;
+        }
+        saveCache();
+        touchMonth(monthOf(m));
       }
-      saveCache();
-      touchMonth(monthOf(m));
-      if (!shmodal.hidden) closeModal();   // se nel frattempo l'hai chiusa (o ne hai aperta un'altra) non si tocca niente
+      if (!shmodal.hidden && inviteFor === id) closeModal();   // se nel frattempo l'hai chiusa (o ne hai aperta un'altra) non si tocca niente
       sfx('ok');
-      MUI().missionMsg(T('sh.msg.sent', { name: f.name || T('fr.noname') }), 'good');
+      if (!m.sid || docs[m.sid]) MUI().missionMsg(T('sh.msg.sent', { name: names }), 'good');
       MUI().renderMissionViews();
     }
+    $('sh-send').addEventListener('click', sendInvite);
     $('sh-close').addEventListener('click', closeModal);
     shmodal.addEventListener('click', e => { if (e.target === shmodal) closeModal(); });
 
     return {
       start, reset, evaluate, info, holds, joined, canInvite, editBlock, afterEdit, beforeDelete,
       completePart, undoPart, abandon, acceptChange, exitChange, cancelInvite, openInvite,
-      invites, acceptInvite, declineInvite,
+      invites, acceptInvite, declineInvite, joinNames,
       // per le prove
-      outcome, localDue, localFrom,
+      outcome, localDue, localFrom, failInfo,
     };
   }
-  window.LIFE_RPG_SHARED = { create };
+  window.LIFE_RPG_SHARED = { create, MAX_GUESTS };
 })();

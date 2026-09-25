@@ -96,9 +96,15 @@ service cloud.firestore {
       allow delete: if signedIn() && me() in resource.data.members;
     }
 
-    // ---------- missioni condivise tra due amici (shared.js) ----------
-    // Un documento per missione: lo leggono e scrivono solo chi l'ha creata (owner) e l'amico (guest).
+    // ---------- missioni condivise con fino a 3 amici (shared.js) ----------
+    // Un documento per missione. Lo leggono e scrivono solo chi l'ha creata (owner) e gli amici invitati.
+    //   members: [owner, amico1, amico2, amico3] (serve per la ricerca e per la lettura)
+    //   g: { uid: { n: nome, j: ha accettato, a: versione delle regole accettata, d: quando ha fatto la sua parte, s: ha visto l'esito } }
     // Ognuno può cambiare solo la sua parte; nessuno può completare dopo la scadenza (conta l'ora del server).
+    // ATTENZIONE: Firebase ha un tetto al numero di espressioni valutate per richiesta. Qui ogni operazione
+    // controlla prima quali campi cambiano (il controllo più economico) e poi solo quelli: il resto del documento
+    // non può cambiare, quindi resta valido com'era. Gli amici sono al massimo 3: le funzioni con l'indice (1, 2, 3)
+    // guardano uno per uno i posti di members, perché nelle regole non esistono i cicli.
     function okTimeOrNull(v) { return v == null || v is int; }
     function okDateOrNull(v) { return v == null || (v is string && v.size() == 10); }
     function okClockOrNull(v) { return v == null || (v is string && v.size() == 5); }
@@ -106,116 +112,134 @@ service cloud.firestore {
       return s == null || (s is map && s.keys().hasOnly(['d', 'f']) && s.d is int && s.f is int
         && s.d >= 1 && s.d <= 5 && s.f >= 1 && s.f <= 5);
     }
-    function sharedKeys() {
-      return ['owner', 'ownerName', 'guest', 'guestName', 'members', 'joined', 'title', 'desc', 'rewards', 'penalty', 'stars',
-              'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime', 'ver', 'gAcc', 'oDone', 'gDone', 'left',
-              'seenO', 'seenG', 'created', 'updated'];
-    }
-    // il contenuto: tutti i campi (e solo quelli), ognuno del tipo giusto
-    function okShared(d) {
-      return d.keys().hasOnly(sharedKeys()) && d.keys().hasAll(sharedKeys())
-        && d.owner is string && d.guest is string
-        && shortStr(d.ownerName, 30) && shortStr(d.guestName, 30)
-        && d.members is list && d.members[0] == d.owner
-        && (d.guest == '' ? d.members.size() == 1 : (d.members.size() == 2 && d.members[1] == d.guest))
-        && d.joined is bool
-        && shortStr(d.title, 60) && d.title.size() > 0 && shortStr(d.desc, 500)
-        && okStats(d.rewards) && okStats(d.penalty) && okStars(d.stars)
-        && okTimeOrNull(d.dueAt) && okTimeOrNull(d.fromAt) && shortStr(d.tz, 64)
-        && okDateOrNull(d.oDue) && okClockOrNull(d.oDueTime) && okDateOrNull(d.oFrom) && okClockOrNull(d.oFromTime)
-        && d.ver is int && d.ver >= 1 && d.gAcc is int && d.gAcc >= 0 && d.gAcc <= d.ver
-        && okTimeOrNull(d.oDone) && okTimeOrNull(d.gDone)
-        && d.left is string && d.seenO is bool && d.seenG is bool
-        && d.created is int && d.updated is int;
-    }
-    // la missione non è ancora finita: nessuno ha abbandonato e non l'hanno ancora completata entrambi
-    function shOpen(o) { return o.left == '' && !(o.oDone != null && o.gDone != null && o.gAcc == o.ver); }
+    // l'amico al posto i di members (1, 2 o 3): c'è, ha accettato, è in sospeso (non ha accettato l'ultima modifica)
+    function gAt(o, i) { return o.g[o.members[i]]; }
+    function gIn(o, i) { return o.members.size() > i && gAt(o, i).j; }
+    function gActive(o, i) { return gIn(o, i) && gAt(o, i).a == o.ver; }
+    function anyJoined(o) { return gIn(o, 1) || gIn(o, 2) || gIn(o, 3); }
+    // superata: c'è almeno un amico dentro, e tutti (chi l'ha creata e ogni amico dentro) hanno fatto la loro parte, senza modifiche in sospeso
+    function gDoneOk(o, i) { return !gIn(o, i) || (gAt(o, i).a == o.ver && gAt(o, i).d != null); }
+    function allDone(o) { return anyJoined(o) && o.oDone != null && gDoneOk(o, 1) && gDoneOk(o, 2) && gDoneOk(o, 3); }
+    // ancora aperta: nessuno ha abbandonato e non è già superata
+    function shOpen(o) { return o.left == '' && !allDone(o); }
     // prima della scadenza (se c'è), con l'ora del server
     function shInTime(o) { return o.dueAt == null || request.time.toMillis() < o.dueAt; }
-    // scadenza nuova: assente oppure ancora nel futuro (con l'ora del server)
     function shDueOk(d) { return d.dueAt == null || d.dueAt > request.time.toMillis(); }
+    // finita: qualcuno ha abbandonato, è superata, oppure è scaduta
+    function shFinal(o) { return !shOpen(o) || !shInTime(o); }
+    // l'esito l'ha visto chiunque debba vederlo (chi era in sospeso esce senza fallire e non serve)
+    function gSeenOk(o, i) { return !gActive(o, i) || gAt(o, i).s; }
+    function allSeen(o) { return gSeenOk(o, 1) && gSeenOk(o, 2) && gSeenOk(o, 3); }
+    // un amico appena invitato: nome, e tutto il resto a zero
+    function okNewGuest(e) {
+      return e is map && e.keys().hasOnly(['n', 'j', 'a', 'd', 's']) && e.keys().size() == 5
+        && shortStr(e.n, 30) && e.j == false && e.a == 0 && e.d == null && e.s == false;
+    }
+    // il posto i di members, se è nuovo (oltre i primi "from" posti, che c'erano già), è un amico vero appena invitato
+    function newGuestAt(from, n, i) {
+      return n.members.size() <= i || i < from
+        || (n.members[i] != me() && okNewGuest(n.g[n.members[i]]) && areFriends(n.members[i]));
+    }
+    // g e members vanno d'accordo: in g ci sono esattamente gli amici di members (tutti tranne chi l'ha creata)
+    function gMatches(n) {
+      return n.g is map && n.g.keys().hasOnly(n.members) && !(n.owner in n.g) && n.g.size() == n.members.size() - 1;
+    }
+    function sharedKeys() {
+      return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars',
+              'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime', 'ver', 'oDone', 'left', 'seenO', 'created', 'updated'];
+    }
+    // il contenuto della missione (lo decide chi l'ha creata)
+    function okContent(n) {
+      return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
+        && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
+        && okTimeOrNull(n.dueAt) && okTimeOrNull(n.fromAt) && shortStr(n.tz, 64) && shDueOk(n)
+        && okDateOrNull(n.oDue) && okClockOrNull(n.oDueTime) && okDateOrNull(n.oFrom) && okClockOrNull(n.oFromTime);
+    }
+    // creazione: tutto parte da zero, con da 1 a 3 amici veri
+    function shCreate(n) {
+      return n.keys().hasOnly(sharedKeys()) && n.keys().size() == 23
+        && n.v == 2 && n.owner == me() && n.members is list && n.members[0] == me()
+        && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
+        && newGuestAt(1, n, 1) && newGuestAt(1, n, 2) && newGuestAt(1, n, 3)
+        && okContent(n)
+        && n.ver == 1 && n.oDone == null && n.left == '' && n.seenO == false && n.created is int && n.updated is int;
+    }
 
-    // MODIFICHE, in modo leggero: Firebase ha un tetto al numero di espressioni che valuta per ogni richiesta,
-    // e ricontrollare tutto il documento a ogni operazione lo superava (per esempio "Esci" dopo una modifica).
-    // Ogni operazione dice quali campi può cambiare (k = campi cambiati) e si controllano solo quelli:
-    // tutti gli altri restano quelli del documento, che erano già validi. In ogni caso si guarda prima k,
-    // che è il controllo più economico, così le operazioni che non c'entrano si scartano subito.
-    // o = il documento com'è, n = come sarebbe dopo la modifica
+    // ----- modifiche di chi l'ha creata -----
     function shOwnerUpdate(o, n, k) {
       return me() == o.owner && (
         // completare (o annullare) la propria parte
         (k.hasOnly(['oDone', 'updated']) && shOpen(o) && shInTime(o) && okTimeOrNull(n.oDone))
-        // abbandonare: la missione fallisce per entrambi
-        || (k.hasOnly(['left', 'updated']) && o.joined && shOpen(o) && shInTime(o) && n.left == me())
-        // segnare di aver applicato l'esito
-        || (k.hasOnly(['seenO', 'updated']) && n.seenO == true)
-        // modificare la missione; se cambiano XP, penalità o scadenza la versione sale di uno (l'amico dovrà riaccettare)
-        || shOwnerEdit(o, n, k)
+        // abbandonare (solo se almeno un amico è dentro): la missione fallisce per tutti
+        || (k.hasOnly(['left', 'updated']) && anyJoined(o) && shOpen(o) && shInTime(o) && n.left == me())
+        // segnare di aver visto l'esito
+        || (k.hasOnly(['seenO', 'updated']) && n.seenO == true && shFinal(o))
+        // modificare la missione; se cambiano XP, penalità o scadenza la versione sale di uno (gli amici dovranno riaccettare)
+        || (k.hasOnly(['title', 'desc', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime',
+                       'ver', 'ownerName', 'updated'])
+            && shOpen(o) && shInTime(o) && okContent(n)
+            && (k.hasAny(['rewards', 'penalty', 'dueAt']) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
+        // invitare altri amici: vale come modifica, quindi la versione sale di uno (chi è dentro deve riaccettare)
+        || (k.hasOnly(['g', 'members', 'ver', 'updated']) && shOpen(o) && shInTime(o)
+            && n.ver == o.ver + 1 && n.members.size() > o.members.size() && n.members.size() <= 4
+            && n.members[0:o.members.size()] == o.members && gMatches(n)
+            && n.g.diff(o.g).changedKeys().size() == 0
+            && newGuestAt(o.members.size(), n, 1) && newGuestAt(o.members.size(), n, 2) && newGuestAt(o.members.size(), n, 3))
+        // togliere chi non ha risposto: gli inviti senza risposta e chi è in sospeso (non ha accettato l'ultima modifica).
+        // Chi è dentro con le regole attuali resta. Se non resta nessuno, la missione torna solo di chi l'ha creata
+        || (k.hasOnly(['g', 'members', 'updated']) && n.members.size() >= 1 && n.members[0] == o.owner && gMatches(n)
+            && n.g.diff(o.g).addedKeys().size() == 0 && n.g.diff(o.g).changedKeys().size() == 0
+            && gRemovedOk(o, n, 1) && gRemovedOk(o, n, 2) && gRemovedOk(o, n, 3))
       );
     }
-    function shOwnerEdit(o, n, k) {
-      return k.hasOnly(['title', 'desc', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime',
-                        'ver', 'ownerName', 'updated'])
-        && shOpen(o) && shInTime(o)
-        && shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
-        && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
-        && okTimeOrNull(n.dueAt) && okTimeOrNull(n.fromAt) && shortStr(n.tz, 64) && shDueOk(n)
-        && okDateOrNull(n.oDue) && okClockOrNull(n.oDueTime) && okDateOrNull(n.oFrom) && okClockOrNull(n.oFromTime)
-        && (k.hasAny(['rewards', 'penalty', 'dueAt']) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1));
-    }
+    // l'amico al posto i, se tolto, non era dentro con le regole attuali (invito senza risposta, oppure in sospeso)
+    function gRemovedOk(o, n, i) { return o.members.size() <= i || o.members[i] in n.g || !gActive(o, i); }
+
+    // ----- modifiche di un amico: solo la sua voce in g -----
     function shGuestUpdate(o, n, k) {
-      return me() == o.guest && (
-        // accettare l'invito (solo se siete ancora amici e prima della scadenza)
-        (k.hasOnly(['joined', 'gAcc', 'guestName', 'updated']) && !o.joined && o.left == ''
-          && n.joined == true && n.gAcc == o.ver && shortStr(n.guestName, 30) && shInTime(o) && areFriends(o.owner))
-        // accettare le regole nuove dopo una modifica
-        || (k.hasOnly(['gAcc', 'updated']) && o.joined && shOpen(o) && shInTime(o) && n.gAcc == o.ver)
-        // completare (o annullare) la propria parte: solo dopo aver accettato le regole attuali
-        || (k.hasOnly(['gDone', 'updated']) && o.joined && o.gAcc == o.ver && shOpen(o) && shInTime(o) && okTimeOrNull(n.gDone))
-        // abbandonare: solo dopo aver accettato le regole attuali (prima si può solo accettare o uscire)
-        || (k.hasOnly(['left', 'updated']) && o.joined && o.gAcc == o.ver && shOpen(o) && shInTime(o) && n.left == me())
+      return me() in o.g && (
         // uscire senza fallire: rifiutando l'invito, oppure dopo una modifica non ancora accettata
-        || (k.hasOnly(['guest', 'guestName', 'members', 'joined', 'gAcc', 'gDone', 'updated'])
-          && shOpen(o) && (!o.joined || o.gAcc != o.ver)
-          && n.guest == '' && n.guestName == '' && n.members.size() == 1 && n.members[0] == o.owner
-          && n.joined == false && n.gAcc == 0 && n.gDone == null)
-        // segnare di aver applicato l'esito
-        || (k.hasOnly(['seenG', 'updated']) && n.seenG == true)
+        (k.hasOnly(['g', 'members', 'updated']) && shOpen(o) && (!o.g[me()].j || o.g[me()].a != o.ver)
+          && !(me() in n.g) && n.g.diff(o.g).affectedKeys().hasOnly([me()]) && n.members == o.members.removeAll([me()]))
+        // abbandonare: solo dopo aver accettato le regole attuali; la missione fallisce per tutti
+        || (k.hasOnly(['left', 'updated']) && o.g[me()].j && o.g[me()].a == o.ver && shOpen(o) && shInTime(o) && n.left == me())
+        // tutto il resto cambia solo la propria voce in g
+        || (k.hasOnly(['g', 'updated']) && me() in n.g && n.g.diff(o.g).affectedKeys().hasOnly([me()])
+            && shGuestEntry(o, o.g[me()], n.g[me()], n.g[me()].diff(o.g[me()]).affectedKeys()))
       );
+    }
+    function shGuestEntry(o, e, ne, ek) {
+      // accettare l'invito (solo se siete ancora amici e prima della scadenza)
+      return (ek.hasOnly(['n', 'j', 'a']) && !e.j && shOpen(o) && shInTime(o)
+          && ne.j == true && ne.a == o.ver && shortStr(ne.n, 30) && areFriends(o.owner))
+        // accettare le regole nuove dopo una modifica
+        || (ek.hasOnly(['a']) && e.j && shOpen(o) && shInTime(o) && ne.a == o.ver)
+        // completare (o annullare) la propria parte: solo dopo aver accettato le regole attuali
+        || (ek.hasOnly(['d']) && e.j && e.a == o.ver && shOpen(o) && shInTime(o) && okTimeOrNull(ne.d))
+        // segnare di aver visto l'esito
+        || (ek.hasOnly(['s']) && ne.s == true && shFinal(o));
     }
     function shUpdate() {
       let o = resource.data;
       let n = request.resource.data;
       let k = n.diff(o).affectedKeys();
-      return n.updated is int && (shOwnerUpdate(o, n, k) || shGuestUpdate(o, n, k));
+      return o.v == 2 && n.updated is int && (shOwnerUpdate(o, n, k) || shGuestUpdate(o, n, k));
+    }
+    // eliminare il documento
+    function shDelete(o) {
+      // chi l'ha creata, finché nessun amico ha accettato (inviti annullati, rifiutati o scaduti)
+      return (me() == o.owner && !anyJoined(o))
+        // finita, e l'esito l'hanno visto tutti quelli che dovevano vederlo
+        || (me() in o.members && shFinal(o) && (me() == o.owner || o.seenO) && allSeen(o));
     }
 
     match /shared/{sid} {
       // resource == null: il documento non esiste. Leggerlo non rivela niente e permette all'app di accorgersi
       // che è stato eliminato (altrimenti la lettura viene rifiutata e l'app non lo capisce)
       allow read: if signedIn() && (resource == null || me() in resource.data.members);
-      // solo chi crea la missione, invitando un amico vero; tutto parte da zero
-      allow create: if signedIn() && sid.matches('^s[a-z0-9]{6,30}$')
-        && okShared(request.resource.data)
-        && request.resource.data.owner == me()
-        && request.resource.data.guest != '' && request.resource.data.guest != me()
-        && areFriends(request.resource.data.guest)
-        && request.resource.data.joined == false
-        && request.resource.data.ver == 1 && request.resource.data.gAcc == 0
-        && request.resource.data.oDone == null && request.resource.data.gDone == null
-        && request.resource.data.left == '' && request.resource.data.seenO == false && request.resource.data.seenG == false
-        && shDueOk(request.resource.data);
-      // le modifiche: vedi shUpdate() (owner, created e tutti i campi non elencati non possono cambiare)
+      allow create: if signedIn() && sid.matches('^s[a-z0-9]{6,30}$') && shCreate(request.resource.data);
       allow update: if signedIn() && shUpdate();
-      // si elimina: chi l'ha creata, finché l'amico non ha accettato (invito annullato, o amico uscito);
-      // chiunque dei due, quando entrambi hanno applicato l'esito; chi l'ha creata, se è scaduta mentre
-      // l'amico doveva ancora accettare una modifica (l'amico esce senza fallire)
-      allow delete: if signedIn() && me() in resource.data.members && (
-        (me() == resource.data.owner && !resource.data.joined)
-        || (resource.data.seenO && resource.data.seenG)
-        || (me() == resource.data.owner && resource.data.joined && resource.data.gAcc != resource.data.ver
-            && resource.data.dueAt != null && request.time.toMillis() >= resource.data.dueAt)
-      );
+      allow delete: if signedIn() && shDelete(resource.data);
     }
   }
 }

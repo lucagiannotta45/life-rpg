@@ -811,6 +811,8 @@
     border: 2px solid var(--win-line); border-radius: 8px; background: color-mix(in srgb, var(--win-c) 60%, transparent); }
   .fr-friend:hover { filter: brightness(1.15); }
   .fr-friend:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+  /* amico scelto nella finestra "Invita amici" */
+  .fr-friend[aria-pressed="true"] { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 22%, transparent); }
   .fr-lv { color: var(--gold); white-space: nowrap; }
   /* profilo di un amico: la stessa scheda del Personaggio, in una finestra larga quanto la scheda */
   .modal-win.fp-win { width: min(640px, 100%); }

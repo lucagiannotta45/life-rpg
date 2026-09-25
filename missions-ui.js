@@ -111,8 +111,9 @@
       if (!m.done && !m.failed) grant(m);
       return true;
     }
-    // kind: perché è fallita — 'me' (hai abbandonato tu), 'friend' (ha abbandonato l'amico), oppure scaduta:
-    // 'mine' (mancava la tua parte), 'theirs' (mancava quella dell'amico), 'both' (mancavano tutte e due)
+    // kind: perché è fallita — 'me' (hai abbandonato tu), 'friend' (ha abbandonato un altro), oppure scaduta:
+    // 'mine' (mancava solo la tua parte), 'theirs' / 'theirs_many' (mancava quella di uno / più altri),
+    // 'both' (mancava la tua e quella di altri). name: i nomi da mostrare, già uniti ("Anna e Marco")
     function failShared(m, kind, name) {
       if (!outcomeReady()) return false;
       if (m.done || m.failed) return true;
@@ -356,8 +357,8 @@
       if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
       // missione condivisa già finita: il nome dell'amico è salvato nella missione, perché il documento condiviso
       // a un certo punto viene eliminato (e l'etichetta non deve cambiare in quel momento)
-      else if (m.sid && (m.done || m.failed) && m.shn) card.appendChild(sharedTag(T('sh.tag', { name: m.shn })));
-      else if (shi) card.appendChild(sharedTag(T(shi.invited ? 'sh.tag.invited' : 'sh.tag', { name: shi.name })));
+      else if (m.sid && (m.done || m.failed) && m.shn && m.shn.length) card.appendChild(sharedTag(T('sh.tag', { name: SH().joinNames(m.shn) })));
+      else if (shi) card.appendChild(sharedTag(shi.invited ? T('sh.tag.invited', { name: shi.invitedNames }) : T('sh.tag', { name: shi.name })));
       else if (m.sid) card.appendChild(sharedTag(T('sh.tag.plain')));
       const head = mk('div', 'm-head');
       head.appendChild(mk('h3', 'm-title', m.title));
@@ -374,10 +375,13 @@
       // a che punto è la missione condivisa
       const open = shi && shi.joined && !m.done && !failedNow;
       if (open) {
-        if (shi.pending) card.appendChild(mk('p', 'm-shared warn', T('sh.changed', { name: shi.name })));
-        else if (shi.out === 'wait') card.appendChild(mk('p', 'm-shared', T('sh.checking', { name: shi.name })));
-        else if (shi.myDone) card.appendChild(mk('p', 'm-shared', T('sh.waiting', { name: shi.name })));
-        else if (shi.partnerDone) card.appendChild(mk('p', 'm-shared', T('sh.partner.done', { name: shi.name })));
+        if (shi.pending) card.appendChild(mk('p', 'm-shared warn', T('sh.changed', { name: shi.ownerName })));
+        else if (shi.out === 'wait') card.appendChild(mk('p', 'm-shared', T('sh.checking')));
+        else if (shi.myDone && shi.waitingFor) card.appendChild(mk('p', 'm-shared', T('sh.waiting', { name: shi.waitingFor })));
+        else if (!shi.myDone && shi.doneCount) card.appendChild(mk('p', 'm-shared', TN('sh.partner.done', shi.doneCount, { name: shi.doneNames })));
+        // chi deve ancora accettare le modifiche, e gli inviti senza risposta
+        if (!shi.pending && shi.pendNames && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.pend.others', { name: shi.pendNames })));
+        if (shi.role === 'o' && shi.invitedCount && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.invited.wait', { name: shi.invitedNames })));
       }
       if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
       const msl = starsLine(m.stars);
@@ -427,7 +431,13 @@
             if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }
             act.appendChild(cb);
           }
-          if (shi.role === 'o') act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+          if (shi.role === 'o') {
+            act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+            // altri amici (fino a 3) e inviti senza risposta
+            if (SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
+            // togliere chi non ha risposto (inviti senza risposta e chi è in sospeso): chiede conferma
+            if (shi.removable) act.appendChild(armedBtn('', T('sh.remove.waiting'), T('sh.remove.waiting') + ' ' + m.title, T('sh.remove.confirm'), null, () => SH().cancelInvite(m.id)));
+          }
           // con una modifica da accettare ci sono solo "Accetta" ed "Esci": "Abbandona" torna dopo aver accettato
           if (!shi.pending) act.appendChild(abandonBtn(m));
         }
@@ -437,12 +447,12 @@
         // con un invito in attesa, completarla da solo annulla l'invito: si chiede conferma (secondo tocco)
         const cb = shi && shi.invited
           ? armedBtn(' add', T('btn.complete'), T('aria.complete') + ' ' + m.title, T('sh.solo.aria'),
-            () => missionMsg(T('sh.solo.warn', { name: shi.name }), '', true), () => completeMission(m.id))
+            () => missionMsg(T('sh.solo.warn', { name: shi.invitedNames }), '', true), () => completeMission(m.id))
           : btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
         if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }   // data nel futuro: si completa dal giorno stesso; scaduta: mai più
         act.append(cb, btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+        if (SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
         if (shi && shi.invited) act.appendChild(btn('', T('sh.cancel'), T('sh.cancel'), () => SH().cancelInvite(m.id)));
-        else if (SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
       }
       if (act.childElementCount) card.appendChild(act);   // una routine fallita non ha pulsanti
       return card;
@@ -484,6 +494,7 @@
       card.appendChild(chips(m.rewards));
       if (m.due && hasAny(m.penalty)) card.appendChild(mk('p', 'm-pen', T('m.pen.warn', { loss: lossText(m.penalty) })));
       card.appendChild(mk('p', 'm-shared', T('sh.inv.rule')));
+      if (x.others) card.appendChild(mk('p', 'm-shared', T('sh.inv.others', { name: x.others })));
       const act = mk('div', 'm-actions');
       const b1 = mk('button', 'btn small add', T('sh.inv.accept')); b1.type = 'button';
       b1.setAttribute('aria-label', T('sh.inv.accept') + ' ' + m.title);
