@@ -233,6 +233,9 @@
       if (!serverSeen || !uidOf || uidOf !== me()) return;
       S.missions.forEach(m => { if (m.sid && !m.done && !m.failed && !docs[m.sid]) verifyMissing(m.sid); });
     }
+    // Se il documento c'è ma non ne fai più parte (per esempio ti ha tolto chi l'ha creata), le regole non te lo
+    // lasciano leggere: il server risponde "permesso negato", ed è come se per te non ci fosse più.
+    const notMine = e => e && e.code === 'permission-denied';
     function verifyMissing(sid) {
       if (!online() || (fetching[sid] && Date.now() - fetching[sid] < 30000)) return;
       fetching[sid] = Date.now();
@@ -240,7 +243,10 @@
         if (x.exists || docs[sid]) return;   // c'è: arriva con l'ascolto
         gone(sid);
         MUI().renderMissionViews();
-      }).catch(e => console.warn('shared check', e));
+      }).catch(e => {
+        if (notMine(e) && !docs[sid]) { gone(sid); MUI().renderMissionViews(); return; }
+        console.warn('shared check', e);
+      });
     }
     function dropLocal(L) {
       tombMissions([L]);
@@ -356,7 +362,10 @@
         if (!x.exists) { delete docs[sid]; gone(sid); }
         else docs[sid] = { ...x.data(), _pw: false, _srv: Date.now() };
         saveCache(); evaluate(); MUI().renderMissionViews();
-      }).catch(e => console.warn('shared fetch', e));
+      }).catch(e => {
+        if (notMine(e)) { delete docs[sid]; gone(sid); saveCache(); MUI().renderMissionViews(); return; }
+        console.warn('shared fetch', e);
+      });
     }
 
     /* ---------- quello che serve alle schede delle missioni ---------- */
