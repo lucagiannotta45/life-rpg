@@ -176,7 +176,7 @@ service cloud.firestore {
         && (!resource.data.joined || resource.data.gAcc != resource.data.ver)
         && shOnly(['guest', 'guestName', 'members', 'joined', 'gAcc', 'gDone', 'updated'])
         && request.resource.data.guest == '' && request.resource.data.joined == false
-        && request.resource.data.members == [resource.data.owner]
+        // members: con guest vuoto, okShared richiede già che resti solo chi l'ha creata
         && request.resource.data.gAcc == 0 && request.resource.data.gDone == null;
     }
     // ognuno segna di aver applicato l'esito sul suo dispositivo

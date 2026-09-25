@@ -111,7 +111,9 @@
       if (!m.done && !m.failed) grant(m);
       return true;
     }
-    function failShared(m, why) {
+    // kind: perché è fallita — 'me' (hai abbandonato tu), 'friend' (ha abbandonato l'amico), oppure scaduta:
+    // 'mine' (mancava la tua parte), 'theirs' (mancava quella dell'amico), 'both' (mancavano tutte e due)
+    function failShared(m, kind, name) {
       if (!outcomeReady()) return false;
       if (m.done || m.failed) return true;
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
@@ -123,7 +125,9 @@
       render(true);
       STATS.forEach(s => { if (removed[s.key] > 0) floatText(s.key, '-' + fmt(removed[s.key]), true); });
       renderMissionViews();
-      showPenalties([{ m, removed, why }], before, after, overallOf(before), overallOf(after));
+      // accanto al titolo: chi ha abbandonato; se invece è scaduta, la data della scadenza (come per le altre missioni)
+      const why = kind === 'me' ? T('sh.why.me') : kind === 'friend' ? T('sh.why.friend', { name }) : '';
+      showPenalties([{ m, removed, why, kind, name }], before, after, overallOf(before), overallOf(after));
       return true;
     }
     function undoMission(id) {
@@ -164,7 +168,10 @@
       $('mf-date').focus();
     }
     function showPenalties(list, before, after, ovBefore, ovAfter) {
-      $('pen-sum').textContent = TN('pen.sum', list.length);
+      // il riepilogo dice il motivo vero: abbandono (tuo o dell'amico) oppure scadenza; "hai perso XP" solo se è così
+      const one = list.length === 1 ? list[0] : null;
+      const sum = one && one.kind ? T('pen.sum.' + one.kind, { name: one.name }) : TN('pen.sum', list.length);
+      $('pen-sum').textContent = sum + (list.some(x => hasAny(x.removed)) ? ' ' + T('pen.lost') : '');
       const box = $('pen-list');
       box.textContent = '';
       list.forEach(({ m, removed, why }) => {
@@ -347,6 +354,9 @@
       const shi = m.sid ? SH().info(m) : null;   // missione condivisa: con chi, a che punto
       // etichetta "Routine" (o "Condivisa con…") in cima, sopra il titolo
       if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
+      // missione condivisa già finita: il nome dell'amico è salvato nella missione, perché il documento condiviso
+      // a un certo punto viene eliminato (e l'etichetta non deve cambiare in quel momento)
+      else if (m.sid && (m.done || m.failed) && m.shn) card.appendChild(sharedTag(T('sh.tag', { name: m.shn })));
       else if (shi) card.appendChild(sharedTag(T(shi.invited ? 'sh.tag.invited' : 'sh.tag', { name: shi.name })));
       else if (m.sid) card.appendChild(sharedTag(T('sh.tag.plain')));
       const head = mk('div', 'm-head');
@@ -418,7 +428,7 @@
             act.appendChild(cb);
           }
           if (shi.role === 'o') act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
-          // con una modifica da accettare ci sono solo "Accetto" ed "Esci": "Abbandona" torna dopo aver accettato
+          // con una modifica da accettare ci sono solo "Accetta" ed "Esci": "Abbandona" torna dopo aver accettato
           if (!shi.pending) act.appendChild(abandonBtn(m));
         }
       } else if (m.sid && m.sh === 'g') {

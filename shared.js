@@ -5,7 +5,7 @@
  * - è superata quando la completate entrambi (gli XP arrivano a tutti e due in quel momento);
  * - fallisce per entrambi se uno dei due abbandona, oppure se alla scadenza non l'avete completata tutti e due;
  * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla quando vuole;
- *   se cambia XP, penalità o scadenza, l'amico sceglie "Accetto" oppure "Esco" (uscire così non è un fallimento).
+ *   se cambia XP, penalità o scadenza, l'amico sceglie "Accetta" oppure "Esci" (uscire così non è un fallimento).
  *
  * Come funziona:
  * - su Firebase c'è un documento condiviso, shared/{sid}, che leggono e scrivono solo i due giocatori
@@ -38,6 +38,10 @@
     /* ---------- documenti condivisi: copia in memoria (sul dispositivo non si salva: lsSet la ignora) ---------- */
     // docs: { sid: dati del documento + _srv (ultima volta che il server l'ha confermato) + _pw (scritture in attesa) }
     let docs = {}, uidOf = '', unsub = null, listening = false, serverSeen = false;
+    // Documenti che stai togliendo tu (uscendo, rifiutando, eliminando), con la scrittura non ancora confermata.
+    // Firebase li toglie subito dall'elenco, prima della risposta del server: se poi la rifiuta, ricompaiono.
+    // Trattarli come spariti in quel momento faceva comparire e sparire la missione (o la sua etichetta) di continuo.
+    const leaving = new Set();
     function loadCache(uid) {
       docs = {};
       try {
@@ -118,9 +122,11 @@
     /* ---------- scritture ---------- */
     const ref = sid => S.fbDb.collection('shared').doc(sid);
     const online = () => !!(S.fbUser && S.dbRef && S.fbDb);
+    // un rifiuto delle regole di Firebase (permission-denied) non è un problema di connessione: lo si dice diversamente
+    const errKey = e => (e && e.code === 'permission-denied' ? 'sh.msg.denied' : 'sh.msg.err');
     async function write(job, errText) {
       try { await job(); return true; }
-      catch (e) { console.warn('shared', e); MUI().missionMsg(errText || T('sh.msg.err'), 'bad', true); sfx('err'); return false; }
+      catch (e) { console.warn('shared', e && e.code, e); MUI().missionMsg(errText || T(errKey(e)), 'bad', true); sfx('err'); return false; }
     }
     const update = (sid, data) => ref(sid).update({ ...data, updated: Date.now() });
 
@@ -135,7 +141,7 @@
     function reset() {
       if (unsub) { try { unsub(); } catch (e) { /* ignora */ } }
       unsub = null; listening = false; serverSeen = false;
-      docs = {}; uidOf = '';
+      docs = {}; uidOf = ''; leaving.clear();
       try { localStorage.removeItem(LS_SHARED); } catch (e) { /* ignora */ }
     }
     function onSnap(qs) {
@@ -152,7 +158,7 @@
       // un documento che il server non manda più: eliminato, oppure non ne fai più parte
       if (fromServer) {
         serverSeen = true;
-        Object.keys(docs).forEach(sid => { if (!seen.has(sid)) { delete docs[sid]; gone(sid); } });
+        Object.keys(docs).forEach(sid => { if (!seen.has(sid) && !leaving.has(sid)) { delete docs[sid]; gone(sid); } });
         checkOrphans();
       }
       saveCache();
@@ -163,7 +169,7 @@
     function gone(sid) {
       const L = S.missions.find(m => m.sid === sid);
       if (!L || L.done || L.failed) return;   // le missioni finite restano nella cronologia, con la loro etichetta
-      if (L.sh === 'o') { delete L.sid; delete L.sh; touchMonth(monthOf(L)); }
+      if (L.sh === 'o') { delete L.sid; delete L.sh; delete L.shn; touchMonth(monthOf(L)); }
       else dropLocal(L);
     }
     // Una missione ancora aperta collegata a un documento che qui non è mai arrivato (per esempio arrivata da un altro
@@ -212,7 +218,7 @@
                 if (d.oDone != null && !MUI().grantShared(L)) return;   // la tua parte vale (si riprova se ora non si può)
                 MUI().missionMsg(T('sh.msg.released', { title: L.title }), '');
               }
-              delete L.sid; delete L.sh; touchMonth(monthOf(L));
+              delete L.sid; delete L.sh; delete L.shn; touchMonth(monthOf(L));
               deleteDoc(sid);
             }
           } else if (L && !L.done && !L.failed) dropLocal(L);   // accettazione non andata a buon fine
@@ -224,7 +230,7 @@
           else {
             if (!L.done && !L.failed && d.oDone != null && !MUI().grantShared(L)) return;
             if (!L.done && !L.failed) MUI().missionMsg(T('sh.msg.released', { title: L.title }), '');
-            delete L.sid; delete L.sh; touchMonth(monthOf(L));
+            delete L.sid; delete L.sh; delete L.shn; touchMonth(monthOf(L));
             deleteDoc(sid);
           }
           return;
@@ -234,13 +240,19 @@
         if (!L && (out === 'open' || !d[seenKey])) L = addLocal(sid, d, role);
         if (!L) return;
         if (role === 'g' && !L.done && !L.failed) syncContent(L, d);
+        // il nome dell'amico resta nella missione: serve all'etichetta quando il documento non ci sarà più
+        const pn = String((role === 'o' ? d.guestName : d.ownerName) || '').trim().slice(0, 30);
+        if (d.joined && pn && L.shn !== pn) { L.shn = pn; touchMonth(monthOf(L)); }
         if (out === 'done' && !L.done && !L.failed) {
           if (d._pw) return;   // aspetta che il server confermi
           if (!MUI().grantShared(L)) return;
         } else if (out === 'failed' && !L.done && !L.failed) {
           if (d._pw) return;
-          const who = d.left ? (d.left === me() ? 'me' : 'friend') : 'late';
-          if (!MUI().failShared(L, who === 'me' ? T('sh.why.me') : who === 'friend' ? T('sh.why.friend', { name: partnerName(d) }) : '')) return;
+          // perché è fallita: qualcuno ha abbandonato, oppure alla scadenza mancava la tua parte, quella dell'amico o entrambe
+          const myDone = role === 'o' ? d.oDone != null : d.gDone != null;
+          const partnerDone = role === 'o' ? d.gDone != null : d.oDone != null;
+          const kind = d.left ? (d.left === me() ? 'me' : 'friend') : myDone ? 'theirs' : partnerDone ? 'mine' : 'both';
+          if (!MUI().failShared(L, kind, partnerName(d))) return;
         }
         // esito applicato qui: lo si segna; quando l'hanno segnato entrambi, il documento si elimina
         if ((out === 'done' || out === 'failed') && !d._pw) {
@@ -255,6 +267,8 @@
     const createdOf = d => (Number.isFinite(d.created) && d.created > 0 ? isoDate(new Date(d.created)) : todayStr());
     function addLocal(sid, d, role) {
       const m = { id: sid, ...missionFields(d), created: createdOf(d), done: null, failed: null, sid, sh: role };
+      const pn = String((role === 'o' ? d.guestName : d.ownerName) || '').trim().slice(0, 30);
+      if (pn) m.shn = pn;
       if (S.missions.some(x => x.id === sid)) return null;
       S.missions.push(m);
       touchMonth(monthOf(m));
@@ -266,9 +280,14 @@
       Object.assign(L, f);
       touchMonth(monthOf(L));
     }
+    // La chiamano tutti e due i giocatori, e a ogni aggiornamento: si prova una volta sola alla volta.
+    // Se l'altro l'ha già eliminato, il server rifiuta: non importa, il documento sparisce comunque con l'ascolto.
     function deleteDoc(sid) {
-      if (!online()) return;
-      ref(sid).delete().catch(e => console.warn('shared delete', e));
+      if (!online() || leaving.has(sid)) return;
+      leaving.add(sid);
+      ref(sid).delete()
+        .then(() => { leaving.delete(sid); if (docs[sid]) { delete docs[sid]; gone(sid); saveCache(); MUI().renderMissionViews(); } })
+        .catch(e => { leaving.delete(sid); console.warn('shared delete', e && e.code, e); });
     }
     // dopo la scadenza si chiede al server lo stato vero (al massimo ogni 30 secondi per documento)
     function refetch(sid, d) {
@@ -380,7 +399,7 @@
       try { await update(sid, data); return true; }
       catch (e) {
         console.warn('shared', e);
-        let why = 'sh.msg.err';
+        let why = errKey(e);
         try {
           const x = await ref(sid).get({ source: 'server' });
           if (x.exists) {
@@ -405,9 +424,13 @@
       const m = byId(id), d = docOf(m);
       // senza rete Firebase non conferma finché la connessione non torna: la scelta resterebbe "sospesa"
       if (!m || !d || !online() || !navigator.onLine) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      if (!(await write(() => update(m.sid, leaveData(d))))) return;
-      delete docs[m.sid]; saveCache();
-      dropLocal(m);
+      const sid = m.sid;
+      leaving.add(sid);
+      const ok = await acceptVersion(sid, leaveData(d), d.ver);
+      leaving.delete(sid);
+      if (!ok) return;
+      delete docs[sid]; saveCache();
+      if (S.missions.includes(m)) dropLocal(m);
       sfx('close');
       MUI().missionMsg(T('sh.msg.exit', { title: m.title }), '');
       MUI().renderMissionViews();
@@ -417,9 +440,12 @@
       if (!m || !m.sid) return;
       const sid = m.sid;
       if (!online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      if (!(await write(() => ref(sid).delete()))) return;
+      leaving.add(sid);
+      const ok = await write(() => ref(sid).delete());
+      leaving.delete(sid);
+      if (!ok) return;
       delete docs[sid]; saveCache();
-      delete m.sid; delete m.sh;
+      delete m.sid; delete m.sh; delete m.shn;
       touchMonth(monthOf(m));
       sfx('close');
       MUI().renderMissionViews();
@@ -443,12 +469,14 @@
     async function declineInvite(sid) {
       const d = docs[sid];
       if (!d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      try { await update(sid, leaveData(d)); }
+      leaving.add(sid);
+      try { await update(sid, leaveData(d)); leaving.delete(sid); }
       catch (e) {
+        leaving.delete(sid);
         // se l'invito nel frattempo è stato annullato, rifiutarlo non serve più: sparisce e basta
         let gone = false;
         try { gone = !(await ref(sid).get({ source: 'server' })).exists; } catch (e2) { /* senza rete */ }
-        if (!gone) { console.warn('shared', e); MUI().missionMsg(T('sh.msg.err'), 'bad', true); sfx('err'); return; }
+        if (!gone) { console.warn('shared', e && e.code, e); MUI().missionMsg(T(errKey(e)), 'bad', true); sfx('err'); return; }
       }
       delete docs[sid]; saveCache();
       sfx('close');
