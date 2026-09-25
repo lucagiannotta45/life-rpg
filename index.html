@@ -512,6 +512,18 @@
   </div>
 </div>
 
+<!-- patto d'onore: solo al primissimo avvio di un account nuovo (r.d assente in cloud.js), una volta sola -->
+<div class="modal pact" id="pact" role="dialog" aria-modal="true" aria-labelledby="pact-title" aria-describedby="pact-text" hidden>
+  <div class="win modal-win">
+    <img class="pact-icon" src="icon-512.png" alt="" width="160" height="160">
+    <h2 class="win-title" id="pact-title" data-i18n="pact.title">Il patto</h2>
+    <p id="pact-text" data-i18n="pact.text">Questo gioco funziona sulla fiducia: riflette solo quello che fai davvero. Nessuno controlla, nessuno giudica — ma anche il gioco vale solo quanto vale la tua onestà con te stesso.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="pact-ok" data-i18n="pact.btn">Giuro</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="pmodal" hidden>
   <div class="win modal-win wide" role="alertdialog" aria-modal="true" aria-labelledby="t-pen" aria-describedby="pen-sum">
     <h2 class="win-title" id="t-pen" data-i18n="pen.title">Missioni fallite</h2>

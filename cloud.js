@@ -377,6 +377,7 @@
       startListening();
       renderInfo();
       paintGate();
+      if (!r.d) showPact();   // niente documento salvato finora: primo avvio in assoluto per questo account
       if (ST.fbUser) { schedulePublish(true); checkFriendRequests(); sharedStart(); }
       // da qui le penalità (e l'esito delle missioni condivise) si possono applicare: i dati sono quelli dell'account
       MUI.setPenaltyReady();
@@ -402,7 +403,26 @@
           .catch(() => {}).then(() => location.reload());
       }
     }
-    let fbReady = false, gateOffline = false, gateErr = '';
+    let fbReady = false, gateOffline = false, gateErr = '', pactShown = false;
+    // il patto: solo la primissima volta che l'account esiste (r.d assente, vedi cloudFetch), una volta sola per sessione.
+    // Non serve nessun flag salvato: appena i dati si scrivono la prima volta, r.d smette di essere vuoto per sempre.
+    function showPact() {
+      const pact = $('pact');
+      if (pactShown || !pact) return;
+      pactShown = true;
+      pact.hidden = false;
+      appEl.inert = true;
+      appEl.setAttribute('aria-hidden', 'true');
+      $('pact-ok').focus();
+    }
+    if ($('pact')) {
+      $('pact-ok').addEventListener('click', () => {
+        $('pact').hidden = true;
+        appEl.inert = !!gate && gate.hidden === false;   // resta inerte solo se la schermata di accesso è ancora aperta
+        if (!appEl.inert) appEl.removeAttribute('aria-hidden');
+        sfx('ok');
+      });
+    }
     function paintGate() {
       if (!gate) return;   // pagina di una versione precedente, senza schermata di accesso
       const open = !ST.dbRef;
