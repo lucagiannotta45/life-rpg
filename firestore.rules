@@ -1,0 +1,217 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function pairId(a, b) { return a < b ? a + '_' + b : b + '_' + a; }
+    function areFriends(other) {
+      let p = /databases/$(database)/documents/friendships/$(pairId(me(), other));
+      return exists(p) && get(p).data.status == 'accepted';
+    }
+    function shortStr(v, max) { return v is string && v.size() <= max; }
+
+    // NUOVO: controlli sul contenuto del profilo pubblico
+    // XP di una statistica: numero intero tra 0 e il massimo del gioco (MAX_XP in game.js)
+    function isXp(v) { return v is int && v >= 0 && v <= 100000; }
+    // le sei statistiche, ognuna con un valore di XP valido
+    function okStats(s) {
+      return s is map
+        && s.keys().hasOnly(['Vigore', 'Vitalita', 'Intelletto', 'Creativita', 'Animo', 'Legami'])
+        && isXp(s.get('Vigore', 0)) && isXp(s.get('Vitalita', 0)) && isXp(s.get('Intelletto', 0))
+        && isXp(s.get('Creativita', 0)) && isXp(s.get('Animo', 0)) && isXp(s.get('Legami', 0));
+    }
+    // aspetto condiviso con gli amici: sfondo sì/no, impronta dello sfondo, lingua e fino a cinque colori (#rrggbb)
+    function okLook(l) {
+      return l is map
+        && l.keys().hasOnly(['bg', 'bgId', 'lang', 'winColor', 'inkColor', 'softColor', 'accentColor', 'nameColor'])
+        && l.get('bg', false) is bool
+        && shortStr(l.get('bgId', ''), 64) && shortStr(l.get('lang', ''), 10)
+        && shortStr(l.get('winColor', ''), 7) && shortStr(l.get('inkColor', ''), 7) && shortStr(l.get('softColor', ''), 7)
+        && shortStr(l.get('accentColor', ''), 7) && shortStr(l.get('nameColor', ''), 7);
+    }
+
+    // dati privati (progressi, impostazioni, missioni, immagini): solo il proprietario
+    match /users/{uid}/{doc=**} {
+      allow read, write: if signedIn() && me() == uid;
+    }
+
+    // profilo pubblico: lo vedono solo il proprietario e i suoi amici
+    match /profiles/{uid} {
+      allow read: if signedIn() && (me() == uid || areFriends(uid));
+      // NUOVO: si controlla anche il CONTENUTO di stats e look (non solo quanti campi hanno),
+      // così nessuno può gonfiare il profilo che scaricano gli amici
+      allow create, update: if signedIn() && me() == uid
+        && request.resource.data.keys().hasOnly(['name', 'level', 'title', 'stats', 'look', 'code', 'updated'])
+        && shortStr(request.resource.data.name, 30)
+        && request.resource.data.level is int && request.resource.data.level >= 0 && request.resource.data.level <= 100
+        && (!('stats' in request.resource.data) || okStats(request.resource.data.stats))
+        && (!('look' in request.resource.data) || okLook(request.resource.data.look))
+        && (!('code' in request.resource.data) || shortStr(request.resource.data.code, 12))
+        && (!('title' in request.resource.data) || shortStr(request.resource.data.title, 60))
+        && (!('updated' in request.resource.data) || request.resource.data.updated is int);
+      // NUOVO: il proprietario può cancellare il proprio profilo (prima era impossibile)
+      allow delete: if signedIn() && me() == uid;
+    }
+
+    // sfondo condiviso (facoltativo): come il profilo, solo il proprietario e i suoi amici
+    match /profileBg/{uid} {
+      allow read: if signedIn() && (me() == uid || areFriends(uid));
+      allow create, update: if signedIn() && me() == uid
+        && request.resource.data.keys().hasOnly(['data', 'updated'])
+        && request.resource.data.data is string && request.resource.data.data.size() < 400000;
+      allow delete: if signedIn() && me() == uid;
+    }
+
+    // codici amico: si può cercare un codice preciso, ma non elencarli tutti.
+    // Solo creazione (mai modifica): è così che l'app si accorge che un codice è già preso.
+    match /friendCodes/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid'])          // niente campi estranei
+        && request.resource.data.uid == me()
+        && code.matches('^[A-HJ-NP-Z2-9]{8}$');                   // solo codici nel formato dell'app
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
+    // amicizie: richiesta "in attesa", accettata solo dall'altra persona
+    match /friendships/{pid} {
+      allow read: if signedIn() && me() in resource.data.members;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['members', 'requestedBy', 'status', 'created', 'fromName', 'fromCode', 'toCode'])
+        && request.resource.data.requestedBy == me()
+        && request.resource.data.members.size() == 2
+        && request.resource.data.members[0] != request.resource.data.members[1]                                                    // niente amicizia con sé stessi
+        && me() in request.resource.data.members
+        && request.resource.data.status == 'pending'
+        && pid == pairId(request.resource.data.members[0], request.resource.data.members[1])
+        && (!('fromName' in request.resource.data) || shortStr(request.resource.data.fromName, 30))                               // il nome del mittente
+        && (!('fromCode' in request.resource.data) || shortStr(request.resource.data.fromCode, 12))                               // resta corto
+        && (!('toCode' in request.resource.data) || shortStr(request.resource.data.toCode, 12));
+      allow update: if signedIn()
+        && resource.data.status == 'pending'
+        && me() in resource.data.members && me() != resource.data.requestedBy
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'accepted';
+      allow delete: if signedIn() && me() in resource.data.members;
+    }
+
+    // ---------- missioni condivise tra due amici (shared.js) ----------
+    // Un documento per missione: lo leggono e scrivono solo chi l'ha creata (owner) e l'amico (guest).
+    // Ognuno può cambiare solo la sua parte; nessuno può completare dopo la scadenza (conta l'ora del server).
+    function okTimeOrNull(v) { return v == null || v is int; }
+    function okDateOrNull(v) { return v == null || (v is string && v.size() == 10); }
+    function okClockOrNull(v) { return v == null || (v is string && v.size() == 5); }
+    function okStars(s) {
+      return s == null || (s is map && s.keys().hasOnly(['d', 'f']) && s.d is int && s.f is int
+        && s.d >= 1 && s.d <= 5 && s.f >= 1 && s.f <= 5);
+    }
+    function sharedKeys() {
+      return ['owner', 'ownerName', 'guest', 'guestName', 'members', 'joined', 'title', 'desc', 'rewards', 'penalty', 'stars',
+              'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime', 'ver', 'gAcc', 'oDone', 'gDone', 'left',
+              'seenO', 'seenG', 'created', 'updated'];
+    }
+    // il contenuto: tutti i campi (e solo quelli), ognuno del tipo giusto
+    function okShared(d) {
+      return d.keys().hasOnly(sharedKeys()) && d.keys().hasAll(sharedKeys())
+        && d.owner is string && d.guest is string
+        && shortStr(d.ownerName, 30) && shortStr(d.guestName, 30)
+        && d.members is list && d.members[0] == d.owner
+        && (d.guest == '' ? d.members.size() == 1 : (d.members.size() == 2 && d.members[1] == d.guest))
+        && d.joined is bool
+        && shortStr(d.title, 60) && d.title.size() > 0 && shortStr(d.desc, 500)
+        && okStats(d.rewards) && okStats(d.penalty) && okStars(d.stars)
+        && okTimeOrNull(d.dueAt) && okTimeOrNull(d.fromAt) && shortStr(d.tz, 64)
+        && okDateOrNull(d.oDue) && okClockOrNull(d.oDueTime) && okDateOrNull(d.oFrom) && okClockOrNull(d.oFromTime)
+        && d.ver is int && d.ver >= 1 && d.gAcc is int && d.gAcc >= 0 && d.gAcc <= d.ver
+        && okTimeOrNull(d.oDone) && okTimeOrNull(d.gDone)
+        && d.left is string && d.seenO is bool && d.seenG is bool
+        && d.created is int && d.updated is int;
+    }
+    // la missione non è ancora finita: nessuno ha abbandonato e non l'hanno ancora completata entrambi
+    function shOpen(o) { return o.left == '' && !(o.oDone != null && o.gDone != null && o.gAcc == o.ver); }
+    // prima della scadenza (se c'è), con l'ora del server
+    function shInTime(o) { return o.dueAt == null || request.time.toMillis() < o.dueAt; }
+    // scadenza nuova: assente oppure ancora nel futuro (con l'ora del server)
+    function shDueOk(d) { return d.dueAt == null || d.dueAt > request.time.toMillis(); }
+    function shOnly(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    function shRulesChanged() { return request.resource.data.diff(resource.data).affectedKeys().hasAny(['rewards', 'penalty', 'dueAt']); }
+    // chi l'ha creata la modifica; se cambiano XP, penalità o scadenza la versione sale di uno (l'amico dovrà riaccettare)
+    function shOwnerEdit() {
+      return me() == resource.data.owner && shOpen(resource.data) && shInTime(resource.data)
+        && shOnly(['title', 'desc', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime',
+                   'ver', 'ownerName', 'updated'])
+        && shDueOk(request.resource.data)
+        && (shRulesChanged() ? request.resource.data.ver == resource.data.ver + 1
+                             : (request.resource.data.ver == resource.data.ver || request.resource.data.ver == resource.data.ver + 1));
+    }
+    // completare (o annullare) la propria parte; l'amico solo dopo aver accettato le regole attuali
+    function shPart() {
+      return shOpen(resource.data) && shInTime(resource.data)
+        && ((me() == resource.data.owner && shOnly(['oDone', 'updated']))
+          || (me() == resource.data.guest && resource.data.joined && resource.data.gAcc == resource.data.ver && shOnly(['gDone', 'updated'])));
+    }
+    // l'amico accetta l'invito (solo se siete ancora amici e prima della scadenza)
+    function shAcceptInvite() {
+      return me() == resource.data.guest && !resource.data.joined && resource.data.left == ''
+        && areFriends(resource.data.owner) && shInTime(resource.data)
+        && shOnly(['joined', 'gAcc', 'guestName', 'updated'])
+        && request.resource.data.joined == true && request.resource.data.gAcc == resource.data.ver;
+    }
+    // l'amico accetta le regole nuove
+    function shAcceptChange() {
+      return me() == resource.data.guest && resource.data.joined && shOpen(resource.data) && shInTime(resource.data)
+        && shOnly(['gAcc', 'updated']) && request.resource.data.gAcc == resource.data.ver;
+    }
+    // uno dei due abbandona: la missione fallisce per entrambi.
+    // L'amico può abbandonare solo dopo aver accettato le regole attuali (prima può solo accettare o uscire)
+    function shLeave() {
+      return me() in resource.data.members && resource.data.joined && shOpen(resource.data) && shInTime(resource.data)
+        && (me() != resource.data.guest || resource.data.gAcc == resource.data.ver)
+        && shOnly(['left', 'updated']) && request.resource.data.left == me();
+    }
+    // l'amico rifiuta l'invito, oppure esce dopo una modifica non ancora accettata: senza fallire
+    function shExit() {
+      return me() == resource.data.guest && shOpen(resource.data)
+        && (!resource.data.joined || resource.data.gAcc != resource.data.ver)
+        && shOnly(['guest', 'guestName', 'members', 'joined', 'gAcc', 'gDone', 'updated'])
+        && request.resource.data.guest == '' && request.resource.data.joined == false
+        && request.resource.data.members == [resource.data.owner]
+        && request.resource.data.gAcc == 0 && request.resource.data.gDone == null;
+    }
+    // ognuno segna di aver applicato l'esito sul suo dispositivo
+    function shSeen() {
+      return (me() == resource.data.owner && shOnly(['seenO', 'updated']) && request.resource.data.seenO == true)
+        || (me() == resource.data.guest && shOnly(['seenG', 'updated']) && request.resource.data.seenG == true);
+    }
+
+    match /shared/{sid} {
+      // resource == null: il documento non esiste. Leggerlo non rivela niente e permette all'app di accorgersi
+      // che è stato eliminato (altrimenti la lettura viene rifiutata e l'app non lo capisce)
+      allow read: if signedIn() && (resource == null || me() in resource.data.members);
+      // solo chi crea la missione, invitando un amico vero; tutto parte da zero
+      allow create: if signedIn() && sid.matches('^s[a-z0-9]{6,30}$')
+        && okShared(request.resource.data)
+        && request.resource.data.owner == me()
+        && request.resource.data.guest != '' && request.resource.data.guest != me()
+        && areFriends(request.resource.data.guest)
+        && request.resource.data.joined == false
+        && request.resource.data.ver == 1 && request.resource.data.gAcc == 0
+        && request.resource.data.oDone == null && request.resource.data.gDone == null
+        && request.resource.data.left == '' && request.resource.data.seenO == false && request.resource.data.seenG == false
+        && shDueOk(request.resource.data);
+      allow update: if signedIn() && okShared(request.resource.data)
+        && request.resource.data.owner == resource.data.owner
+        && request.resource.data.created == resource.data.created
+        && (shOwnerEdit() || shPart() || shAcceptInvite() || shAcceptChange() || shLeave() || shExit() || shSeen());
+      // si elimina: chi l'ha creata, finché l'amico non ha accettato (invito annullato, o amico uscito);
+      // chiunque dei due, quando entrambi hanno applicato l'esito; chi l'ha creata, se è scaduta mentre
+      // l'amico doveva ancora accettare una modifica (l'amico esce senza fallire)
+      allow delete: if signedIn() && me() in resource.data.members && (
+        (me() == resource.data.owner && !resource.data.joined)
+        || (resource.data.seenO && resource.data.seenG)
+        || (me() == resource.data.owner && resource.data.joined && resource.data.gAcc != resource.data.ver
+            && resource.data.dueAt != null && request.time.toMillis() >= resource.data.dueAt)
+      );
+    }
+  }
+}

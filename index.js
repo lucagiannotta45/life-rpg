@@ -235,6 +235,7 @@
   }
   // salva l'immagine n (quella in `imgs`); risolve true se è stata scritta da qualche parte, false se no
   function saveImgLocal(n) {
+    if (storageLocked) return Promise.resolve(true);
     const v = imgs[n] || null;
     return (v ? idbPut(n, v) : idbDel(n)).then(
       () => { lsSet(LS_IMG + n, null); return true; },     // ora è in IndexedDB: la copia vecchia si toglie
@@ -310,7 +311,9 @@
   };
   const setSaveState = k => { saveKind = k; paintSaveState(); };
   // scrive in localStorage (value null = cancella); se non ci riesce lo segnala invece di ignorarlo
+  let storageLocked = false;   // dopo l'uscita dall'account: i dati sono stati tolti e non si riscrive più niente
   function lsSet(key, value) {
+    if (storageLocked) return true;
     let ok = true;
     try { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch (e) { ok = false; }
     if (storageOk) {
@@ -377,6 +380,32 @@
   }
   function linkedUidRaw() { try { return localStorage.getItem(LS_ACC) || ''; } catch (e) { return ''; } }
   function saveSync() { lsSet(LS_SYNC, JSON.stringify(sync)); }
+  // Uscendo dall'account i dati non restano sul dispositivo: si tolgono progressi, missioni, routine,
+  // impostazioni, immagini, stato della sincronizzazione, missioni condivise e sfondi degli amici.
+  // Restano solo le preferenze del dispositivo (lingua, suoni, musica). Dopo si ricarica la pagina.
+  async function wipeLocalData() {
+    const keepLang = settings.lang;
+    [LS_KEY, LS_MIS, LS_ROU, LS_SYNC, LS_ACC, 'liferpg:shared:v1', ...IMG_NAMES.map(n => LS_IMG + n)].forEach(k => lsSet(k, null));
+    lsSet(LS_SET, JSON.stringify({ lang: keepLang }));
+    storageLocked = true;   // da qui in poi nessun salvataggio rimette i dati sul dispositivo
+    const clearStore = (name, store) => new Promise(res => {
+      if (!window.indexedDB) { res(); return; }
+      let r;
+      try { r = indexedDB.open(name); } catch (e) { res(); return; }
+      r.onerror = r.onblocked = () => res();
+      r.onsuccess = () => {
+        const db = r.result;
+        if (!db.objectStoreNames.contains(store)) { db.close(); res(); return; }
+        try {
+          const tx = db.transaction(store, 'readwrite');
+          tx.objectStore(store).clear();
+          tx.oncomplete = tx.onerror = tx.onabort = () => { db.close(); res(); };
+        } catch (e) { db.close(); res(); }
+      };
+    });
+    const timeout = new Promise(res => setTimeout(res, 3000));
+    await Promise.race([Promise.all([clearStore(IDB_NAME, IDB_STORE), clearStore('liferpg-friends', 'bg')]), timeout]);
+  }
   let sync = loadSync();
   saveSync();
   let xpAbs = 0;            // diverso da 0: gli XP vanno scritti così come sono (backup importato, "Azzera tutto", scelta "questo dispositivo")
@@ -887,6 +916,8 @@
     });
     return mergeMonth(ym, normalizeMissions(out.items), out.del);
   }
+  // true mentre si stanno mandando all'account missioni o immagini
+  const syncBusy = () => monthBusy || imgBusy;
   async function flushMissions() {
     if (!dbRef || monthBusy) return;
     monthBusy = true;
@@ -1158,6 +1189,7 @@
     routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
     applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
     renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC, sharedStart, sharedReset,
+    wipeLocalData, syncBusy,
   }, {
     get settings() { return settings; }, set settings(v) { settings = v; },
     get settingsTouched() { return settingsTouched; }, set settingsTouched(v) { settingsTouched = v; },

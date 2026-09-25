@@ -55,6 +55,9 @@
     // 'invite' (non ancora accettata), 'open', 'done', 'failed', 'release' (scaduta mentre l'amico doveva
     // ancora accettare una modifica: esce senza fallire), 'wait' (scaduta: si aspetta la conferma del server)
     const isPending = d => d.joined && d.gAcc !== d.ver;
+    // margine per gli orologi dei dispositivi non perfettamente giusti: il fallimento per scadenza si decide
+    // solo con dati del server arrivati almeno 2 minuti dopo la scadenza (secondo l'orologio di qui)
+    const CLOCK_SKEW = 120000;
     const bothDone = d => d.oDone != null && d.gDone != null;
     function outcome(d, now = Date.now()) {
       if (!d.joined) return 'invite';
@@ -64,7 +67,7 @@
         if (isPending(d)) return 'release';
         // il fallimento per scadenza si decide solo con dati del server arrivati dopo la scadenza:
         // un completamento dell'amico fatto in tempo potrebbe non essere ancora arrivato qui
-        return (d._srv || 0) >= d.dueAt && !d._pw ? 'failed' : 'wait';
+        return (d._srv || 0) >= d.dueAt + CLOCK_SKEW && !d._pw ? 'failed' : 'wait';
       }
       return 'open';
     }
@@ -106,7 +109,11 @@
       };
     }
     const RULE_KEYS = ['rewards', 'penalty', 'dueAt'];   // cambiandoli, l'amico deve accettare di nuovo
-    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    // confronto che non dipende dall'ordine delle chiavi: Firebase restituisce le mappe (rewards, penalty...)
+    // con le chiavi in ordine alfabetico, mentre qui sono nell'ordine delle statistiche
+    const sortKeys = v => Array.isArray(v) ? v.map(sortKeys)
+      : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sortKeys(v[k])])) : v;
+    const same = (a, b) => JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
 
     /* ---------- scritture ---------- */
     const ref = sid => S.fbDb.collection('shared').doc(sid);
@@ -146,6 +153,7 @@
       if (fromServer) {
         serverSeen = true;
         Object.keys(docs).forEach(sid => { if (!seen.has(sid)) { delete docs[sid]; gone(sid); } });
+        checkOrphans();
       }
       saveCache();
       evaluate();
@@ -157,6 +165,22 @@
       if (!L || L.done || L.failed) return;   // le missioni finite restano nella cronologia, con la loro etichetta
       if (L.sh === 'o') { delete L.sid; delete L.sh; touchMonth(monthOf(L)); }
       else dropLocal(L);
+    }
+    // Una missione ancora aperta collegata a un documento che qui non è mai arrivato (per esempio arrivata da un altro
+    // dispositivo dopo che il documento era stato eliminato) resterebbe bloccata: non si completa, non fallisce e
+    // non si elimina. Si chiede al server: se il documento non c'è davvero, la si sistema come per gone().
+    function checkOrphans() {
+      if (!serverSeen || !uidOf || uidOf !== me()) return;
+      S.missions.forEach(m => { if (m.sid && !m.done && !m.failed && !docs[m.sid]) verifyMissing(m.sid); });
+    }
+    function verifyMissing(sid) {
+      if (!online() || (fetching[sid] && Date.now() - fetching[sid] < 30000)) return;
+      fetching[sid] = Date.now();
+      ref(sid).get({ source: 'server' }).then(x => {
+        if (x.exists || docs[sid]) return;   // c'è: arriva con l'ascolto
+        gone(sid);
+        MUI().renderMissionViews();
+      }).catch(e => console.warn('shared check', e));
     }
     function dropLocal(L) {
       tombMissions([L]);
@@ -171,6 +195,7 @@
     function evaluate() {
       if (!uidOf || uidOf !== me()) return;
       const now = Date.now();
+      checkOrphans();
       Object.entries(docs).forEach(([sid, d]) => {
         const role = roleOf(d);
         let L = S.missions.find(m => m.sid === sid);
@@ -224,8 +249,12 @@
         }
       });
     }
+    // "created" decide in quale documento mensile finisce la missione: lo si ricava dal documento condiviso,
+    // così tutti i tuoi dispositivi la mettono nello stesso mese (con todayStr() due dispositivi a cavallo
+    // della fine del mese creerebbero due copie con lo stesso id in due mesi diversi)
+    const createdOf = d => (Number.isFinite(d.created) && d.created > 0 ? isoDate(new Date(d.created)) : todayStr());
     function addLocal(sid, d, role) {
-      const m = { id: sid, ...missionFields(d), created: todayStr(), done: null, failed: null, sid, sh: role };
+      const m = { id: sid, ...missionFields(d), created: createdOf(d), done: null, failed: null, sid, sh: role };
       if (S.missions.some(x => x.id === sid)) return null;
       S.missions.push(m);
       touchMonth(monthOf(m));
@@ -340,7 +369,8 @@
     }
     async function acceptChange(id) {
       const m = byId(id), d = docOf(m);
-      if (!m || !d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
+      // senza rete Firebase non conferma finché la connessione non torna: la scelta resterebbe "sospesa"
+      if (!m || !d || !online() || !navigator.onLine) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
       if (await acceptVersion(m.sid, { gAcc: d.ver }, d.ver)) { sfx('ok'); MUI().missionMsg(T('sh.msg.accepted.change', { title: m.title }), 'good'); }
     }
     // Accettare vale solo per l'ultima versione della missione (lo controllano le regole di Firebase).
@@ -373,7 +403,8 @@
     const leaveData = d => ({ guest: '', guestName: '', members: [d.owner], joined: false, gAcc: 0, gDone: null });
     async function exitChange(id) {
       const m = byId(id), d = docOf(m);
-      if (!m || !d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
+      // senza rete Firebase non conferma finché la connessione non torna: la scelta resterebbe "sospesa"
+      if (!m || !d || !online() || !navigator.onLine) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
       if (!(await write(() => update(m.sid, leaveData(d))))) return;
       delete docs[m.sid]; saveCache();
       dropLocal(m);
@@ -453,6 +484,8 @@
     async function sendInvite(id, f) {
       const m = byId(id);
       if (!m || !canInvite(m)) { shMsg(T('sh.err.cannot'), 'bad'); sfx('err'); return; }
+      // senza rete Firebase non conferma la scrittura finché la connessione non torna: meglio dirlo subito
+      if (!navigator.onLine) { shMsg(T('fr.offline'), 'bad'); sfx('err'); return; }
       const sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       const now = Date.now();
       const data = {
@@ -471,7 +504,7 @@
       }
       saveCache();
       touchMonth(monthOf(m));
-      closeModal();
+      if (!shmodal.hidden) closeModal();   // se nel frattempo l'hai chiusa (o ne hai aperta un'altra) non si tocca niente
       sfx('ok');
       MUI().missionMsg(T('sh.msg.sent', { name: f.name || T('fr.noname') }), 'good');
       MUI().renderMissionViews();

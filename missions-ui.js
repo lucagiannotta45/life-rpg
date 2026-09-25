@@ -418,7 +418,8 @@
             act.appendChild(cb);
           }
           if (shi.role === 'o') act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
-          act.appendChild(abandonBtn(m));
+          // con una modifica da accettare ci sono solo "Accetto" ed "Esci": "Abbandona" torna dopo aver accettato
+          if (!shi.pending) act.appendChild(abandonBtn(m));
         }
       } else if (m.sid && m.sh === 'g') {
         // sei l'invitato, ma le informazioni sulla missione non sono ancora arrivate: niente pulsanti per ora

@@ -26,6 +26,7 @@
       routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
       applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
       renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC, sharedStart, sharedReset,
+      wipeLocalData, syncBusy,
     } = D;
 
     function stampRoutines() {
@@ -472,11 +473,13 @@
       return cloudJob;
     }
     // quando torna la rete o torni sull'app: ci si collega (se non lo si era) e si manda ciò che era rimasto indietro
-    window.addEventListener('online', () => { fbConnect(); syncKick(); });
+    // (anche l'ascolto delle missioni condivise riparte, se si era interrotto per un errore)
+    window.addEventListener('online', () => { fbConnect(); syncKick(); if (ST.dbRef && ST.fbUser) sharedStart(); });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) return;
       fbConnect();
       syncKick();
+      if (ST.dbRef && ST.fbUser) sharedStart();
     });
 
     // riquadro "Account" nella scheda Dati delle impostazioni
@@ -514,19 +517,61 @@
       }
       ST.accBusy = false; paintAccount();
     });
+    // Uscire: i dati stanno solo nell'account, quindi prima si manda ciò che manca e poi si tolgono da questo dispositivo.
+    // C'è ancora qualcosa da mandare all'account?
+    const unsynced = () => {
+      if (!ST.dbRef) return true;   // account mai raggiunto in questa sessione: le modifiche fatte qui potrebbero non esserci
+      absorbLocal();
+      return userDirty || ST.writing || ST.again || monthQueue.size > 0 || imgQueue.size > 0 || syncBusy() || hasPend();
+    };
+    // manda tutto e aspetta (al massimo ms millisecondi); true se alla fine l'account ha tutto
+    async function waitSynced(ms) {
+      if (!ST.dbRef) return false;
+      const end = Date.now() + ms;
+      let kick = 0;
+      while (Date.now() < end) {
+        if (Date.now() >= kick) {   // si rilancia l'invio ogni 2 secondi, non di continuo
+          kick = Date.now() + 2000;
+          clearTimeout(retryT);
+          if (!ST.writing) flush();
+          if (monthQueue.size) flushMissions();
+          if (imgQueue.size) flushImgs();
+        }
+        await new Promise(r => setTimeout(r, 250));
+        if (!unsynced()) return true;
+      }
+      return !unsynced();
+    }
+    let outArmed = 0;   // secondo tocco su "Esci" entro 10 secondi: si esce anche senza aver mandato tutto
     $('acc-out').addEventListener('click', async () => {
       if (ST.accBusy || !ST.fbAuth) return;
+      const force = Date.now() < outArmed;
+      outArmed = 0;
       ST.accBusy = true; paintAccount();
-      try { await ST.fbAuth.signOut(); } catch (e) { console.warn('auth', e); }
+      if (!force) {
+        accMsg(T('acc.out.saving'));
+        if (!(await waitSynced(8000))) {
+          outArmed = Date.now() + 10000;
+          accMsg(T('acc.out.unsaved'));
+          sfx('err');
+          ST.accBusy = false; paintAccount();
+          return;
+        }
+      }
+      try { await ST.fbAuth.signOut(); }
+      catch (e) { console.warn('auth', e); accMsg(T('acc.out.err')); ST.accBusy = false; paintAccount(); return; }
       markSigned(false);
       stopListening();
+      clearTimeout(retryT);
       ST.fbUser = null; ST.dbRef = null;
       friendsReset();
       sharedReset();
-      setSaveState('local');
-      accMsg(T('acc.bye'));
-      ST.accBusy = false; paintAccount(); renderInfo();
+      await wipeLocalData();
+      try { sessionStorage.setItem('liferpg:bye', '1'); } catch (e) { /* ignora */ }
+      location.reload();   // si riparte da zero: in memoria non resta niente dell'account
     });
+    // dopo il ricaricamento seguito all'uscita: lo si dice nel riquadro Account
+    try { if (sessionStorage.getItem('liferpg:bye')) { sessionStorage.removeItem('liferpg:bye'); accMsg(T('acc.bye')); } } catch (e) { /* ignora */ }
     async function initCloud() {
       try { await initCloudInner(); }
       finally { MUI.setPenaltyReady(); checkPenalties(); }
