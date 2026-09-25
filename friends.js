@@ -80,7 +80,8 @@
         const code = await ensureCode();
         const bg = S.settings.shareBg && imgs.bg && imgs.bg.length <= CLOUD_IMG_MAX ? imgs.bg : null;
         const bgId = bg ? imgId(bg) : '';
-        const look = { bg: !!bg, bgId, lang: S.settings.lang };   // la lingua: gli amici vedono la tua scheda come la vedi tu
+        // la lingua e il bordo delle finestre: gli amici vedono la tua scheda come la vedi tu
+        const look = { bg: !!bg, bgId, lang: S.settings.lang, frame: S.settings.frame };
         ['winColor', 'inkColor', 'softColor', 'accentColor', 'nameColor'].forEach(k => { if (S.settings[k]) look[k] = S.settings[k]; });
         const pub = { name: S.settings.name.trim().slice(0, 30), level: overallOf(STATS.map(s => levelFromXp(S.xp[s.key]))), stats: { ...S.xp }, look, code };
         // sfondo: solo se l'hai scelto tu; se lo spegni o lo togli, sparisce anche per gli amici.
@@ -243,9 +244,20 @@
     // profilo di un amico: la sua scheda Personaggio in sola lettura
     let fpUid = '';
     // i colori dell'amico, come variabili CSS valide solo dentro la finestra del suo profilo
-    const FP_VARS = ['--win-a', '--win-b', '--win-c', '--win-edge', '--win-glow', '--ink-soft', '--track', '--btn', '--ink', '--ink-strong', '--gold', '--name-color'];
+    // I tuoi colori sono impostati su tutta la pagina: se l'amico non ha scelto un colore, la finestra del suo profilo
+    // erediterebbe il tuo. Per questo si parte sempre dai valori predefiniti (gli stessi di :root in style.css)
+    // e sopra si mettono quelli scelti dall'amico. "initial" = nessun valore: vale il ripiego scritto nel CSS
+    // (per il nome, il colore d'accento dell'amico).
+    const FP_DEFAULTS = {
+      '--win-a': '#3049cf', '--win-b': '#17247f', '--win-c': '#0b1350', '--win-edge': '#0b1350', '--win-glow': '#7d92ff',
+      '--ink-soft': '#b9c4ff', '--track': '#060a2e', '--btn': '#3a55e0', '--ink': '#f5f7ff', '--ink-strong': '#ffffff',
+      '--gold': '#ffd54a', '--name-color': 'initial',
+    };
+    const FRAMES = ['nessuno', 'sottile', 'semplice', 'classico'];
     function applyFriendLook(el, look) {
-      FP_VARS.forEach(v => el.style.removeProperty(v));
+      Object.entries(FP_DEFAULTS).forEach(([k, v]) => el.style.setProperty(k, v));
+      // il suo bordo delle finestre; se non c'è (versione precedente dell'app), quello predefinito
+      el.dataset.frame = look && FRAMES.includes(look.frame) ? look.frame : 'semplice';
       const ok = c => typeof c === 'string' && HEX.test(c) ? c.toLowerCase() : null;
       const L = look || {};
       const win = ok(L.winColor);

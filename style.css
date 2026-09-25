@@ -220,6 +220,23 @@
   /* "semplice": un solo contorno pulito, come quello dei pulsanti e delle schede, senza gli anelli extra */
   :root[data-frame="semplice"] .win { box-shadow: 0 16px 34px rgba(3, 6, 40, .4); }
   :root[data-frame="semplice"] .lu-card { box-shadow: 0 0 70px rgba(255, 213, 74, .3); }
+  /* profilo di un amico: il SUO bordo, non il tuo (data-frame sulla finestra del profilo).
+     La prima regola è "classico" completo e rimette a posto tutto ciò che il tuo bordo potrebbe aver cambiato */
+  .modal-win.fp-win[data-frame] {
+    --ctl-border: var(--win-line); --ctl-ring: 0 0 0 2px var(--win-edge);
+    border-color: var(--win-line);
+    box-shadow: 0 0 0 3px var(--win-edge), 0 0 0 5px var(--win-glow), 0 16px 34px rgba(3, 6, 40, .4);
+  }
+  .modal-win.fp-win[data-frame="nessuno"] {
+    --ctl-border: transparent; --ctl-ring: 0 0 0 0 transparent;
+    border-color: transparent; box-shadow: 0 16px 34px rgba(3, 6, 40, .4);
+  }
+  .modal-win.fp-win[data-frame="sottile"] {
+    --ctl-border: transparent; --ctl-ring: inset 0 0 0 1px color-mix(in srgb, var(--win-line) 45%, transparent);
+    border-color: transparent;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--win-line) 45%, transparent), 0 16px 34px rgba(3, 6, 40, .4);
+  }
+  .modal-win.fp-win[data-frame="semplice"] { --ctl-ring: 0 0 0 0 transparent; box-shadow: 0 16px 34px rgba(3, 6, 40, .4); }
 
   /* ---------- livello complessivo ---------- */
   /* nome e rango centrati, sullo stesso asse del grafico */

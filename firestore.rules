@@ -20,10 +20,11 @@ service cloud.firestore {
         && isXp(s.get('Vigore', 0)) && isXp(s.get('Vitalita', 0)) && isXp(s.get('Intelletto', 0))
         && isXp(s.get('Creativita', 0)) && isXp(s.get('Animo', 0)) && isXp(s.get('Legami', 0));
     }
-    // aspetto condiviso con gli amici: sfondo sì/no, impronta dello sfondo, lingua e fino a cinque colori (#rrggbb)
+    // aspetto condiviso con gli amici: sfondo sì/no, impronta dello sfondo, lingua, bordo delle finestre e fino a cinque colori (#rrggbb)
     function okLook(l) {
       return l is map
-        && l.keys().hasOnly(['bg', 'bgId', 'lang', 'winColor', 'inkColor', 'softColor', 'accentColor', 'nameColor'])
+        && l.keys().hasOnly(['bg', 'bgId', 'lang', 'frame', 'winColor', 'inkColor', 'softColor', 'accentColor', 'nameColor'])
+        && l.get('frame', 'semplice') in ['nessuno', 'sottile', 'semplice', 'classico']      // bordo delle finestre
         && l.get('bg', false) is bool
         && shortStr(l.get('bgId', ''), 64) && shortStr(l.get('lang', ''), 10)
         && shortStr(l.get('winColor', ''), 7) && shortStr(l.get('inkColor', ''), 7) && shortStr(l.get('softColor', ''), 7)
