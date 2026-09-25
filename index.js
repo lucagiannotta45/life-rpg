@@ -169,8 +169,9 @@
     } catch (e) { /* storage non disponibile */ }
     return defaultSettings();
   }
+  // sul dispositivo resta solo la lingua (serve già alla schermata di accesso); il resto sta nell'account
   function saveSettingsLocal() {
-    lsSet(LS_SET, JSON.stringify(settings));
+    lsSet(LS_SET, JSON.stringify({ lang: settings.lang }));
   }
   const isDefaultSettings = () => JSON.stringify(settings) === JSON.stringify(defaultSettings());
   let settings = loadSettingsLocal();
@@ -225,8 +226,6 @@
       fn(tx.objectStore(IDB_STORE));
     }));
   }
-  const idbPut = (n, v) => idbRun('readwrite', st => { st.put(v, n); });
-  const idbDel = n => idbRun('readwrite', st => { st.delete(n); });
   function idbLoad() {
     const got = {};
     return idbRun('readonly', st => {
@@ -234,16 +233,15 @@
     }).then(() => got);
   }
   // salva l'immagine n (quella in `imgs`); risolve true se è stata scritta da qualche parte, false se no
-  function saveImgLocal(n) {
-    if (storageLocked) return Promise.resolve(true);
-    const v = imgs[n] || null;
-    return (v ? idbPut(n, v) : idbDel(n)).then(
-      () => { lsSet(LS_IMG + n, null); return true; },     // ora è in IndexedDB: la copia vecchia si toglie
-      () => lsSet(LS_IMG + n, v)                            // IndexedDB non disponibile: si ripiega su localStorage
-    );
-  }
-  // all'avvio: prende le immagini da IndexedDB e sposta lì quelle rimaste in localStorage
+  // le immagini restano solo in memoria (e nell'account): sul dispositivo non si salva niente
+  function saveImgLocal(n) { return Promise.resolve(true); }
+  // all'avvio: prende le immagini salvate da versioni precedenti (poi, caricato l'account, si tolgono dal dispositivo)
   async function imagesInit() {
+    // aprire il database lo creerebbe: si guarda prima se esiste (c'è solo su dispositivi usati con versioni precedenti)
+    try {
+      if (!window.indexedDB || !indexedDB.databases) return;
+      if (!(await indexedDB.databases()).some(x => x.name === IDB_NAME)) return;
+    } catch (e) { return; }
     let stored;
     try { stored = await idbLoad(); } catch (e) { return; }   // niente IndexedDB: si resta su localStorage
     let changed = false;
@@ -251,9 +249,7 @@
       if (imgTouched.has(n)) continue;                        // cambiata da quando la pagina è aperta: vale quella
       if (validImg(stored[n])) {
         if (imgs[n] !== stored[n]) { imgs[n] = stored[n]; changed = true; }
-      } else if (imgs[n]) {
-        try { await idbPut(n, imgs[n]); lsSet(LS_IMG + n, null); } catch (e) { /* resta dov'è */ }
-      }
+      }   // (non si sposta più niente in IndexedDB: le immagini di versioni precedenti si leggono e basta)
     }
     if (changed) { applyImages(); if (cs.Vigore) paintCustom(); }
   }
@@ -306,14 +302,19 @@
   const paintSaveState = () => {
     const key = (!storageOk && saveKind === 'local') ? 'nostorage' : saveKind;
     const full = storageOk && lsFailed.size > 0;
-    saveStateEl.textContent = full ? T('save.full') : (key === 'nostorage' || key === 'error') ? T('save.' + key) : '';
+    saveStateEl.textContent = full ? T('save.full') : (key === 'error' || key === 'offline') ? T('save.' + key) : '';
     saveStateEl.classList.toggle('warn', !!saveStateEl.textContent);
   };
   const setSaveState = k => { saveKind = k; paintSaveState(); };
   // scrive in localStorage (value null = cancella); se non ci riesce lo segnala invece di ignorarlo
-  let storageLocked = false;   // dopo l'uscita dall'account: i dati sono stati tolti e non si riscrive più niente
+  // I dati stanno solo nell'account: sul dispositivo non si scrive niente di tuo (progressi, missioni, routine,
+  // immagini, stato della sincronizzazione, missioni condivise). Restano solo le preferenze del dispositivo:
+  // lingua, suoni, musica. Le chiavi qui sotto si possono solo cancellare (dati di versioni precedenti).
+  const ACCOUNT_KEYS = new Set(['liferpg:v1', 'liferpg:missions:v1', 'liferpg:routines:v1', 'liferpg:sync:v2', 'liferpg:acc', 'liferpg:shared:v1']);
+  const isAccountKey = k => ACCOUNT_KEYS.has(k) || k.startsWith('liferpg:img:');
+  let storageLocked = false;   // dopo l'uscita dall'account non si riscrive più niente
   function lsSet(key, value) {
-    if (storageLocked) return true;
+    if (storageLocked || (value != null && isAccountKey(key))) return true;
     let ok = true;
     try { if (value == null) localStorage.removeItem(key); else localStorage.setItem(key, value); } catch (e) { ok = false; }
     if (storageOk) {
@@ -383,28 +384,23 @@
   // Uscendo dall'account i dati non restano sul dispositivo: si tolgono progressi, missioni, routine,
   // impostazioni, immagini, stato della sincronizzazione, missioni condivise e sfondi degli amici.
   // Restano solo le preferenze del dispositivo (lingua, suoni, musica). Dopo si ricarica la pagina.
-  async function wipeLocalData() {
-    const keepLang = settings.lang;
-    [LS_KEY, LS_MIS, LS_ROU, LS_SYNC, LS_ACC, 'liferpg:shared:v1', ...IMG_NAMES.map(n => LS_IMG + n)].forEach(k => lsSet(k, null));
-    lsSet(LS_SET, JSON.stringify({ lang: keepLang }));
-    storageLocked = true;   // da qui in poi nessun salvataggio rimette i dati sul dispositivo
-    const clearStore = (name, store) => new Promise(res => {
+  // Toglie dal dispositivo i dati rimasti da versioni precedenti (quando si salvava anche lì).
+  // Si chiama dopo che l'account è stato caricato (e questi dati uniti all'account) e uscendo dall'account.
+  async function clearDeviceData() {
+    [...ACCOUNT_KEYS, ...IMG_NAMES.map(n => LS_IMG + n)].forEach(k => lsSet(k, null));
+    lsSet(LS_SET, JSON.stringify({ lang: settings.lang }));
+    // i database delle versioni precedenti (immagini e sfondi degli amici) si eliminano del tutto
+    try { if (idbPromise) (await idbPromise).close(); } catch (e) { /* non era aperto */ }
+    idbPromise = null;
+    const drop = name => new Promise(res => {
       if (!window.indexedDB) { res(); return; }
-      let r;
-      try { r = indexedDB.open(name); } catch (e) { res(); return; }
-      r.onerror = r.onblocked = () => res();
-      r.onsuccess = () => {
-        const db = r.result;
-        if (!db.objectStoreNames.contains(store)) { db.close(); res(); return; }
-        try {
-          const tx = db.transaction(store, 'readwrite');
-          tx.objectStore(store).clear();
-          tx.oncomplete = tx.onerror = tx.onabort = () => { db.close(); res(); };
-        } catch (e) { db.close(); res(); }
-      };
+      try { const r = indexedDB.deleteDatabase(name); r.onsuccess = r.onerror = r.onblocked = () => res(); } catch (e) { res(); }
     });
-    const timeout = new Promise(res => setTimeout(res, 3000));
-    await Promise.race([Promise.all([clearStore(IDB_NAME, IDB_STORE), clearStore('liferpg-friends', 'bg')]), timeout]);
+    await Promise.race([Promise.all([drop(IDB_NAME), drop('liferpg-friends')]), new Promise(res => setTimeout(res, 3000))]);
+  }
+  async function wipeLocalData() {
+    await clearDeviceData();
+    storageLocked = true;   // da qui in poi niente viene più scritto (poi la pagina si ricarica)
   }
   let sync = loadSync();
   saveSync();
@@ -418,6 +414,14 @@
   const seenOf = m => ({ g: missionSig(m), e: effOf(m) });
   const mSeen = new Map(missions.map(m => [m.id, seenOf(m)]));
   const rSeen = new Map(routines.map(r => [r.id, routineSig(r)]));
+  // si riparte da zero in memoria (tranne la lingua): per i dati di un altro account rimasti sul dispositivo
+  function discardLocal() {
+    xp = blank(); missions = []; routines = [];
+    settings = normalizeSettings({ lang: settings.lang }); settingsTouched = false;
+    IMG_NAMES.forEach(n => { imgs[n] = null; }); imgTouched.clear();
+    sync = blankSync(''); sync.xpBase = blank(); sync.xpSeen = blank(); xpAbs = 0;
+    mSeen.clear(); rSeen.clear();
+  }
   /* ================= suono ================= */
   // Effetti sonori e musica vivono in audio.js: qui si crea il "mixer" e si collegano i pulsanti.
   // Il brano si sceglie dal tuo ruolo (XP attuali); nella scheda Personaggio la musica suona a volume pieno.
@@ -1189,7 +1193,7 @@
     routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
     applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
     renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC, sharedStart, sharedReset,
-    wipeLocalData, syncBusy,
+    wipeLocalData, clearDeviceData, discardLocal, syncBusy,
   }, {
     get settings() { return settings; }, set settings(v) { settings = v; },
     get settingsTouched() { return settingsTouched; }, set settingsTouched(v) { settingsTouched = v; },

@@ -360,6 +360,8 @@
     background: rgba(0, 0, 0, .5); overflow-y: auto;
   }
   .modal-win { width: min(480px, 100%); margin-block: auto; --win-op: 100%; --win-bf: none; }
+  /* schermata di accesso: copre tutta l'app finché l'account non è caricato */
+  #gate { z-index: 80; background: #0e0c08; }
   /* nella scheda Aspetto lo sfondo dietro è più chiaro, così si vedono subito le modifiche */
   #settings[data-tab="look"] { background: rgba(0, 0, 0, .28); }
   .modal-win.wide { width: min(640px, 100%); }

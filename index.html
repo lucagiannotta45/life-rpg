@@ -499,15 +499,16 @@
   </div>
 </div>
 
-<div class="modal" id="accmodal" hidden>
-  <div class="win modal-win" role="alertdialog" aria-modal="true" aria-labelledby="t-accc" aria-describedby="acc-choice-text">
-    <h2 class="win-title" id="t-accc" data-i18n="acc.choice.title">Quali dati vuoi tenere?</h2>
-    <p id="acc-choice-text" data-i18n="acc.choice.text">Nel tuo account ci sono già dei dati, diversi da quelli di questo dispositivo. Scegli quali tenere: gli altri verranno sostituiti.</p>
-    <p id="acc-choice-acc"></p>
-    <p id="acc-choice-dev"></p>
-    <div class="modal-actions acc-actions">
-      <button type="button" class="btn" id="acc-keep-acc" data-i18n="acc.keep.acc">Usa i dati dell'account</button>
-      <button type="button" class="btn" id="acc-keep-dev" data-i18n="acc.keep.dev">Usa i dati di questo dispositivo</button>
+<!-- schermata di accesso: il gioco si usa solo con l'account (e con internet). Visibile finché l'account non è caricato -->
+<div class="modal gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gate-title" aria-describedby="gate-msg">
+  <div class="win modal-win">
+    <h2 class="win-title" id="gate-title">Life RPG</h2>
+    <p data-i18n="gate.intro">Accedi con il tuo account Google: i tuoi progressi stanno solo nell'account e li ritrovi su ogni dispositivo.</p>
+    <p id="gate-msg" role="status" aria-live="polite"></p>
+    <p id="gate-note"></p>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="gate-in" hidden data-i18n="acc.signin">Accedi con Google</button>
+      <button type="button" class="btn" id="gate-retry" hidden data-i18n="gate.retry">Riprova</button>
     </div>
   </div>
 </div>

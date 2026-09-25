@@ -35,31 +35,16 @@
       for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
       return (h >>> 0).toString(36) + str.length.toString(36);
     }
-    // sfondi degli amici conservati sul dispositivo (IndexedDB, non tocca lo spazio dei tuoi salvataggi):
-    // uno per amico, sostituito solo quando l'amico cambia sfondo, cancellato se non è più tuo amico
+    // sfondi degli amici: solo in memoria finché l'app è aperta (sul dispositivo non si salva niente).
+    // Uno per amico, sostituito quando l'amico cambia sfondo, tolto se non è più tuo amico.
     const bgCache = (() => {
-      let dbp = null;
-      const open = () => dbp || (dbp = new Promise((res, rej) => {
-        if (!window.indexedDB) { rej(new Error('idb')); return; }
-        const r = indexedDB.open('liferpg-friends', 1);
-        r.onupgradeneeded = () => r.result.createObjectStore('bg');
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-      }));
-      const tx = async (mode, fn) => {
-        const db = await open();
-        return new Promise((res, rej) => {
-          const t = db.transaction('bg', mode), st = t.objectStore('bg');
-          const out = fn(st);
-          t.oncomplete = () => res(out && out.result);
-          t.onerror = () => rej(t.error);
-        });
-      };
+      const m = new Map();
       return {
-        get: uid => tx('readonly', st => st.get(uid)).catch(() => null),
-        put: (uid, v) => tx('readwrite', st => st.put(v, uid)).catch(() => {}),
-        del: uid => tx('readwrite', st => st.delete(uid)).catch(() => {}),
-        keys: () => tx('readonly', st => st.getAllKeys()).catch(() => []),
+        get: async uid => (m.has(uid) ? m.get(uid) : null),
+        put: async (uid, v) => { m.set(uid, v); },
+        del: async uid => { m.delete(uid); },
+        keys: async () => [...m.keys()],
+        clear: () => m.clear(),
       };
     })();
     function genCode() {
@@ -121,6 +106,7 @@
     function friendsReset() {
       myCode = ''; lastPub = ''; pubBgId = undefined; clearTimeout(pubTimer);
       friends = { rows: [], profs: {}, loaded: false };
+      bgCache.clear();
       paintFriendsBtn();
     }
     const otherOf = f => f.members.find(m => m !== S.fbUser.uid);

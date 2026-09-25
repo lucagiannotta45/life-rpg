@@ -35,7 +35,7 @@
     const myTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } };
     const me = () => (S.fbUser ? S.fbUser.uid : '');
 
-    /* ---------- documenti condivisi: copia in memoria e sul dispositivo ---------- */
+    /* ---------- documenti condivisi: copia in memoria (sul dispositivo non si salva: lsSet la ignora) ---------- */
     // docs: { sid: dati del documento + _srv (ultima volta che il server l'ha confermato) + _pw (scritture in attesa) }
     let docs = {}, uidOf = '', unsub = null, listening = false, serverSeen = false;
     function loadCache(uid) {
