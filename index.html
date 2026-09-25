@@ -23,6 +23,7 @@
     settings-ui.js  -> Impostazioni e Personalizza
     cloud.js        -> account e sincronizzazione (Firebase)
     friends.js      -> amici
+    shared.js       -> missioni condivise con un amico
     audio.js        -> effetti sonori e musica
     index.js        -> dati dell'app e collegamento di tutti i pezzi
     sw.js           -> service worker (funzionamento offline)
@@ -475,6 +476,17 @@
   </div>
 </div>
 
+<!-- invitare un amico a una missione condivisa (shared.js) -->
+<div class="modal" id="shmodal" hidden>
+  <div class="win modal-win" role="dialog" aria-modal="true" aria-labelledby="t-sh">
+    <h2 class="win-title" id="t-sh" data-i18n="sh.pick.title">Invita un amico</h2>
+    <p class="tip" data-i18n="sh.pick.text">Scegli con chi condividere questa missione.</p>
+    <p class="msg" id="sh-msg" role="status" aria-live="polite"></p>
+    <div class="fr-list" id="sh-list"></div>
+    <div class="modal-actions"><button type="button" class="btn" id="sh-close" data-i18n="btn.close">Chiudi</button></div>
+  </div>
+</div>
+
 <div class="modal" id="fpmodal" hidden>
   <div class="win modal-win fp-win" role="dialog" aria-modal="true" aria-labelledby="fp-name">
     <div class="lv-tab" id="fp-tab" role="img"></div>
@@ -524,6 +536,7 @@
 <script src="settings-ui.js" defer></script>
 <script src="cloud.js" defer></script>
 <script src="friends.js" defer></script>
+<script src="shared.js" defer></script>
 <script src="audio.js" defer></script>
 <script src="index.js" defer></script>
 </body>

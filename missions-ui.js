@@ -32,6 +32,12 @@
       rewardTotal, rewardMatch, startMs, dueEndMs, isLate, notYet, WD_ALL, gcalUrl, gcalRoutineUrl,
     } = MISSIONS;
     const nameSpan = key => D.nameSpan(key);   // in index.js è definito più avanti: si prende al momento dell'uso
+    // missioni condivise (shared.js): nasce dopo questo file; finché non c'è, nessuna missione risulta condivisa
+    const NOSH = {
+      info: () => null, holds: m => !!m.sid, joined: () => false, canInvite: () => false, invites: () => [], evaluate() {},
+      editBlock: () => '', afterEdit() {}, beforeDelete: () => '',
+    };
+    const SH = () => D.SH || NOSH;
 
     const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
     const fmtClock = ms => new Date(ms).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -67,6 +73,13 @@
         return;
       }
       if (notYet(m)) { missionMsg(T('m.locked', { when: m.rid ? fmtDay(m.due) : fromLabel(m) }), 'bad', true); sfx('err'); return; }
+      // missione condivisa: completi la tua parte; gli XP arrivano quando la completa anche l'amico
+      if (m.sid && SH().joined(m)) { SH().completePart(id); return; }
+      if (m.sid && SH().holds(m)) { missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }   // non si sa ancora a che punto è
+      grant(m);
+    }
+    // dà gli XP di una missione e la segna completata (con serie, bonus, animazioni e suoni)
+    function grant(m) {
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
       const ovFrom = overallOf(before);
       // routine: la serie cresce solo se la completi entro il giorno previsto
@@ -90,9 +103,32 @@
       renderMissionViews();
       if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after)); sfx('up'); } else sfx(Object.keys(bonus).length ? 'bonus' : 'add');
     }
+    // esiti delle missioni condivise (li decide shared.js): si applicano solo quando nessuna finestra è aperta
+    // e l'account è già caricato; restituiscono false se ora non si può (shared.js riprova più tardi)
+    const outcomeReady = () => penaltyReady && !S.activeModal;
+    function grantShared(m) {
+      if (!outcomeReady()) return false;
+      if (!m.done && !m.failed) grant(m);
+      return true;
+    }
+    function failShared(m, why) {
+      if (!outcomeReady()) return false;
+      if (m.done || m.failed) return true;
+      const before = STATS.map(s => levelFromXp(S.xp[s.key]));
+      const removed = MISSIONS.penaltyXp(S.xp, m.penalty);
+      m.failed = { date: todayStr(), t: Date.now(), applied: removed };
+      touchMonth(monthOf(m));
+      persist();
+      const after = STATS.map(s => levelFromXp(S.xp[s.key]));
+      render(true);
+      STATS.forEach(s => { if (removed[s.key] > 0) floatText(s.key, '-' + fmt(removed[s.key]), true); });
+      renderMissionViews();
+      showPenalties([{ m, removed, why }], before, after, overallOf(before), overallOf(after));
+      return true;
+    }
     function undoMission(id) {
       const m = S.missions.find(x => x.id === id);
-      if (!m || !m.done) return;
+      if (!m || !m.done || m.sid) return;   // una missione condivisa completata non si annulla: gli XP li ha avuti anche l'amico
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
       const removed = MISSIONS.undoXp(S.xp, m.done.applied);
       const rsBack = m.done.rs, rtBack = routineOf(m);
@@ -111,7 +147,7 @@
     // penalità: alla prima apertura dopo la scadenza, una sola volta per missione
     function revertPenalty(id) {
       const m = S.missions.find(x => x.id === id);
-      if (!m || !m.failed || m.done || m.rid) return;
+      if (!m || !m.failed || m.done || m.rid || m.sid) return;
       const restored = MISSIONS.gainXp(S.xp, m.failed.applied);
       m.failed = null;
       m.due = null;   // senza data (e senza ora), così non scade di nuovo
@@ -131,11 +167,12 @@
       $('pen-sum').textContent = TN('pen.sum', list.length);
       const box = $('pen-list');
       box.textContent = '';
-      list.forEach(({ m, removed }) => {
+      list.forEach(({ m, removed, why }) => {
         const card = mk('article', 'mission failed');
         const head = mk('div', 'm-head');
         head.appendChild(mk('h3', 'm-title', m.title));
-        head.appendChild(mk('span', 'm-date late', T('m.late.on', { when: dueLabel(m) })));
+        // why: il motivo di una missione condivisa fallita (per esempio "l'amico ha abbandonato"); altrimenti la scadenza
+        head.appendChild(mk('span', 'm-date late', why || (m.due ? T('m.late.on', { when: dueLabel(m) }) : T('sh.failed'))));
         card.appendChild(head);
         card.appendChild(lossChips(removed));
         box.appendChild(card);
@@ -156,7 +193,8 @@
     function applyPenalties() {
       if (S.activeModal) return false;   // non interrompere chi sta scrivendo: si riprova dopo
       const today = todayStr();
-      const due = MISSIONS.lateMissions(S.missions);
+      // le missioni condivise le decide l'esito condiviso (shared.js), non la scadenza di questo dispositivo
+      const due = MISSIONS.lateMissions(S.missions).filter(m => !SH().holds(m));
       if (!due.length) return true;
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
       const list = [];
@@ -205,6 +243,7 @@
       if (penaltyReady && !S.activeModal && Date.now() >= holdUntil) {
         if (syncRoutines()) renderMissionViews();
         applyPenalties();
+        SH().evaluate();
       }
       const sig = todayStr() + ':' + S.missions.filter(m => !m.done && isLate(m)).length;
       if (sig !== lastSig) { lastSig = sig; renderMissionViews(); }
@@ -279,14 +318,17 @@
       }
       return wrap;
     }
-    // etichetta "↻ Routine · serie 5": dice subito che tipo di missione è, quindi sta sotto il titolo
+    // etichetta "↻ Routine · serie 5": dice subito che tipo di missione è, quindi sta in cima, sopra il titolo
     const ROUTINE_ICON = ['...XXX...', '.XX...X..', '.X....XXX', 'X......X.', 'X........', 'X.......X', '.X.....X.', '.XX...XX.', '...XXX...'];
-    function routineTag(text) {
-      const t = mk('p', 'm-tag');
-      const ic = mk('span', 'm-tag-ico'); ic.innerHTML = iconSvg(ROUTINE_ICON, 2);
+    // etichetta delle missioni condivise: due figure affiancate
+    const SHARED_ICON = ['..X.....X..', '.XXX...XXX.', '.XXX...XXX.', '..X.....X..', '...........', '.XXX...XXX.', 'XXXXX.XXXXX', 'XXXXX.XXXXX', 'XXXXX.XXXXX'];
+    function routineTag(text, icon) {
+      const t = mk('p', 'm-tag' + (icon === SHARED_ICON ? ' shared' : ''));
+      const ic = mk('span', 'm-tag-ico'); ic.innerHTML = iconSvg(icon || ROUTINE_ICON, 2);
       t.append(ic, mk('span', null, text));
       return t;
     }
+    const sharedTag = text => routineTag(text, SHARED_ICON);
     function starsLine(stars) {
       if (!stars) return null;   // missione creata prima di questo sistema: niente da mostrare
       const wrap = mk('div', 'm-stars');
@@ -302,8 +344,11 @@
       const card = mk('article', 'mission' + (m.done ? ' done' : '') + (failedNow ? ' failed' : ''));
       card.dataset.id = m.id;
       const rtn = routineOf(m);
-      // etichetta "Routine" in cima, sopra il titolo
+      const shi = m.sid ? SH().info(m) : null;   // missione condivisa: con chi, a che punto
+      // etichetta "Routine" (o "Condivisa con…") in cima, sopra il titolo
       if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
+      else if (shi) card.appendChild(sharedTag(T(shi.invited ? 'sh.tag.invited' : 'sh.tag', { name: shi.name })));
+      else if (m.sid) card.appendChild(sharedTag(T('sh.tag.plain')));
       const head = mk('div', 'm-head');
       head.appendChild(mk('h3', 'm-title', m.title));
       if (m.done) head.appendChild(mk('span', 'm-date', T('m.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
@@ -312,9 +357,18 @@
         const txt = late ? T('m.late.on', { when: dueLabel(m) })
           : !m.rid && notYet(m) ? T('m.range', { from: fromLabel(m), to: dueLabel(m) })
           : T('m.due.by', { when: dueLabel(m) });
-        head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), txt));
+        // con un fuso orario diverso da quello di chi l'ha creata, anche la sua ora: "(23:59 per Marco)"
+        head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), txt + (shi && shi.ownerWhen && !m.done && !failedNow ? ' ' + shi.ownerWhen : '')));
       } else if (notYet(m)) head.appendChild(mk('span', 'm-date', T('m.from', { when: fromLabel(m) })));
       card.appendChild(head);
+      // a che punto è la missione condivisa
+      const open = shi && shi.joined && !m.done && !failedNow;
+      if (open) {
+        if (shi.pending) card.appendChild(mk('p', 'm-shared warn', T('sh.changed', { name: shi.name })));
+        else if (shi.out === 'wait') card.appendChild(mk('p', 'm-shared', T('sh.checking', { name: shi.name })));
+        else if (shi.myDone) card.appendChild(mk('p', 'm-shared', T('sh.waiting', { name: shi.name })));
+        else if (shi.partnerDone) card.appendChild(mk('p', 'm-shared', T('sh.partner.done', { name: shi.name })));
+      }
       if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
       const msl = starsLine(m.stars);
       if (msl) card.appendChild(msl);
@@ -343,18 +397,83 @@
         if (!m.done && !failedNow && (m.rid ? !!rtn : !!m.due)) act.appendChild(gcalLink(m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m), m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title));
         act.appendChild(btn('', T('btn.goto'), T('aria.goto'), () => goToMission(m.id)));
       } else if (m.done) {
-        act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
+        if (!m.sid) act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));   // condivisa: non si annulla
       } else if (failedNow) {
-        if (!m.rid) {
+        if (!m.rid && !m.sid) {
           const hadPenalty = hasAny(m.penalty);
           act.appendChild(btn('', T(hadPenalty ? 'btn.undopen' : 'btn.resched'), T(hadPenalty ? 'aria.undopen' : 'aria.resched'), () => revertPenalty(m.id)));
         }
+      } else if (open) {
+        // condivisa e accettata dall'amico
+        if (shi.out === 'open') {
+          if (shi.pending) {
+            // chi l'ha creata ha cambiato XP, penalità o scadenza: accetti le regole nuove, oppure esci (senza fallire)
+            act.append(btn(' add', T('sh.accept.change'), T('sh.accept.change'), () => SH().acceptChange(m.id)),
+                       btn('', T('sh.exit'), T('sh.exit'), () => SH().exitChange(m.id)));
+          } else if (shi.myDone) {
+            act.appendChild(btn('', T('sh.undo.part'), T('sh.undo.part'), () => SH().undoPart(m.id)));
+          } else {
+            const cb = btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
+            if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }
+            act.appendChild(cb);
+          }
+          if (shi.role === 'o') act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+          act.appendChild(abandonBtn(m));
+        }
+      } else if (m.sid && m.sh === 'g') {
+        // sei l'invitato, ma le informazioni sulla missione non sono ancora arrivate: niente pulsanti per ora
       } else {
         const cb = btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
         if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }   // data nel futuro: si completa dal giorno stesso; scaduta: mai più
         act.append(cb, btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+        if (shi && shi.invited) act.appendChild(btn('', T('sh.cancel'), T('sh.cancel'), () => SH().cancelInvite(m.id)));
+        else if (SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
       }
       if (act.childElementCount) card.appendChild(act);   // una routine fallita non ha pulsanti
+      return card;
+    }
+    // "Abbandona" chiede conferma: al primo tocco diventa "Conferma" per 4 secondi (come "Elimina")
+    function abandonBtn(m) {
+      const b = mk('button', 'btn small sub', T('sh.abandon'));
+      b.type = 'button';
+      b.setAttribute('aria-label', T('sh.abandon') + ' ' + m.title);
+      let timer = 0;
+      b.addEventListener('click', () => {
+        if (!b.dataset.armed) {
+          b.dataset.armed = '1'; b.textContent = T('btn.confirm'); b.setAttribute('aria-label', T('sh.abandon.confirm'));
+          timer = setTimeout(() => { b.dataset.armed = ''; b.textContent = T('sh.abandon'); b.setAttribute('aria-label', T('sh.abandon') + ' ' + m.title); }, 4000);
+          return;
+        }
+        clearTimeout(timer);
+        SH().abandon(m.id);
+      });
+      return b;
+    }
+    // invito ricevuto: la missione come la vedresti, con "Accetta" e "Rifiuta"
+    function inviteCard(x) {
+      const m = x.m;
+      const card = mk('article', 'mission invite');
+      card.dataset.sid = x.sid;
+      card.appendChild(sharedTag(T('sh.tag.from', { name: x.from })));
+      const head = mk('div', 'm-head');
+      head.appendChild(mk('h3', 'm-title', m.title));
+      if (m.due) head.appendChild(mk('span', 'm-date', T('m.due.by', { when: dueLabel(m) })));
+      card.appendChild(head);
+      if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
+      const sl = starsLine(m.stars);
+      if (sl) card.appendChild(sl);
+      card.appendChild(chips(m.rewards));
+      if (m.due && hasAny(m.penalty)) card.appendChild(mk('p', 'm-pen', T('m.pen.warn', { loss: lossText(m.penalty) })));
+      card.appendChild(mk('p', 'm-shared', T('sh.inv.rule')));
+      const act = mk('div', 'm-actions');
+      const b1 = mk('button', 'btn small add', T('sh.inv.accept')); b1.type = 'button';
+      b1.setAttribute('aria-label', T('sh.inv.accept') + ' ' + m.title);
+      b1.addEventListener('click', () => SH().acceptInvite(x.sid));
+      const b2 = mk('button', 'btn small', T('sh.inv.decline')); b2.type = 'button';
+      b2.setAttribute('aria-label', T('sh.inv.decline') + ' ' + m.title);
+      b2.addEventListener('click', () => SH().declineInvite(x.sid));
+      act.append(b1, b2);
+      card.appendChild(act);
       return card;
     }
 
@@ -387,8 +506,14 @@
       const tl = $('m-todo'), fl = $('m-failed'), dl = $('m-done');
       tl.textContent = ''; fl.textContent = ''; dl.textContent = '';
 
+      // inviti ricevuti a missioni condivise, in cima
+      const inv = SH().invites();
+      if (inv.length) {
+        tl.appendChild(mk('h4', 'sub', T('sh.inv.h') + ' (' + inv.length + ')'));
+        inv.forEach(x => tl.appendChild(inviteCard(x)));
+      }
       // da fare: raggruppate per scadenza
-      if (!todo.length) tl.appendChild(mk('p', 'empty', T('mis.empty.todo')));
+      if (!todo.length && !inv.length) tl.appendChild(mk('p', 'empty', T('mis.empty.todo')));
       groupBlock(tl, 'late', T('grp.late'), groups.late);
       groupBlock(tl, 'routine', T('grp.routine'), groups.routine);
       groupBlock(tl, 'today', T('grp.today'), groups.today);
@@ -411,11 +536,12 @@
       $('m-more').hidden = done.length <= doneShown;
       $('m-more').textContent = T('mis.more.n', { n: done.length - doneShown });
       const nb = $('nav-badge');
-      const nbTxt = todo.length > 99 ? '99+' : String(todo.length);
+      const nTodo = todo.length + inv.length;   // anche gli inviti sono "cose da fare"
+      const nbTxt = nTodo > 99 ? '99+' : String(nTodo);
       nb.dataset.n = nbTxt;
       nb.innerHTML = digitsSvg(nbTxt);
-      nb.hidden = !todo.length;
-      if (todo.length) $('vt-missions').setAttribute('aria-label', T('view.missions') + ' (' + todo.length + ')');
+      nb.hidden = !nTodo;
+      if (nTodo) $('vt-missions').setAttribute('aria-label', T('view.missions') + ' (' + nTodo + ')');
       else $('vt-missions').removeAttribute('aria-label');
     }
 
@@ -720,6 +846,7 @@
     function openMissionForm(id, dateStr) {
       const m0 = id ? S.missions.find(x => x.id === id) : null;
       if (m0 && m0.rid && routineOf(m0)) { openRoutineForm(m0.rid); return; }   // le volte di una routine si modificano dalla routine
+      if (m0 && m0.sid && m0.sh === 'g') return;   // una missione condivisa la modifica solo chi l'ha creata
       editingId = id; editingRid = null; routinesBack = false;
       editingDue = m0 ? m0.due : null;
       editingFrom = m0 ? m0.from : null;
@@ -745,7 +872,7 @@
       syncTime();
       setPenOn(!!(m && m.penalty && STATS.some(s => m.penalty[s.key] > 0)));
       setDescOpen(!!(m && m.desc));
-      $('mf-del').hidden = !m;
+      $('mf-del').hidden = !m || (!!m.sid && SH().joined(m));   // condivisa e accettata: si può solo abbandonare
       mfDelArm(false);
       mfMsg('');
       paintFormColors();
@@ -923,7 +1050,9 @@
       let m = editingId ? S.missions.find(x => x.id === editingId) : null;
       if (m) {
         if (m.done) return fail(T('mf.err.done'), null);
+        if (m.sid) { const blk = SH().editBlock(m); if (blk) return fail(blk, null); }
         Object.assign(m, { title, desc, rewards, penalty, due, dueTime, from, fromTime, stars });
+        if (m.sid) SH().afterEdit(m);   // anche l'amico vede la missione cambiata
       } else {
         const created = todayStr();
         if (S.missions.filter(x => monthOf(x) === created.slice(0, 7)).length >= MAX_PER_MONTH) {
@@ -1005,7 +1134,10 @@
       if (editingRid) { deleteRoutine(); return; }
       const m = editingId ? S.missions.find(x => x.id === editingId) : null;
       if (!m || m.done) return;
+      const blk = m.sid ? SH().beforeDelete(m, true) : '';
+      if (blk) { mfMsg(blk); sfx('err'); return; }
       if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
+      if (m.sid) SH().beforeDelete(m);   // un invito ancora in attesa si annulla
       tombMissions([m]);
       S.missions = S.missions.filter(x => x !== m);
       touchMonth(monthOf(m));
@@ -1083,6 +1215,7 @@
     function setPenaltyReady() { penaltyReady = true; }
 
     return {
+      grantShared, failShared, fmtDay,
       missionMsg, syncRoutines, checkPenalties, setPenaltyReady, collapseMissionLists, renderMissions, renderCalendar, renderMissionViews, initCal, formLabels, paintFormRepeat, sel, rmodal, renderRoutines,
     };
   }

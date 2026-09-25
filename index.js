@@ -933,11 +933,13 @@
   /* ----- la parte che si vede: missions-ui.js ----- */
   // Schede, elenco, calendario, finestre di missioni e routine, penalità e messaggi sono in missions-ui.js.
   // D = funzioni e valori che non cambiano; S = stato che cambia (letto sempre "fresco").
+  let SH = null;   // missioni condivise (shared.js): si creano più avanti, dopo gli amici
   const MUI = window.LIFE_RPG_MISSIONS_UI.create({
     GAME, MISSIONS, T, TN, locale, fmt, sfx, $, mk, mfDelArm, selArm, reduce, iconSvg, digitsSvg,
     saveRoutinesLocal, tombMissions, tombRoutine, persist, render, floatText, showLevelUp, openModal, closeModal,
     statColor, readable, touchMonth, showView,
     get nameSpan() { return nameSpan; },   // definito più avanti (sezione "info")
+    get SH() { return SH; },
   }, {
     get missions() { return missions; }, set missions(v) { missions = v; },
     get routines() { return routines; }, set routines(v) { routines = v; },
@@ -1134,6 +1136,7 @@
     b = section('friends', T('info.fr.h'));
     p(b, T('info.fr.p1'));
     p(b, T('info.fr.p2'));
+    p(b, T('info.fr.p3'));
 
     // dati
     b = section('data', T('info.data.h'));
@@ -1154,7 +1157,7 @@
     saveRoutinesLocal, setSaveState, lsSet, blankSync, DEV, absorbLocal, recomputeXp, hasPend, saveSync, missionSig,
     routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
     applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
-    renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC,
+    renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC, sharedStart, sharedReset,
   }, {
     get settings() { return settings; }, set settings(v) { settings = v; },
     get settingsTouched() { return settingsTouched; }, set settingsTouched(v) { settingsTouched = v; },
@@ -1208,6 +1211,23 @@
   function friendsReset() { return FR.friendsReset(); }
   function paintFriendsBtn() { return FR.paintFriendsBtn(); }
   function checkFriendRequests() { return FR.checkFriendRequests(); }
+
+  /* ----- missioni condivise (shared.js): dopo gli amici, perché invitano un amico ----- */
+  // Inviti, documento condiviso su Firebase, esito (superata o fallita per entrambi): sono in shared.js.
+  SH = window.LIFE_RPG_SHARED.create({
+    T, GAME, MISSIONS, $, mk, sfx, openModal, closeModal, touchMonth, tombMissions, lsSet, fbConnect,
+    friendsList: () => FR.friendsList(), loadFriendsList: () => FR.loadFriends(),
+    MUI,
+  }, {
+    get missions() { return missions; }, set missions(v) { missions = v; },
+    get settings() { return settings; },
+    get dbRef() { return dbRef; },
+    get fbDb() { return fbDb; },
+    get fbUser() { return fbUser; },
+  });
+  // "ponti" per cloud.js: si parte quando l'account è collegato, si azzera uscendo
+  function sharedStart() { return SH.start(); }
+  function sharedReset() { return SH.reset(); }
 
   /* ================= avvio ================= */
   initCal();

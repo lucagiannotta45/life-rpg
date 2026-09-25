@@ -326,8 +326,16 @@
       backToFriends(T('fr.msg.removed'));
     });
 
+    // gli amici (accettati), per invitarli a una missione condivisa: [{ uid, name, level }], per nome
+    function friendsList() {
+      if (!S.fbUser) return [];
+      return friends.rows.filter(f => f.status === 'accepted')
+        .map(f => { const uid = otherOf(f), p = friends.profs[uid]; return { uid, name: p ? p.name : '', level: p ? p.level : null }; })
+        .sort((a, b) => friendName(a).localeCompare(friendName(b)));
+    }
+
     return {
-      schedulePublish, friendsReset, paintFriendsBtn, checkFriendRequests,
+      schedulePublish, friendsReset, paintFriendsBtn, checkFriendRequests, friendsList, loadFriends,
     };
   }
   window.LIFE_RPG_FRIENDS = { create };

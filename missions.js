@@ -100,6 +100,9 @@
           created: m.created, done: null, failed: null, stars: normalizeStars(rewards, m.stars),
         };
         if (typeof m.rid === 'string' && /^\w{1,12}$/.test(m.rid)) it.rid = m.rid;
+        // missione condivisa con un amico (vedi shared.js): sid = il documento condiviso, sh = il tuo ruolo
+        // ('o' = l'hai creata tu, 'g' = sei stato invitato)
+        if (!it.rid && typeof m.sid === 'string' && /^[\w-]{1,40}$/.test(m.sid)) { it.sid = m.sid; it.sh = m.sh === 'g' ? 'g' : 'o'; }
         // sincronizzazione (vedi sync.js): u = istante dell'ultima modifica,
         // c = XP prodotti da ciascun dispositivo con questa missione, z = epoca (cambia con un backup importato)
         const mu = Number(m.u);

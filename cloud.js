@@ -25,7 +25,7 @@
       saveRoutinesLocal, setSaveState, lsSet, blankSync, DEV, absorbLocal, recomputeXp, hasPend, saveSync, missionSig,
       routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
       applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
-      renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC,
+      renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC, sharedStart, sharedReset,
     } = D;
 
     function stampRoutines() {
@@ -434,7 +434,7 @@
       if (userDirty) flush();
       startListening();
       renderInfo();
-      if (ST.fbUser) { schedulePublish(true); checkFriendRequests(); }
+      if (ST.fbUser) { schedulePublish(true); checkFriendRequests(); sharedStart(); }
     }
     function accChoose(mode) {
       const p = ST.accPending;
@@ -522,6 +522,7 @@
       stopListening();
       ST.fbUser = null; ST.dbRef = null;
       friendsReset();
+      sharedReset();
       setSaveState('local');
       accMsg(T('acc.bye'));
       ST.accBusy = false; paintAccount(); renderInfo();
