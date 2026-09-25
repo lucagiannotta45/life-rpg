@@ -384,9 +384,27 @@
     }
 
     /* ---------- schermata di accesso: senza account (e senza internet) il gioco non si apre ---------- */
+    // Protezione per gli aggiornamenti: per qualche minuto il browser può avere file di versioni diverse.
+    // - Questo segno dice alla pagina che c'è il programma che gestisce la schermata di accesso
+    //   (se manca, index.html svuota la copia salvata e ricarica, invece di restare bloccata).
+    // - Se invece la pagina è vecchia (senza schermata di accesso) si fa lo stesso da qui: si svuota la copia
+    //   salvata e si ricarica, una volta sola. Se non basta, si va avanti senza schermata.
+    window.LIFE_RPG_GATE = true;
     const gate = $('gate'), appEl = document.querySelector('.app');
+    if (!gate) {
+      let first = false;
+      try {
+        first = Date.now() - Number(sessionStorage.getItem('liferpg:refresh') || 0) > 60000;
+        if (first) sessionStorage.setItem('liferpg:refresh', String(Date.now()));
+      } catch (e) { /* senza sessionStorage non si ricarica */ }
+      if (first && window.caches) {
+        caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('life-rpg-')).map(k => caches.delete(k))))
+          .catch(() => {}).then(() => location.reload());
+      }
+    }
     let fbReady = false, gateOffline = false, gateErr = '';
     function paintGate() {
+      if (!gate) return;   // pagina di una versione precedente, senza schermata di accesso
       const open = !ST.dbRef;
       gate.hidden = !open;
       appEl.inert = open;
@@ -411,8 +429,10 @@
       if (!fbReady) { await initCloudInner(); return; }
       if (ST.fbUser) await fbConnect();
     }
-    $('gate-retry').addEventListener('click', retryConnect);
-    $('gate-in').addEventListener('click', signIn);
+    if (gate) {
+      $('gate-retry').addEventListener('click', retryConnect);
+      $('gate-in').addEventListener('click', signIn);
+    }
 
     let initJob = null;
     function initCloudInner() {

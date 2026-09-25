@@ -539,5 +539,26 @@
 <script src="shared.js" defer></script>
 <script src="audio.js" defer></script>
 <script src="index.js" defer></script>
+<script>
+  // Protezione per gli aggiornamenti: subito dopo una pubblicazione il browser può avere file di versioni diverse.
+  // Se cloud.js è di una versione precedente (non conosce la schermata di accesso), si svuota la copia salvata
+  // dal service worker e si ricarica la pagina, una volta sola, così arrivano tutti i file nuovi (come un
+  // "ricarica forzato"). Se non basta, la schermata si toglie comunque, per non bloccare l'app.
+  // Gli script "defer" qui sopra sono già stati eseguiti quando arriva DOMContentLoaded.
+  document.addEventListener('DOMContentLoaded', () => {
+    if (window.LIFE_RPG_GATE) return;
+    let first = false;
+    try {
+      first = Date.now() - Number(sessionStorage.getItem('liferpg:refresh') || 0) > 60000;
+      if (first) sessionStorage.setItem('liferpg:refresh', String(Date.now()));
+    } catch (e) { /* senza sessionStorage non si ricarica, per non rischiare di farlo all'infinito */ }
+    if (first && window.caches) {
+      caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('life-rpg-')).map(k => caches.delete(k))))
+        .catch(() => {}).then(() => location.reload());
+      return;
+    }
+    document.getElementById('gate').hidden = true;
+  });
+</script>
 </body>
 </html>
