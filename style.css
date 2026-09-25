@@ -284,10 +284,11 @@
     font: inherit; line-height: 1.1; color: inherit;
     background: transparent; border: 0; border-radius: 6px;
   }
+  /* icona della statistica: solo il disegno, senza riquadro intorno */
   .ico {
     display: grid; place-items: center; width: 60px; height: 60px;
-    color: var(--c); background: var(--track);
-    border: 2px solid var(--c); border-radius: 8px;
+    color: var(--c); background: transparent;
+    border: 0; border-radius: 8px;   /* gli angoli arrotondati valgono per le immagini personalizzate */
   }
   .ico svg { display: block; }
 
@@ -468,7 +469,7 @@
   body.has-bg .foot.warn { color: var(--ink-strong); background: var(--win-c); border-color: var(--bad); }
   .ico.has-img, .cs-icon.has-img { padding: 0; overflow: hidden; }
   .ico img, .cs-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  /* immagine con zone trasparenti: resta il contorno colorato, ma senza sfondo scuro dietro (si vede la finestra);
+  /* immagine con zone trasparenti: senza sfondo scuro dietro (si vede la finestra);
      la forma è intera, non tagliata, con un piccolo spazio dal bordo */
   .ico.has-img.alpha, .cs-icon.has-img.alpha { background: transparent; }
   .ico.alpha img, .cs-icon.alpha img { object-fit: contain; padding: 3px; box-sizing: border-box; }

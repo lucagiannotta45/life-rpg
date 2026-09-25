@@ -102,7 +102,7 @@
     const pt = (i, r) => [CX + r * Math.cos(ang(i)), CY + r * Math.sin(ang(i))];
     const ptsStr = arr => arr.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
     // ordine delle statistiche nell'esagono, dalla cima in senso orario (l'elenco delle statistiche resta com'è)
-    const RADAR_IDX = ['Intelletto', 'Vigore', 'Vitalita', 'Creativita', 'Legami', 'Animo'].map(k => STATS.findIndex(x => x.key === k));
+    const RADAR_IDX = ['Intelletto', 'Animo', 'Legami', 'Creativita', 'Vitalita', 'Vigore'].map(k => STATS.findIndex(x => x.key === k));
     const POS = STATS.map((_, i) => RADAR_IDX.indexOf(i));      // posizione nell'esagono di ogni statistica
     // disegno completo del radar per certi XP (lo usano il tuo radar e il profilo degli amici)
     function radarMarkup(x) {
