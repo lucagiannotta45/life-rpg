@@ -402,6 +402,12 @@
         let why = errKey(e);
         try {
           const x = await ref(sid).get({ source: 'server' });
+          // diagnosi: chi scrive, cosa manda e com'è il documento sul server in quel momento
+          const auth = window.firebase && firebase.auth && firebase.auth().currentUser;
+          console.warn('shared diag', JSON.stringify({
+            code: e && e.code, me: me(), authUid: auth ? auth.uid : null, sid, sent: data,
+            server: x.exists ? x.data() : null,
+          }, null, 1));
           if (x.exists) {
             if (x.data().ver !== ver) why = 'sh.msg.stale';
             docs[sid] = { ...x.data(), _pw: false, _srv: Date.now() };
