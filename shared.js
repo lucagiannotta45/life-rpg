@@ -341,7 +341,29 @@
     async function acceptChange(id) {
       const m = byId(id), d = docOf(m);
       if (!m || !d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      if (await write(() => update(m.sid, { gAcc: d.ver }))) { sfx('ok'); MUI().missionMsg(T('sh.msg.accepted.change', { title: m.title }), 'good'); }
+      if (await acceptVersion(m.sid, { gAcc: d.ver }, d.ver)) { sfx('ok'); MUI().missionMsg(T('sh.msg.accepted.change', { title: m.title }), 'good'); }
+    }
+    // Accettare vale solo per l'ultima versione della missione (lo controllano le regole di Firebase).
+    // Se chi l'ha creata l'ha appena modificata e qui non era ancora arrivato, Firebase rifiuta:
+    // si chiede al server la versione attuale e, se è cambiata, lo si dice chiaramente (e la scheda si aggiorna).
+    async function acceptVersion(sid, data, ver) {
+      try { await update(sid, data); return true; }
+      catch (e) {
+        console.warn('shared', e);
+        let changed = false;
+        try {
+          const x = await ref(sid).get({ source: 'server' });
+          if (x.exists) {
+            changed = x.data().ver !== ver;
+            docs[sid] = { ...x.data(), _pw: false, _srv: Date.now() };
+            saveCache();
+            MUI().renderMissionViews();
+          }
+        } catch (e2) { /* senza rete: resta il messaggio generico */ }
+        MUI().missionMsg(T(changed ? 'sh.msg.stale' : 'sh.msg.err'), 'bad', true);
+        sfx('err');
+        return false;
+      }
     }
     // l'invitato esce dalla missione (dopo una modifica, oppure rifiutando l'invito): nessun fallimento
     const leaveData = d => ({ guest: '', guestName: '', members: [d.owner], joined: false, gAcc: 0, gDone: null });
@@ -379,7 +401,7 @@
     async function acceptInvite(sid) {
       const d = docs[sid];
       if (!d || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }
-      if (!(await write(() => update(sid, { joined: true, gAcc: d.ver, guestName: myName() })))) return;
+      if (!(await acceptVersion(sid, { joined: true, gAcc: d.ver, guestName: myName() }, d.ver))) return;
       sfx('ok');
       MUI().missionMsg(T('sh.msg.joined', { title: d.title }), 'good');
     }

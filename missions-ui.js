@@ -319,9 +319,9 @@
       return wrap;
     }
     // etichetta "↻ Routine · serie 5": dice subito che tipo di missione è, quindi sta in cima, sopra il titolo
-    const ROUTINE_ICON = ['...XXX...', '.XX...X..', '.X....XXX', 'X......X.', 'X........', 'X.......X', '.X.....X.', '.XX...XX.', '...XXX...'];
+    const ROUTINE_ICON = ['...XXX.....', '.XX...XX...', '.X......X..', 'X.....XXXXX', 'X......XXX.', 'X.......X..', '.X.........', '.XX...XX...', '...XXX.....'];   // cerchio con la punta piena verso il basso
     // etichetta delle missioni condivise: due figure affiancate
-    const SHARED_ICON = ['..X.....X..', '.XXX...XXX.', '.XXX...XXX.', '..X.....X..', '...........', '.XXX...XXX.', 'XXXXX.XXXXX', 'XXXXX.XXXXX', 'XXXXX.XXXXX'];
+    const SHARED_ICON = ['..XX.....XX..', '.XXXX...XXXX.', '.XXXX...XXXX.', '..XX.....XX..', '.............', '.XXXX...XXXX.', 'XXXXXX.XXXXXX', 'XXXXXX.XXXXXX', 'XXXXXX.XXXXXX'];
     function routineTag(text, icon) {
       const t = mk('p', 'm-tag' + (icon === SHARED_ICON ? ' shared' : ''));
       const ic = mk('span', 'm-tag-ico'); ic.innerHTML = iconSvg(icon || ROUTINE_ICON, 2);
