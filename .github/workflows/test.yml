@@ -1,0 +1,19 @@
+# Life RPG — test automatici
+# A ogni modifica caricata su GitHub (e a ogni pull request) lancia "node --test"
+# e mostra il risultato nella scheda "Actions" del repository.
+name: Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:   # permette anche di lanciarli a mano dalla scheda "Actions"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test
