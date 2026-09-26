@@ -635,6 +635,13 @@
       "gate.nonet": "Accesso non riuscito. Controlla la connessione e riprova.",
       "gate.retry": "Riprova",
       "acc.unavail": "L'accesso funziona solo aprendo l'app dal suo indirizzo web (https).",
+      "del.h": "Elimina account",
+      "del.desc": "Cancella per sempre il profilo, i progressi, le missioni, le routine, le amicizie e il codice amico da questo account. Non si può annullare.",
+      "del.btn": "Elimina account",
+      "del.btn.confirm": "Conferma: elimina per sempre",
+      "del.busy": "Eliminazione in corso…",
+      "del.reauth": "Per sicurezza Google chiede di accedere di nuovo prima di eliminare l'account. Accedi di nuovo, poi tocca ancora Elimina account.",
+      "del.err": "Eliminazione non riuscita. Riprova tra poco.",
     },
 
 
@@ -1235,6 +1242,13 @@
       "gate.nonet": "Sign-in failed. Check your connection and try again.",
       "gate.retry": "Try again",
       "acc.unavail": "Sign-in only works when you open the app from its web address (https).",
+      "del.h": "Delete account",
+      "del.desc": "Permanently deletes your profile, progress, missions, routines, friendships and friend code from this account. This can't be undone.",
+      "del.btn": "Delete account",
+      "del.btn.confirm": "Confirm: delete forever",
+      "del.busy": "Deleting…",
+      "del.reauth": "For security, Google needs you to sign in again before deleting your account. Sign in again, then tap Delete account once more.",
+      "del.err": "Couldn't delete your account. Try again in a moment.",
     },
 
 
@@ -1835,6 +1849,13 @@
       "gate.nonet": "Falha ao entrar. Verifique a conexão e tente de novo.",
       "gate.retry": "Tentar de novo",
       "acc.unavail": "O login só funciona abrindo o app pelo endereço web (https).",
+      "del.h": "Excluir conta",
+      "del.desc": "Apaga para sempre o perfil, o progresso, as missões, as rotinas, as amizades e o código de amigo desta conta. Não é possível desfazer.",
+      "del.btn": "Excluir conta",
+      "del.btn.confirm": "Confirmar: excluir para sempre",
+      "del.busy": "Excluindo…",
+      "del.reauth": "Por segurança, o Google pede para você entrar de novo antes de excluir a conta. Entre de novo e toque em Excluir conta outra vez.",
+      "del.err": "Não foi possível excluir a conta. Tente de novo daqui a pouco.",
     },
   };
 

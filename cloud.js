@@ -532,8 +532,12 @@
       const who = ST.fbUser ? (ST.fbUser.email || ST.fbUser.displayName || '') : '';
       $('acc-status').textContent = !usable ? T('acc.unavail') : !ST.fbUser ? T('acc.off')
         : ST.dbRef ? T('acc.as', { who }) : T('acc.as.wait', { who });   // accesso fatto, ma l'account non è ancora raggiungibile
+      // "Elimina account": ha senso solo con un account collegato
+      const delBox = $('del-box');
+      if (delBox) { delBox.hidden = !ST.fbUser; $('btn-del-account').disabled = ST.accBusy || ST.delBusy; }
     }
     function accMsg(t) { $('acc-msg').textContent = t || ''; }
+    function delMsg(t) { const e = $('del-msg'); if (e) e.textContent = t || ''; }
     async function signIn() {
       if (ST.accBusy) return;
       ST.accBusy = true; accMsg(''); gateErr = ''; paintAccount(); paintGate();
@@ -615,6 +619,103 @@
       sharedReset();
       await wipeLocalData();
       location.reload();   // si riparte da zero: in memoria non resta niente dell'account
+    });
+    // "Elimina account": cancella tutto quello che sta nell'account (profilo, progressi, missioni, routine,
+    // amicizie, codice amico) e poi anche l'accesso Google stesso. Va confermato con un secondo tocco, come
+    // "Azzera tutto". È un'azione "meglio possibile": se un pezzo non si può cancellare per via delle regole
+    // di sicurezza (per esempio una missione condivisa dove un amico ha già accettato, che solo lui o la
+    // scadenza possono chiudere), l'operazione prova a uscirne e prosegue comunque con il resto.
+    let delArmed = 0;
+    async function wipeCollection(coll) {
+      const snap = await coll.get();
+      for (let i = 0; i < snap.docs.length; i += 400) {   // a gruppi: un batch arriva al massimo a 500 operazioni
+        const batch = ST.fbDb.batch();
+        snap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+    }
+    // esce da una missione o routine di gruppo invece di cancellarla, quando cancellarla non è permesso
+    // (chi l'ha creata non può; un amico che ha già accettato le regole attuali "abbandona" invece di uscire,
+    // e la missione fallisce per tutti, come già succede toccando "Abbandona" nella scheda missioni)
+    async function leaveGroupDoc(ref, collName) {
+      const s = await ref.get();
+      if (!s.exists) return;
+      const o = s.data();
+      if (!(ST.fbUser.uid in (o.g || {}))) return;   // sei il proprietario: non c'è un modo di "uscire"
+      const ng = { ...o.g }; delete ng[ST.fbUser.uid];
+      try {
+        await ref.update({ g: ng, members: (o.members || []).filter(m => m !== ST.fbUser.uid), updated: Date.now() });
+        return;
+      } catch (e) { /* hai già accettato le regole attuali: non puoi più solo "uscire" */ }
+      if (collName === 'shared') {
+        try { await ref.update({ left: ST.fbUser.uid, updated: Date.now() }); return; }
+        catch (e2) { /* missione già finita o scaduta: non c'è più nulla da segnare */ }
+      }
+    }
+    async function dropGroupDocs(collName) {
+      let qs;
+      try { qs = await ST.fbDb.collection(collName).where('members', 'array-contains', ST.fbUser.uid).get(); }
+      catch (e) { return; }   // meglio possibile
+      for (const d of qs.docs) {
+        try { await d.ref.delete(); continue; } catch (e) { /* non permesso: si prova a uscire */ }
+        try { await leaveGroupDoc(d.ref, collName); } catch (e2) { /* resta così com'è */ }
+      }
+    }
+    async function deleteCloudData(uid) {
+      const userRef = ST.fbDb.doc('users/' + uid);
+      for (const c of ['imgs', 'm', 'meta']) { try { await wipeCollection(userRef.collection(c)); } catch (e) { /* meglio possibile */ } }
+      try { await userRef.delete(); } catch (e) { /* meglio possibile */ }
+      let code = '';
+      try { const ps = await ST.fbDb.doc('profiles/' + uid).get(); if (ps.exists) code = ps.data().code || ''; } catch (e) { /* ignora */ }
+      try { await ST.fbDb.doc('profiles/' + uid).delete(); } catch (e) { /* meglio possibile */ }
+      try { await ST.fbDb.doc('profileBg/' + uid).delete(); } catch (e) { /* può non esistere */ }
+      if (code) { try { await ST.fbDb.doc('friendCodes/' + code).delete(); } catch (e) { /* meglio possibile */ } }
+      try {
+        const fs = await ST.fbDb.collection('friendships').where('members', 'array-contains', uid).get();
+        for (const d of fs.docs) { try { await d.ref.delete(); } catch (e) { /* meglio possibile */ } }
+      } catch (e) { /* meglio possibile */ }
+      await dropGroupDocs('shared');
+      await dropGroupDocs('sroutines');
+    }
+    const delBtn = $('btn-del-account');
+    if (delBtn) delBtn.addEventListener('click', async () => {
+      if (ST.accBusy || ST.delBusy || !ST.fbAuth || !ST.fbUser) return;
+      if (Date.now() >= delArmed) {
+        delArmed = Date.now() + 6000;
+        delBtn.textContent = T('btn.confirm');
+        delBtn.setAttribute('aria-label', T('del.btn.confirm'));
+        setTimeout(() => { if (Date.now() >= delArmed) { delBtn.textContent = T('del.btn'); delBtn.removeAttribute('aria-label'); } }, 6000);
+        return;
+      }
+      delArmed = 0;
+      delBtn.textContent = T('del.btn'); delBtn.removeAttribute('aria-label');
+      ST.delBusy = true; paintAccount();
+      delMsg(T('del.busy'));
+      const uid = ST.fbUser.uid;
+      try {
+        await deleteCloudData(uid);
+        try { await ST.fbUser.delete(); }
+        catch (e) {
+          if (e && e.code === 'auth/requires-recent-login') {
+            delMsg(T('del.reauth'));
+            try {
+              const provider = new firebase.auth.GoogleAuthProvider();
+              await ST.fbAuth.signInWithPopup(provider);
+              await ST.fbAuth.currentUser.delete();
+            } catch (e2) { console.warn('auth', e2); delMsg(T('del.err')); ST.delBusy = false; paintAccount(); return; }
+          } else { throw e; }
+        }
+      } catch (e) {
+        console.warn('cloud', e); delMsg(T('del.err')); ST.delBusy = false; paintAccount(); return;
+      }
+      stopListening();
+      clearTimeout(retryT);
+      markSigned(false);
+      ST.fbUser = null; ST.dbRef = null;
+      friendsReset();
+      sharedReset();
+      await wipeLocalData();
+      location.reload();
     });
     // chiudendo o ricaricando la pagina con modifiche non ancora nell'account (per esempio senza rete)
     // il browser chiede conferma: sul dispositivo non c'è una copia, quindi andrebbero perse
