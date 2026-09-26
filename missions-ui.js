@@ -278,6 +278,7 @@
         due = due.filter(m => !held.includes(m));
         if (!due.length) renderMissionViews();
       }
+      if (!due.length) return true;   // nessuna missione scaduta: niente da fare (e nessuna finestra)
       // da più volte, con tutte le volte fatte ma senza "Completa": alla scadenza si completa da sola (il lavoro è fatto),
       // come se l'avessi completata l'ultimo momento utile (così conta anche per la serie)
       const full = due.filter(m => m.n > 1 && MISSIONS.fullCount(m));
