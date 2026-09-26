@@ -278,14 +278,20 @@
         // 'g' = sei stato invitato), shn = i nomi degli altri, tz = il fuso del gruppo (quello di chi l'ha creata),
         // gs / gsd / gbest = serie di gruppo, giorno dell'ultima volta "tutti insieme" e record
         const it = out[out.length - 1];
-        // at = da quando valgono frequenza, volte e giorni di adesso (i periodi si contano da qui); senza, dall'inizio
-        if (validDate(r.at) && r.at > r.start) it.at = r.at;
+        // at = da quando valgono frequenza, volte e giorni di adesso (i periodi si contano da qui); senza, dall'inizio.
+        // Può anche venire prima dell'inizio: chi entra in una routine di gruppo inizia dopo, ma i periodi sono quelli
+        // del gruppo. pk = il primo giorno dell'ultimo periodo prima di at (serve alla serie di gruppo per restare di fila)
+        if (validDate(r.at) && r.at !== r.start) it.at = r.at;
+        if (it.at && validDate(r.pk) && r.pk < it.at) it.pk = r.pk;
         // nx = un cambio di frequenza, volte o giorni che vale dal periodo successivo (at = il suo primo giorno)
         const nx = r.nx;
         if (nx && validDate(nx.at) && nx.at > (it.at || r.start) && FREQS.includes(nx.freq)) {
           const nd = nx.freq === 'd' ? normDays(nx.days) : [];
           const nn = normTimes(nx.n);
-          if (nx.freq !== 'd' || nd.length) it.nx = { at: nx.at, freq: nx.freq, n: nn, days: nd, time: nx.freq === 'd' && nn === 1 && validTime(nx.time) ? nx.time : null };
+          if (nx.freq !== 'd' || nd.length) {
+            it.nx = { at: nx.at, freq: nx.freq, n: nn, days: nd, time: nx.freq === 'd' && nn === 1 && validTime(nx.time) ? nx.time : null };
+            if (validDate(nx.pk) && nx.pk < nx.at) it.nx.pk = nx.pk;
+          }
         }
         if (typeof r.sr === 'string' && /^q[a-z0-9]{6,11}$/.test(r.sr)) {
           it.sr = r.sr; it.sh = r.sh === 'g' ? 'g' : 'o';
@@ -442,7 +448,7 @@
     // (solo per le pause salvate prima, vedi normalizeRoutines: valgono ancora per i giorni già passati)
     const inPause = (r, d) => !!r.pause && r.pause.from <= d && d <= r.pause.until;
     // quel giorno una routine di ogni giorno c'è (per settimanali e mensili: mai, non hanno giorni precisi)
-    const dayCounts = (r, d) => isDaily(r) && d >= anchorOf(r) && r.days.includes(parseDate(d).getDay()) && !inPause(r, d);
+    const dayCounts = (r, d) => isDaily(r) && d >= r.start && d >= anchorOf(r) && r.days.includes(parseDate(d).getDay()) && !inPause(r, d);
     // il periodo che contiene il giorno ds: { s: primo giorno, e: ultimo }. null prima dell'inizio e,
     // per le routine di ogni giorno, nei giorni in cui non c'è
     function periodAt(r, ds) {
@@ -482,7 +488,7 @@
     // il giorno da cui varrebbe un cambio fatto oggi: il giorno dopo la fine del periodo in corso (ogni giorno: domani);
     // per una routine non ancora iniziata, il suo primo giorno (il cambio vale subito)
     function changeAt(r, today) {
-      if (anchorOf(r) > today) return anchorOf(r);
+      if (r.start > today) return r.start;
       return addDaysStr(isDaily(r) ? today : periodAt(r, today).e, 1);
     }
     const sameShape = (a, b) => (a.freq || 'd') === (b.freq || 'd') && (a.n || 1) === (b.n || 1) && a.days.join() === b.days.join();
@@ -496,18 +502,38 @@
       next.days = next.freq === 'd' ? normDays(c.days) : [];
       next.time = next.freq === 'd' && next.n === 1 && validTime(c.time) ? c.time : null;
       delete r.nx;
-      if (anchorOf(r) > today) {
+      if (r.start > today) {
         Object.assign(r, next);
-        return anchorOf(r);
+        return r.start;
       }
       if (sameShape(next, r)) return today;
       r.nx = { at: changeAt(r, today), ...next };
+      // l'ultimo periodo con le regole di adesso (per la serie di gruppo: il periodo nuovo viene subito dopo di lui)
+      const pk = isDaily(r) ? (dayCounts(r, today) ? today : prevDay(r, today)) : periodAt(r, today).s;
+      if (pk) r.nx.pk = pk;
       return r.nx.at;
+    }
+    // la routine come sarà dopo il cambio in attesa (una copia; la routine non cambia)
+    function foldedCopy(r) {
+      const { at, freq, n, days, time, pk } = r.nx;
+      const c = { ...r, at, freq, n, days, time: freq === 'd' && n === 1 ? time || null : null };
+      delete c.nx; delete c.pk;
+      if (pk) c.pk = pk;
+      return c;
+    }
+    // Le regole di una routine in quel giorno, per confrontare due copie (la tua e quella del gruppo): frequenza, volte,
+    // giorni, ora, da dove si contano i periodi e il cambio in attesa. Un cambio già arrivato conta come fatto, così
+    // una copia che l'ha già applicato e una che non ancora risultano uguali.
+    function shapeOf(r, day) {
+      const y = r.nx && r.nx.at <= day ? foldedCopy(r) : r;
+      const x = y.nx ? { at: y.nx.at, f: y.nx.freq, n: y.nx.n, d: y.nx.days.join(), t: y.nx.time || null } : null;
+      return JSON.stringify({ f: y.freq || 'd', n: y.n || 1, d: y.days.join(), t: y.time || null, a: anchorOf(y), x });
     }
     // il cambio arriva al suo primo giorno: da lì si contano i periodi nuovi
     function foldChange(r) {
-      const { at, freq, n, days, time } = r.nx;
+      const { at, freq, n, days, time, pk } = r.nx;
       Object.assign(r, { at, freq, n, days, time: freq === 'd' && n === 1 ? time || null : null });
+      if (pk) r.pk = pk; else delete r.pk;
       delete r.nx;
     }
     // completando una volta di una routine: la serie cresce solo se la completi entro la fine del suo periodo;
@@ -749,31 +775,58 @@
       return { missions, changed, routinesChanged, months };
     }
     /* ---------- serie di gruppo ---------- */
-    // il giorno previsto più vicino prima di ds (dopo l'inizio, fuori dalle pause); '' se non c'è
+    // I periodi \"tutti insieme\" di fila. Il periodo prima di uno è quello che finisce il giorno prima; subito dopo un
+    // cambio di frequenza (at) è l'ultimo con le regole di prima (pk).
+    // il periodo previsto più vicino prima di ds (dopo l'inizio); '' se non c'è
     function prevDay(r, ds) {
-      let d = addDaysStr(ds, -1);
-      for (let i = 0; i < 400 && d >= r.start; i++, d = addDaysStr(d, -1)) if (dayCounts(r, d)) return d;
-      return '';
+      if (isDaily(r)) {
+        let d = addDaysStr(ds, -1);
+        for (let i = 0; i < 400 && d >= r.start && d >= anchorOf(r); i++, d = addDaysStr(d, -1)) if (dayCounts(r, d)) return d;
+      } else {
+        const p = periodAt(r, addDaysStr(ds, -1));
+        if (p && p.s >= r.start) return p.s;
+      }
+      return r.at && r.pk && ds >= r.at && r.pk >= r.start ? r.pk : '';
     }
-    // l'ultimo giorno previsto già chiuso (scadenza passata) a quell'istante
+    // l'ultimo periodo già chiuso (scadenza passata) a quell'istante
     function lastClosedDay(r, now) {
-      let d = zoneDay(now, r.tz);
-      for (let i = 0; i < 400 && d >= r.start; i++, d = addDaysStr(d, -1)) if (dayCounts(r, d) && groupDueMs(r, d) <= now) return d;
-      return '';
+      const today = zoneDay(now, r.tz);
+      if (!isDaily(r)) {
+        const p = periodAt(r, today);
+        if (!p) return '';
+        return groupDueMs(r, p.e) <= now ? p.s : prevDay(r, p.s);
+      }
+      let d = today;
+      for (let i = 0; i < 400 && d >= r.start && d >= anchorOf(r); i++, d = addDaysStr(d, -1)) if (dayCounts(r, d) && groupDueMs(r, d) <= now) return d;
+      return r.at && r.pk && today >= r.at && r.pk >= r.start ? r.pk : '';
     }
-    // la serie di gruppo che si vede adesso: 0 se dopo l'ultima volta "tutti insieme" un giorno previsto è passato senza
+    // la serie di gruppo che si vede adesso: 0 se dopo l'ultimo periodo \"tutti insieme\" un periodo previsto è finito senza
     function groupStreakNow(r, now = Date.now()) {
       if (!r.gsd || !r.gs) return 0;
       const last = r.tz ? lastClosedDay(r, now) : '';
       return !last || r.gsd >= last ? r.gs : 0;
     }
-    // un giorno "tutti insieme" in più: serie nuova e bonus (se la serie arriva a un multiplo di bonus.every).
-    // Non cambia niente: restituisce { n, bonus }.
+    // un periodo \"tutti insieme\" in più (quello che inizia il giorno ds): serie nuova e bonus (se la serie arriva a un
+    // multiplo di bonus.every). Non cambia niente: restituisce { n, bonus }.
     function groupStep(r, ds) {
       const n = r.gsd && r.gsd === prevDay(r, ds) ? (r.gs || 0) + 1 : 1;
       const bonus = {};
       if (r.bonus && n % r.bonus.every === 0) STATS.forEach(s => { if (r.rewards[s.key] > 0) bonus[s.key] = r.bonus.xp; });
       return { n, bonus };
+    }
+    // i periodi di una routine che iniziano fra from e until (compresi), anche a cavallo di un cambio in attesa:
+    // [{ s, e, t }], t = le regole di quel periodo (la routine, oppure la sua copia dopo il cambio)
+    function groupPeriods(r, from, until) {
+      const out = [];
+      const seg = (x, a, b) => {
+        for (let p = nextPeriod(x, a, b), g = 0; p && g < 800; g++, p = nextPeriod(x, addDaysStr(p.e, 1), b)) out.push({ s: p.s, e: p.e, t: x });
+      };
+      if (r.nx && r.nx.at <= until) {
+        if (from < r.nx.at) seg(r, from, addDaysStr(r.nx.at, -1));
+        const f = foldedCopy(r);
+        seg(f, from > f.at ? from : f.at, until);
+      } else seg(r, from, until);
+      return out;
     }
 
     // routine previste nei giorni futuri (non sono ancora missioni: compaiono il giorno stesso).
@@ -869,6 +922,7 @@
       occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay,
       applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
+      foldedCopy, shapeOf, groupPeriods,
       gcalUrl, gcalRoutineUrl,
       regionFirstDay, localeFirstDay, WEEK_PREFS, firstDayOf, weekOrder, weekStart, calOffset,
     };

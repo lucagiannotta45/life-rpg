@@ -636,6 +636,62 @@ test('cambio di frequenza: una routine non ancora iniziata cambia subito', () =>
   assert.deepEqual([r.n, r.days, r.time, r.nx], [3, [1, 3], null, undefined]);
 });
 
+/* ---------- serie di gruppo per periodi ---------- */
+test('serie di gruppo: settimane "tutti insieme" di fila', t => {
+  const r = rouP({ sr: 'qabc1234', tz: 'Europe/Rome', bonus: { every: 2, xp: 9 } });   // settimane da venerdì 25 settembre
+  assert.equal(M.prevDay(r, '2026-10-02'), '2026-09-25', 'la settimana prima');
+  assert.equal(M.prevDay(r, '2026-09-25'), '', 'la prima non ha una settimana prima');
+  Object.assign(r, { gs: 1, gsd: '2026-09-25' });
+  const step = M.groupStep(r, '2026-10-02');
+  assert.deepEqual([step.n, step.bonus], [2, { Vigore: 9 }]);
+  assert.equal(M.groupStep(r, '2026-10-09').n, 1, 'saltata una settimana: si riparte');
+  Object.assign(r, { gs: 2, gsd: '2026-10-02' });
+  now(t, '2026-10-08', '23:00');
+  assert.equal(M.lastClosedDay(r, Date.now()), '2026-09-25');
+  assert.equal(M.groupStreakNow(r), 2, 'la settimana del 2 non è ancora finita');
+  t.mock.timers.setTime(at('2026-10-16', '12:00'));
+  assert.equal(M.lastClosedDay(r, Date.now()), '2026-10-09');
+  assert.equal(M.groupStreakNow(r), 0, 'la settimana del 9 è finita senza');
+});
+
+test('serie di gruppo: a cavallo di un cambio di frequenza resta di fila', () => {
+  const r = rouP({ n: 1 });
+  M.planChange(r, { freq: 'm', n: 1 }, '2026-09-28');
+  assert.deepEqual([r.nx.at, r.nx.pk], ['2026-10-02', '2026-09-25'], 'l\'ultima settimana prima del cambio');
+  const list = M.groupPeriods(r, '2026-09-25', '2026-11-05');
+  assert.deepEqual(list.map(p => p.s + '/' + p.e), ['2026-09-25/2026-10-01', '2026-10-02/2026-11-01', '2026-11-02/2026-12-01']);
+  assert.equal(list[1].t.freq, 'm');
+  const f = list[1].t;
+  assert.equal(M.prevDay(f, '2026-10-02'), '2026-09-25', 'il primo mese viene subito dopo l\'ultima settimana');
+  assert.equal(M.groupStep({ ...f, gs: 3, gsd: '2026-09-25' }, '2026-10-02').n, 4);
+  // dopo il cambio la routine (non la copia) ha le stesse informazioni
+  openApp([r], [], '2026-10-02');
+  assert.deepEqual([r.freq, r.at, r.pk], ['m', '2026-10-02', '2026-09-25']);
+  assert.equal(M.prevDay(r, '2026-10-02'), '2026-09-25');
+});
+
+test('regole a confronto: un cambio già arrivato conta come fatto', () => {
+  const r = rouP({ n: 1 });
+  M.planChange(r, { freq: 'm', n: 2 }, '2026-09-28');
+  const doc = JSON.parse(JSON.stringify(r));   // come nel documento del gruppo: il cambio ancora \"in attesa\"
+  assert.equal(M.shapeOf(r, '2026-09-28'), M.shapeOf(doc, '2026-09-28'));
+  openApp([r], [], '2026-10-02');   // qui il cambio arriva
+  assert.equal(r.nx, undefined);
+  assert.equal(M.shapeOf(r, '2026-10-02'), M.shapeOf(doc, '2026-10-02'), 'uguali: niente da riassegnare');
+  assert.notEqual(M.shapeOf(r, '2026-10-02'), M.shapeOf(rouP({ n: 1 }), '2026-10-02'));
+});
+
+test('routine salvate: i periodi del gruppo possono iniziare prima del tuo primo giorno', () => {
+  const [g] = M.normalizeRoutines([{ id: 'q1', title: 'G', rewards: { Vigore: 1 }, freq: 'w', start: '2026-10-02', at: '2026-09-25', pk: '2026-09-20' }]);
+  assert.deepEqual([g.at, g.pk], ['2026-09-25', '2026-09-20']);
+  assert.deepEqual(M.periodAt(g, '2026-10-05'), { s: '2026-10-02', e: '2026-10-08' }, 'le settimane del gruppo');
+  const list = openApp([g], [], '2026-09-30');
+  assert.equal(list.length, 0, 'prima del tuo primo giorno non c\'è niente da fare');
+  const d = rou({ start: '2026-03-05', at: '2026-03-01', days: [1, 3] });
+  assert.equal(M.dayCounts(d, '2026-03-02'), false, 'lunedì 2: prima del tuo primo giorno');
+  assert.equal(M.dayCounts(d, '2026-03-09'), true);
+});
+
 /* ---------- fusi orari (routine di gruppo) ---------- */
 test('fusi orari: giorno e istante in un altro fuso', () => {
   const ms = Date.UTC(2026, 5, 10, 23, 30);   // 10 giugno, 23:30 UTC

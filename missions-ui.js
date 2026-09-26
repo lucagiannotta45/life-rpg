@@ -1013,22 +1013,16 @@
     const routineTimeOk = () => formFreq === 'd' && timesNow() === 1;
     function paintFreq() {
       const r = editingRoutine();
-      const locked = !!(r && r.sr);   // routine di gruppo: per ora solo una volta al giorno
-      if (locked) { formFreq = 'd'; $('mf-times').value = ''; }
       const f = formFreq, n = timesNow();
-      freqBtns.forEach(b => { b.setAttribute('aria-checked', String(b.dataset.f === f)); b.disabled = locked; });
-      $('mf-times').disabled = locked;
+      freqBtns.forEach(b => b.setAttribute('aria-checked', String(b.dataset.f === f)));
       $('mf-times-lbl').textContent = T('mf.times.' + f);
       $('mf-days-box').hidden = f !== 'd';
       $('mf-bonus-every-lbl').textContent = T(f === 'd' ? 'mf.bonus.every' : 'mf.bonus.every.' + f);
       $('mf-start-tip').textContent = T(r && r.start <= todayStr() ? 'mf.start.locked' : 'mf.start.tip');
       const tips = [];
-      if (locked) tips.push(T('mf.change.group'));
-      else {
-        if (f === 'd' && n > 1) tips.push(T('mf.freq.tip.dn'));
-        if (f !== 'd') tips.push(T('mf.freq.tip.' + f));
-        if (n > 1) tips.push(T('mf.freq.tip.all'));
-      }
+      if (f === 'd' && n > 1) tips.push(T('mf.freq.tip.dn'));
+      if (f !== 'd') tips.push(T('mf.freq.tip.' + f));
+      if (n > 1) tips.push(T('mf.freq.tip.all'));
       $('mf-freq-tip').textContent = tips.join(' ');
       $('mf-freq-tip').hidden = !tips.length;
       syncTime();
@@ -1041,7 +1035,7 @@
       const today = r ? routineToday(r) : '';
       const days = formFreq === 'd' ? pickedDays() : [];
       const same = r && formFreq === (r.freq || 'd') && timesNow() === (r.n || 1) && days.join() === r.days.join();
-      note.hidden = !r || !!r.sr || r.start > today || !!same;
+      note.hidden = !r || r.start > today || !!same;
       // la data a metà frase: senza la maiuscola che fmtDay mette all'inizio ("dal sabato 3 ottobre")
       if (!note.hidden) note.textContent = T('mf.change.at', { when: parseDate(changeAt(r, today)).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' }) });
     }
@@ -1190,9 +1184,8 @@
     function submitRoutine(title, rewards, penalty, stars) {
       const fail = (t, el) => { mfMsg(t); sfx('err'); if (el) el.focus(); };
       let r = editingRoutine();
-      // routine di gruppo: per ora solo una volta al giorno (vedi paintFreq)
-      const freq = r && r.sr ? 'd' : formFreq;
-      const tRaw = r && r.sr ? '' : $('mf-times').value.trim();
+      const freq = formFreq;
+      const tRaw = $('mf-times').value.trim();
       const times = tRaw === '' ? 1 : Number(tRaw);
       if (!Number.isInteger(times) || times < 1 || times > MAX_TIMES) return fail(T('mf.err.times', { max: MAX_TIMES }), $('mf-times'));
       const days = freq === 'd' ? pickedDays() : [];
@@ -1224,12 +1217,10 @@
         Object.assign(r, { title, desc, rewards, penalty, bonus, stars });
         // non ancora iniziata: la nuova data di inizio vale subito (la serie non c'è ancora)
         if (newStart) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); r.brks = []; delete r.at; }
-        if (r.sr) Object.assign(r, { days, time });   // routine di gruppo: come prima, giorni e ora valgono subito
-        else {
-          // frequenza, volte e giorni: dal periodo successivo (se non è ancora iniziata, subito); le regole sono in missions.js
-          MISSIONS.planChange(r, { freq, n: times, days, time }, routineToday(r));
-          if (!r.nx && isDaily(r) && (r.n || 1) === 1) r.time = time;   // stesse regole: l'ora nuova vale subito
-        }
+        // frequenza, volte e giorni: dal periodo successivo (se non è ancora iniziata, subito); le regole sono in missions.js.
+        // Routine di gruppo: il cambio in attesa va nel documento, così vale per tutti dallo stesso giorno
+        MISSIONS.planChange(r, { freq, n: times, days, time }, routineToday(r));
+        if (!r.nx && isDaily(r) && (r.n || 1) === 1) r.time = time;   // stesse regole: l'ora nuova vale subito
         if (r.made && r.made >= today) r.made = addDaysStr(today, -1);   // se oggi ora è un giorno previsto, compare subito
         delete r.pause;
       } else {
@@ -1243,7 +1234,7 @@
       S.missions.forEach(m => {
         if (m.rid === r.id && !m.done && !m.failed) {
           Object.assign(m, { title, desc, rewards: { ...rewards }, penalty: { ...penalty }, stars });
-          if (!m.n && !m.ps) m.dueTime = r.sr ? time : r.time;
+          if (!m.n && !m.ps) m.dueTime = r.time;   // (routine di gruppo: poi afterEdit la mette nella tua ora, se sei in un altro fuso)
           months.add(monthOf(m));
         }
       });

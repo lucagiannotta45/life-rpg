@@ -237,23 +237,45 @@ service cloud.firestore {
     // Un documento per routine. Lo leggono e scrivono solo chi l'ha creata (owner) e gli amici invitati.
     //   members: [owner, amico1, amico2, amico3]
     //   g: { uid: { n: nome, j: ha accettato, a: versione delle regole accettata, since: giorno del gruppo da cui partecipa } }
-    //   k: { AAAAMMGG: { uid: ora del server in cui ha fatto la sua parte } }; lk: il giorno toccato dall'ultima scrittura
-    // Ognuno segna solo la propria parte, con l'ora del server, e solo vicino a quel giorno (il fuso del gruppo lo conosce
-    // l'app: qui si accetta da 14 ore prima a 38 ore dopo la mezzanotte UTC di quel giorno, che copre tutti i fusi).
+    //   k: { AAAAMMGG: { uid: ora del server in cui ha completato la sua parte } }, con il primo giorno del periodo;
+    //   lk: il periodo toccato dall'ultima scrittura
+    //   freq, n: ogni giorno / settimana / mese ('d', 'w', 'm'), quante volte per periodo (senza: ogni giorno, una volta);
+    //   at: da dove si contano i periodi (dopo un cambio), pk: l'ultimo periodo prima di at, nx: il cambio in attesa
+    //   (frequenza, volte, giorni e ora dal giorno nx.at; nx.pk come pk)
+    // Ognuno segna solo la propria parte, con l'ora del server, e solo vicino a quel periodo (il fuso del gruppo lo conosce
+    // l'app: qui si accetta da 14 ore prima della mezzanotte UTC del primo giorno a 38 ore dopo quella dell'ultimo, che
+    // copre tutti i fusi; per settimane e mesi l'ultimo giorno è al massimo 6 o 30 giorni dopo il primo).
     // Se la parte è arrivata dopo la scadenza vera, la serie di gruppo non la conta: lo controlla l'app con l'ora del server.
-    function srKeys() {
+    function srBaseKeys() {
       return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time',
               'start', 'pause', 'bonus', 'tz', 'ver', 'k', 'lk', 'created', 'updated'];
     }
+    function srKeys() { return srBaseKeys().concat(['freq', 'n', 'at', 'pk', 'nx']); }
     function srTplKeys() {
-      return ['title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time', 'start', 'pause', 'bonus', 'tz', 'ver', 'ownerName', 'updated'];
+      return ['title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time', 'start', 'pause', 'bonus', 'tz', 'ver', 'ownerName', 'updated',
+              'freq', 'n', 'at', 'pk', 'nx'];
+    }
+    // le regole della routine: cambiandole la versione sale di uno (gli amici dovranno riaccettare)
+    function srRuleKeys() { return ['rewards', 'penalty', 'days', 'time', 'freq', 'n', 'at', 'pk', 'nx']; }
+    function okDay10(v) { return v is string && v.size() == 10; }
+    // frequenza, volte, giorni e ora: i giorni solo ogni giorno (almeno uno), l'ora solo per una volta al giorno
+    function srShape(f, times, days, time) {
+      return f in ['d', 'w', 'm'] && times is int && times >= 1 && times <= 999
+        && days is list && days.size() <= 7 && days.hasOnly([0, 1, 2, 3, 4, 5, 6])
+        && (f == 'd' ? days.size() >= 1 : days.size() == 0)
+        && okClockOrNull(time) && (time == null || (f == 'd' && times == 1));
+    }
+    function srNx(x) {
+      return x == null || (x is map && x.keys().hasOnly(['at', 'freq', 'n', 'days', 'time', 'pk']) && x.keys().hasAll(['at', 'freq', 'n', 'days'])
+        && okDay10(x.at) && srShape(x.freq, x.n, x.days, x.get('time', null)) && (x.get('pk', null) == null || okDay10(x.pk)));
     }
     // il modello della routine (lo decide chi l'ha creata)
     function srTpl(n) {
       return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
         && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
-        && n.days is list && n.days.size() >= 1 && n.days.size() <= 7 && n.days.hasOnly([0, 1, 2, 3, 4, 5, 6])
-        && okClockOrNull(n.time) && n.start is string && n.start.size() == 10 && shortStr(n.tz, 64)
+        && srShape(n.get('freq', 'd'), n.get('n', 1), n.days, n.time)
+        && (n.get('at', null) == null || okDay10(n.at)) && (n.get('pk', null) == null || okDay10(n.pk)) && srNx(n.get('nx', null))
+        && n.start is string && n.start.size() == 10 && shortStr(n.tz, 64)
         && (n.pause == null || (n.pause is map && n.pause.keys().hasOnly(['from', 'until'])
             && n.pause.from is string && n.pause.from.size() == 10 && n.pause.until is string && n.pause.until.size() == 10))
         && (n.bonus == null || (n.bonus is map && n.bonus.keys().hasOnly(['every', 'xp'])
@@ -269,7 +291,7 @@ service cloud.firestore {
         || (n.members[i] != me() && okNewSrGuest(n.g[n.members[i]]) && areFriends(n.members[i]));
     }
     function srCreate(n) {
-      return n.keys().hasOnly(srKeys()) && n.keys().size() == 21
+      return n.keys().hasOnly(srKeys()) && n.keys().hasAll(srBaseKeys())
         && n.v == 1 && n.owner == me() && n.members is list && n.members[0] == me()
         && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
         && newSrGuestAt(1, n, 1) && newSrGuestAt(1, n, 2) && newSrGuestAt(1, n, 3)
@@ -279,8 +301,13 @@ service cloud.firestore {
     function srIn(o) { return me() == o.owner || (me() in o.g && o.g[me()].j == true && o.g[me()].a == o.ver); }
     // il giorno "AAAAMMGG" come istante (mezzanotte UTC)
     function srDay(s) { return timestamp.date(int(s[0:4]), int(s[4:6]), int(s[6:8])); }
-    function srDayOpen(s) {
-      return request.time > srDay(s) - duration.value(14, 'h') && request.time < srDay(s) + duration.value(38, 'h');
+    // la routine è (o sta per diventare, con il cambio in attesa) settimanale o mensile
+    function srHas(o, f) { return o.get('freq', 'd') == f || (o.get('nx', null) != null && o.nx.freq == f); }
+    function srDayOpen(s, o) {
+      return request.time > srDay(s) - duration.value(14, 'h')
+        && (request.time < srDay(s) + duration.value(38, 'h')
+          || (srHas(o, 'w') && request.time < srDay(s) + duration.value(182, 'h'))
+          || (srHas(o, 'm') && request.time < srDay(s) + duration.value(758, 'h')));
     }
     // segnare (con l'ora del server) o togliere la propria parte di un giorno: cambia solo k[lk][me]
     function srPart(o, n, k) {
@@ -289,7 +316,7 @@ service cloud.firestore {
         && n.k.diff(o.k).affectedKeys().hasOnly([n.lk])
         && n.k[n.lk] is map && n.k[n.lk].diff(o.k.get(n.lk, {})).affectedKeys().hasOnly([me()])
         && (!(me() in n.k[n.lk]) || n.k[n.lk][me()] == request.time)
-        && srDayOpen(n.lk);
+        && srDayOpen(n.lk, o);
     }
     // togliere un giorno vecchio (più di 60 giorni fa), uno per volta: lo può fare chiunque partecipi
     function srPrune(o, n, k) {
@@ -300,9 +327,9 @@ service cloud.firestore {
     }
     function srOwnerUpdate(o, n, k) {
       return me() == o.owner && (
-        // modificare la routine; se cambiano XP, penalità, giorni o ora la versione sale di uno (gli amici dovranno riaccettare)
+        // modificare la routine; se cambiano le regole (XP, penalità, frequenza, volte, giorni, ora) la versione sale di uno
         (k.hasOnly(srTplKeys()) && srTpl(n)
-          && (k.hasAny(['rewards', 'penalty', 'days', 'time']) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
+          && (k.hasAny(srRuleKeys()) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
         // invitare altri amici (chi è già dentro non deve riaccettare: per lui non cambia niente)
         || (k.hasOnly(['g', 'members', 'updated'])
             && n.members.size() > o.members.size() && n.members.size() <= 4
