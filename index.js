@@ -136,6 +136,20 @@
   ];
   const HEX = /^#[0-9a-f]{6}$/i;
   const defaultSettings = () => ({ name: '', titleText: '', titleShow: true, frame: 'semplice', frameV: 2, bgFit: 'adatta', winColor: null, inkColor: null, softColor: null, accentColor: null, nameColor: null, titleColor: null, trans: 0, colors: {}, shareBg: false, lang: 'it' });
+  // indovina la lingua dalle impostazioni del dispositivo (usata solo al primissimo avvio in assoluto,
+  // quando non c'è ancora nessuna preferenza salvata): se il dispositivo è in una lingua che non
+  // supportiamo, si parte dall'inglese, più neutro dell'italiano per chi capita qui la prima volta
+  function detectLang() {
+    try {
+      const cands = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || ''];
+      for (const c of cands) {
+        const base = String(c).split('-')[0].toLowerCase();
+        const hit = LANGS.find(l => l.id.toLowerCase() === base || l.id.toLowerCase().startsWith(base + '-'));
+        if (hit) return hit.id;
+      }
+    } catch (e) { /* navigator non disponibile */ }
+    return 'en';
+  }
   function normalizeSettings(o) {
     const s = defaultSettings();
     if (!o || typeof o !== 'object') return s;
@@ -167,7 +181,10 @@
       const raw = localStorage.getItem(LS_SET);
       if (raw) return normalizeSettings(JSON.parse(raw));
     } catch (e) { /* storage non disponibile */ }
-    return defaultSettings();
+    // nessuna preferenza salvata: primissimo avvio in assoluto su questo dispositivo, si indovina la lingua
+    const s = defaultSettings();
+    s.lang = detectLang();
+    return s;
   }
   // sul dispositivo resta solo la lingua (serve già alla schermata di accesso); il resto sta nell'account
   function saveSettingsLocal() {
@@ -1190,7 +1207,7 @@
   const CLOUD = window.LIFE_RPG_CLOUD.create({
     T, TN, STATS, levelFromXp, overallOf, blank, normalize, SYNC, normDel, rawOf, clampXp, mergeItems, monthOf,
     normalizeMissions, normalizeRoutines, fmt, saveLocal, hasProgress, defaultSettings, saveSettingsLocal, isDefaultSettings,
-    mergeSettings, IMG_NAMES, CLOUD_IMG_MAX, validImg, imgs, imgTouched, saveImgLocal, imagesInit, saveMissionsLocal,
+    LANGS, applyLang, mergeSettings, IMG_NAMES, CLOUD_IMG_MAX, validImg, imgs, imgTouched, saveImgLocal, imagesInit, saveMissionsLocal,
     saveRoutinesLocal, setSaveState, lsSet, blankSync, DEV, absorbLocal, recomputeXp, hasPend, saveSync, missionSig,
     routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
     applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,

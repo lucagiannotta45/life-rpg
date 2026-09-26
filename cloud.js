@@ -22,7 +22,7 @@
     const {
       T, TN, STATS, levelFromXp, overallOf, blank, normalize, SYNC, normDel, rawOf, clampXp, mergeItems, monthOf,
       normalizeMissions, normalizeRoutines, fmt, saveLocal, hasProgress, defaultSettings, saveSettingsLocal, isDefaultSettings,
-      mergeSettings, IMG_NAMES, CLOUD_IMG_MAX, validImg, imgs, imgTouched, saveImgLocal, imagesInit, saveMissionsLocal,
+      LANGS, applyLang, mergeSettings, IMG_NAMES, CLOUD_IMG_MAX, validImg, imgs, imgTouched, saveImgLocal, imagesInit, saveMissionsLocal,
       saveRoutinesLocal, setSaveState, lsSet, blankSync, DEV, absorbLocal, recomputeXp, hasPend, saveSync, missionSig,
       routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
       applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
@@ -392,6 +392,34 @@
     //   salvata e si ricarica, una volta sola. Se non basta, si va avanti senza schermata.
     window.LIFE_RPG_GATE = true;
     const gate = $('gate'), appEl = document.querySelector('.app');
+
+    // selettore lingua nella schermata di accesso: è la primissima cosa che si vede, quindi qui
+    // non si usa data-i18n per l'etichetta (la lingua non è ancora scelta) — il nome di ogni lingua,
+    // scritto nella lingua stessa (Italiano / English / Português), si capisce già da solo.
+    // La lingua di partenza è già stata indovinata da defaultSettings/detectLang (vedi index.js);
+    // qui si può solo correggerla con un tap, prima ancora di accedere.
+    const segLangGate = $('seg-lang-gate');
+    function paintGateLang() {
+      if (!segLangGate) return;
+      segLangGate.querySelectorAll('button').forEach(b =>
+        b.setAttribute('aria-checked', String(b.dataset.id === ST.settings.lang)));
+    }
+    if (segLangGate) {
+      LANGS.forEach(l => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = l.name; b.dataset.id = l.id; b.lang = l.id;
+        b.setAttribute('role', 'radio');
+        b.addEventListener('click', () => {
+          if (ST.settings.lang === l.id) return;
+          ST.settings.lang = l.id;
+          saveSettingsLocal();   // prima del login solo la lingua resta sul dispositivo
+          applyLang();           // aggiorna subito anche il testo del patto, quando comparirà
+          paintGateLang();
+        });
+        segLangGate.appendChild(b);
+      });
+      paintGateLang();
+    }
     if (!gate) {
       let first = false;
       try {
