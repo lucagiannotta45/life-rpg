@@ -505,6 +505,8 @@
         act.append(cb);
         // una routine di gruppo la modifica solo chi l'ha creata; chi è in sospeso sceglie qui (o nell'elenco delle routine)
         if (!(rtn && rtn.sh === 'g')) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+        // routine: "Invita" anche qui (come "Modifica"), per tutta la routine; solo chi l'ha creata, finché c'è posto
+        if (rtn && SR().canInvite(rtn)) act.appendChild(btn('', T('sh.invite'), T('sr.invite.aria'), () => SR().openInvite(rtn.id)));
         if (sri && sri.pending) act.append(btn(' add', T('sh.accept.change'), T('sh.accept.change'), () => SR().acceptChange(rtn.id)), exitBtn(rtn));
         if (SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
         if (shi && shi.invited) act.appendChild(btn('', T('sh.cancel'), T('sh.cancel'), () => SH().cancelInvite(m.id)));
