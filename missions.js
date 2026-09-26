@@ -12,6 +12,7 @@
  * - controllo dei dati salvati (missioni e routine arrivate da localStorage, dall'account o da un backup);
  * - quando una missione è disponibile, quando scade, in che ordine e in che gruppo compare;
  * - XP guadagnati, tolti e persi (completare, annullare, penalità);
+ * - le azioni su una missione: completare, annullare, fallire, annullare la penalità (XP, serie e record insieme);
  * - routine: in quali giorni contano, creazione delle "volte" di ogni giorno, serie e bonus;
  * - calendario: pallini dei giorni e routine previste;
  * - collegamenti "Aggiungi a Google Calendar".
@@ -95,7 +96,7 @@
       return { due: isoDate(e), dueTime: pad2(e.getHours()) + ':' + pad2(e.getMinutes()) };
     }
     // il "giorno di oggi" di una routine: per quelle di gruppo è il giorno nel fuso del gruppo
-    const routineToday = (r, now = Date.now()) => (r && r.tz ? zoneDay(now, r.tz) : todayStr());
+    const routineToday = (r, now = Date.now()) => (r && r.tz ? zoneDay(now, r.tz) : isoDate(new Date(now)));
 
     /* ---------- stelle e XP della missione ---------- */
     function normalizeRewards(o) {
@@ -447,6 +448,71 @@
         if (rt.brks.length > MAX_BRKS) rt.brks.splice(0, rt.brks.length - MAX_BRKS);
       }
     }
+    /* ---------- azioni su una missione ---------- */
+    // Le usa missions-ui.js quando premi i pulsanti (o scatta una penalità), e le usano i test: così le regole di XP,
+    // serie e record sono in un posto solo. Cambiano xp, la missione e la routine (rt, anche null) che ricevono;
+    // non salvano e non disegnano niente. routineChanged = la routine è cambiata (va salvata).
+
+    // Completare: XP (con l'eventuale bonus della serie), serie e record. t = l'istante da salvare (ordina le completate).
+    // Restituisce { applied, bonus, n, routineChanged }; n = la serie da mostrare nel messaggio.
+    function applyComplete(xp, m, rt, t = Date.now(), now = Date.now()) {
+      const { rs, bonus, join, n } = streakStep(rt, m, routineToday(rt, now));
+      const applied = gainXp(xp, m.rewards, bonus);
+      m.done = { date: isoDate(new Date(now)), t, applied };
+      let routineChanged = false;
+      if (join) {
+        // volta recuperata: la serie ridata si allunga di 1, come se l'avessi completata in tempo
+        m.done.rj = 1;
+        const pb = rt.best || 0;
+        if (streakShift(rt, m.gd || m.due, 1, true)) m.done.pb = pb;   // il record di prima, per annullare
+        routineChanged = true;
+      } else if (rs) {
+        m.done.rs = rs;
+        rt.streak = rs.n; rt.streakDate = m.gd || m.due; rt.best = Math.max(rt.best || 0, rs.n);
+        routineChanged = true;
+      }
+      return { applied, bonus, n: rs ? rs.n : join ? n : 0, routineChanged };
+    }
+    // Annullare un completamento: gli XP tornano indietro, la serie e il record tornano com'erano.
+    // Restituisce { removed, routineChanged }.
+    function applyUndo(xp, m, rt) {
+      const removed = undoXp(xp, m.done.applied);
+      const { rs, rj, pb } = m.done;
+      m.done = null;
+      let routineChanged = false;
+      if (rj && rt) {   // volta recuperata: toglie il +1 (e il record torna com'era, se l'aveva alzato lei)
+        const was = rt.streak || 0;
+        if (streakShift(rt, m.gd || m.due, -1) && Number.isInteger(pb) && rt.best === was) rt.best = pb;
+        routineChanged = true;
+      } else routineChanged = streakUndo(rt, rs, m.gd || m.due);
+      return { removed, routineChanged };
+    }
+    // Fallire: si perdono gli XP della penalità (pay = false: nessuna perdita, per esempio se ha abbandonato un amico).
+    // Una volta di routine recuperata che fallisce di nuovo perde la serie ridata. Restituisce { removed, routineChanged }.
+    function applyFail(xp, m, rt, date, t, pay = true) {
+      const removed = pay ? penaltyXp(xp, m.penalty) : normalizeRewards(null);
+      m.failed = { date, t, applied: removed };
+      let routineChanged = false;
+      if (m.re) {
+        if (m.rj !== undefined && rt) { streakLose(rt, m.gd || m.due, m.rj); routineChanged = true; }
+        delete m.re; delete m.rj;
+      }
+      return { removed, routineChanged };
+    }
+    // Annullare la penalità (o riprogrammare, se non c'era): gli XP persi tornano.
+    // Missione: resta senza scadenza (se ne sceglie una nuova). Volta di una routine: resta legata al suo giorno ed è
+    // da fare fino alla fine di oggi; se quel giorno aveva interrotto la serie, la serie di prima si riattacca.
+    // Restituisce { restored, routineChanged }.
+    function applyRevert(xp, m, rt, now = Date.now()) {
+      const restored = gainXp(xp, m.failed.applied);
+      m.failed = null;
+      if (!m.rid) { m.due = null; m.dueTime = null; return { restored, routineChanged: false }; }
+      m.re = isoDate(new Date(now));
+      delete m.rj;
+      const back = streakRecover(rt, m.gd || m.due);
+      if (back !== null) m.rj = back;
+      return { restored, routineChanged: back !== null };
+    }
     // Il "giro di oggi" delle routine: crea le volte di oggi (e quelle saltate dall'ultima apertura), interrompe le serie
     // non rispettate, toglie le pause finite e pulisce le volte che non servono più.
     // Cambia le routine ricevute e aggiunge le volte nuove all'elenco delle missioni; restituisce:
@@ -592,7 +658,8 @@
       startMs, dueEndMs, isLate, dueKey, notYet, nextChange,
       missionLists, dayLists, calendarMarks, lateMissions,
       gainXp, undoXp, penaltyXp,
-      WD_ALL, inPause, dayCounts, occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay, plannedRoutines,
+      WD_ALL, inPause, dayCounts, occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay,
+      applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
       gcalUrl, gcalRoutineUrl,
     };

@@ -90,23 +90,11 @@
     function grant(m) {
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
       const ovFrom = overallOf(before);
-      // routine: la serie cresce solo se la completi entro il giorno previsto
+      // XP, serie e record: le regole sono in missions.js (applyComplete)
       const rt = routineOf(m);
-      const { rs, bonus, join, n: joinN } = MISSIONS.streakStep(rt, m, MISSIONS.routineToday(rt));
-      const applied = MISSIONS.gainXp(S.xp, m.rewards, bonus);
       const lastT = S.missions.reduce((mx, x) => x.done ? Math.max(mx, x.done.t) : mx, 0);
-      m.done = { date: todayStr(), t: Math.max(Date.now(), lastT + 1), applied };   // t cresce sempre: ordina le completate
-      if (join) {
-        // volta recuperata: la serie ridata si allunga di 1, come se l'avessi completata in tempo
-        m.done.rj = 1;
-        const pb = rt.best || 0;
-        if (MISSIONS.streakShift(rt, m.gd || m.due, 1, true)) m.done.pb = pb;   // il record di prima, per annullare
-        saveRoutinesLocal();
-      } else if (rs) {
-        m.done.rs = rs;
-        rt.streak = rs.n; rt.streakDate = m.gd || m.due; rt.best = Math.max(rt.best || 0, rs.n);
-        saveRoutinesLocal();
-      }
+      const { applied, bonus, n, routineChanged } = MISSIONS.applyComplete(S.xp, m, rt, Math.max(Date.now(), lastT + 1));   // t cresce sempre: ordina le completate
+      if (routineChanged) saveRoutinesLocal();
       if (rt && rt.sr) SR().markPart(rt, m, true);   // routine di gruppo: la tua parte di oggi, per la serie di gruppo
       persist();
       touchMonth(monthOf(m));
@@ -114,7 +102,7 @@
       const ups = STATS.map((s, i) => ({ s, from: before[i], to: after[i] })).filter(u => u.to > u.from);
       render(true);
       STATS.forEach(s => { if (applied[s.key] > 0) floatText(s.key, '+' + fmt(applied[s.key]), false); });
-      missionMsg(T(Object.keys(bonus).length ? 'msg.completed.bonus' : 'msg.completed', { title: m.title, gain: gainText(applied), n: rs ? rs.n : joinN || 0 }), 'good');
+      missionMsg(T(Object.keys(bonus).length ? 'msg.completed.bonus' : 'msg.completed', { title: m.title, gain: gainText(applied), n }), 'good');
       renderMissionViews();
       if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after)); sfx('up'); } else sfx(Object.keys(bonus).length ? 'bonus' : 'add');
     }
@@ -136,8 +124,7 @@
       if (!outcomeReady()) return false;
       if (m.done || m.failed) return true;
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
-      const removed = PAYS.has(kind) ? MISSIONS.penaltyXp(S.xp, m.penalty) : MISSIONS.normalizeRewards(null);
-      m.failed = { date: todayStr(), t: Date.now(), applied: removed };
+      const { removed } = MISSIONS.applyFail(S.xp, m, null, todayStr(), Date.now(), PAYS.has(kind));
       touchMonth(monthOf(m));
       persist();
       const after = STATS.map(s => levelFromXp(S.xp[s.key]));
@@ -174,15 +161,10 @@
       // routine di gruppo: se quel giorno l'avete già fatta tutti, la serie di gruppo l'ha contata
       if (!SR().canUndo(m)) { missionMsg(T('sr.err.undo'), 'bad', true); sfx('err'); return; }
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
-      const removed = MISSIONS.undoXp(S.xp, m.done.applied);
-      const rsBack = m.done.rs, rjBack = m.done.rj, pbBack = m.done.pb, rtBack = routineOf(m);
-      m.done = null;
-      if (rjBack && rtBack) {   // volta recuperata: toglie il +1 (e il record torna com'era, se l'aveva alzato lei)
-        const was = rtBack.streak || 0;
-        if (MISSIONS.streakShift(rtBack, m.gd || m.due, -1) && Number.isInteger(pbBack) && rtBack.best === was) rtBack.best = pbBack;
-        saveRoutinesLocal();
-      }
-      else if (MISSIONS.streakUndo(rtBack, rsBack, m.gd || m.due)) saveRoutinesLocal();   // la serie torna com'era prima
+      // XP, serie e record tornano com'erano: le regole sono in missions.js (applyUndo)
+      const rtBack = routineOf(m);
+      const { removed, routineChanged } = MISSIONS.applyUndo(S.xp, m, rtBack);
+      if (routineChanged) saveRoutinesLocal();
       if (rtBack && rtBack.sr) SR().markPart(rtBack, m, false);
       persist();
       touchMonth(monthOf(m));
@@ -199,10 +181,8 @@
       const m = S.missions.find(x => x.id === id);
       if (!m || !m.failed || m.done || m.sid) return;
       if (m.rid) { revertRoutine(m); return; }
-      const restored = MISSIONS.gainXp(S.xp, m.failed.applied);
-      m.failed = null;
-      m.due = null;   // senza data (e senza ora), così non scade di nuovo
-      m.dueTime = null;
+      // gli XP tornano e la missione resta senza data (e senza ora), così non scade di nuovo (missions.js, applyRevert)
+      const { restored } = MISSIONS.applyRevert(S.xp, m, null);
       persist();
       touchMonth(monthOf(m));
       render(true);
@@ -219,12 +199,8 @@
     function revertRoutine(m) {
       const rt = routineOf(m);
       if (rt && rt.sr) return;
-      const restored = MISSIONS.gainXp(S.xp, m.failed.applied);
-      m.failed = null;
-      m.re = todayStr();
-      delete m.rj;
-      const back = MISSIONS.streakRecover(rt, m.gd || m.due);
-      if (back !== null) { m.rj = back; saveRoutinesLocal(); }
+      const { restored, routineChanged } = MISSIONS.applyRevert(S.xp, m, rt);   // regole in missions.js
+      if (routineChanged) saveRoutinesLocal();
       persist();
       touchMonth(monthOf(m));
       render(true);
@@ -232,15 +208,6 @@
       missionMsg(T(hasAny(restored) ? 'msg.penrev.r' : 'msg.resched.r', { title: m.title, gain: gainText(restored) }) + streak, 'good');
       renderMissionViews();
       sfx('add');
-    }
-    // una volta recuperata che fallisce di nuovo: perde la serie ridata e smette di essere "recuperata"
-    function refailRecovered(m) {
-      if (!m.re) return;
-      if (m.rj !== undefined) {
-        const rt = routineOf(m);
-        if (rt) { MISSIONS.streakLose(rt, m.gd || m.due, m.rj); saveRoutinesLocal(); }
-      }
-      delete m.re; delete m.rj;
     }
     function showPenalties(list, before, after, ovBefore, ovAfter) {
       // il riepilogo dice il motivo vero: abbandono (tuo o dell'amico) oppure scadenza; "hai perso XP" solo se è così
@@ -283,7 +250,7 @@
       const held = due.filter(m => { const oi = m.rid ? SR().occInfo(m) : null; return !!(oi && oi.pending); });
       if (held.length) {
         held.forEach((m, i) => {
-          m.failed = { date: today, t: Date.now() + i, applied: MISSIONS.normalizeRewards(null) };
+          MISSIONS.applyFail(S.xp, m, routineOf(m), today, Date.now() + i, false);
           missionMsg(T('sr.msg.pendlate', { title: m.title }), '');
         });
         new Set(held.map(monthOf)).forEach(touchMonth);
@@ -294,12 +261,14 @@
       if (!due.length) return true;
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
       const list = [];
+      let routinesChanged = false;
       due.forEach((m, i) => {
-        const removed = MISSIONS.penaltyXp(S.xp, m.penalty);
-        m.failed = { date: today, t: Date.now() + i, applied: removed };
-        refailRecovered(m);
+        // una volta di routine recuperata che fallisce di nuovo perde anche la serie ridata (missions.js, applyFail)
+        const { removed, routineChanged } = MISSIONS.applyFail(S.xp, m, routineOf(m), today, Date.now() + i);
+        if (routineChanged) routinesChanged = true;
         list.push({ m, removed });
       });
+      if (routinesChanged) saveRoutinesLocal();
       new Set(due.map(monthOf)).forEach(touchMonth);   // un salvataggio per mese, non uno per missione
       persist();
       const after = STATS.map(s => levelFromXp(S.xp[s.key]));

@@ -19,32 +19,14 @@ const mis = o => M.normalizeMissions([{ id: 'm1', title: 'Prova', rewards: { Vig
 const rou = o => M.normalizeRoutines([{ id: 'r1', title: 'Corsa', rewards: { Vigore: 10 }, penalty: { Vigore: 5 },
   days: [0, 1, 2, 3, 4, 5, 6], start: '2026-03-01', streakDate: '2026-02-28', ...o }])[0];
 
-/* ---------- aiuti per le routine: fanno quello che fa missions-ui.js (grant, undoMission, revertRoutine, applyPenalties) ---------- */
+/* ---------- aiuti per le routine: usano le stesse funzioni dei pulsanti dell'app (applyComplete, applyUndo...) ---------- */
 // il "giro di oggi" all'apertura dell'app
 function openApp(routines, missions, ds) { return M.routineDay(routines, missions, ds, at(ds, '00:05')).missions; }
 const occ = (missions, r, ds) => missions.find(m => m.id === M.occId(r, ds));
-function complete(rt, m, today) {
-  const { rs, bonus, join } = M.streakStep(rt, m, today);
-  m.done = { date: today, t: 1, applied: M.gainXp(xp({}), m.rewards, bonus) };
-  if (join) { m.done.rj = 1; const pb = rt.best || 0; if (M.streakShift(rt, m.gd || m.due, 1, true)) m.done.pb = pb; }
-  else if (rs) { m.done.rs = rs; rt.streak = rs.n; rt.streakDate = m.gd || m.due; rt.best = Math.max(rt.best || 0, rs.n); }
-  return bonus;
-}
-function undo(rt, m) {
-  const rs = m.done.rs, rj = m.done.rj, pb = m.done.pb;
-  m.done = null;
-  if (rj) { const was = rt.streak || 0; if (M.streakShift(rt, m.gd || m.due, -1) && Number.isInteger(pb) && rt.best === was) rt.best = pb; }
-  else M.streakUndo(rt, rs, m.gd || m.due);
-}
-function fail(rt, m, today) {
-  m.failed = { date: today, t: 1, applied: xp({}) };
-  if (m.re) { if (m.rj !== undefined) M.streakLose(rt, m.gd || m.due, m.rj); delete m.re; delete m.rj; }
-}
-function recover(rt, m, today) {
-  m.failed = null; m.re = today; delete m.rj;
-  const back = M.streakRecover(rt, m.gd || m.due);
-  if (back !== null) m.rj = back;
-}
+const complete = (rt, m, ds, x = xp({})) => M.applyComplete(x, m, rt, 1, at(ds)).bonus;   // completata quel giorno
+const undo = (rt, m, x = xp({})) => M.applyUndo(x, m, rt);
+const fail = (rt, m, ds, x = xp({})) => M.applyFail(x, m, rt, ds, 1);                     // scaduta
+const recover = (rt, m, ds, x = xp({})) => M.applyRevert(x, m, rt, at(ds));               // "Annulla penalità" / "Riprogramma"
 // giorni di fila dal 1° marzo: 'd' = completata in tempo, 'x' = saltata. Restituisce routine, missioni e il giorno dopo.
 function play(plan, extra) {
   const r = rou(extra);
@@ -298,6 +280,47 @@ test('annullare: la serie e il record tornano com\'erano', () => {
   complete(r2, m2, '2026-03-01');
   undo(r2, m2);
   assert.deepEqual([r2.streak, r2.best], [3, 10]);
+});
+
+/* ---------- azioni: XP insieme a serie e record ---------- */
+test('azioni: completare e annullare, con gli XP', () => {
+  const x = xp({ Vigore: 100 });
+  const r = rou({ bonus: { every: 2, xp: 3 }, streak: 1, best: 1 });
+  const list = openApp([r], [], '2026-03-01');
+  const m = occ(list, r, '2026-03-01');
+  const res = M.applyComplete(x, m, r, 42, at('2026-03-01', '09:00'));
+  assert.deepEqual([res.applied.Vigore, res.bonus.Vigore, res.n, res.routineChanged], [13, 3, 2, true], 'ricompensa + bonus della seconda volta di fila');
+  assert.deepEqual([x.Vigore, m.done.date, m.done.t], [113, '2026-03-01', 42]);
+  const u = M.applyUndo(x, m, r);
+  assert.deepEqual([u.removed.Vigore, x.Vigore, m.done, r.streak, r.best], [13, 100, null, 1, 1]);
+});
+
+test('azioni: missione normale completata, fallita e riprogrammata', () => {
+  const x = xp({ Vigore: 3 });
+  const m = mis({ due: '2026-03-05', dueTime: '18:00', penalty: { Vigore: 8 } });
+  const f = M.applyFail(x, m, null, '2026-03-06', 7);
+  assert.deepEqual([f.removed.Vigore, x.Vigore, m.failed.date], [3, 0, '2026-03-06'], 'si perde al massimo quello che si ha');
+  const back = M.applyRevert(x, m, null);
+  assert.deepEqual([back.restored.Vigore, x.Vigore, m.failed, m.due, m.dueTime, m.re], [3, 3, null, null, null, undefined],
+    'tornano gli XP persi davvero; resta senza scadenza');
+  assert.equal(M.applyComplete(x, m, null, 1, at('2026-03-07')).n, 0, 'nessuna serie per le missioni normali');
+  assert.equal(x.Vigore, 13);
+});
+
+test('azioni: fallire senza perdere XP (per esempio se abbandona un amico)', () => {
+  const x = xp({ Vigore: 50 });
+  const m = mis({ due: '2026-03-05', penalty: { Vigore: 8 } });
+  const { removed } = M.applyFail(x, m, null, '2026-03-06', 1, false);
+  assert.deepEqual([removed.Vigore, x.Vigore, !!m.failed], [0, 50, true]);
+});
+
+test('azioni: recuperare una routine ridà gli XP e la rende da fare fino a fine giornata', () => {
+  const x = xp({ Vigore: 20 });
+  const { r, missions, ds } = play('dx');
+  const m = occ(missions, r, '2026-03-02');
+  m.failed.applied = xp({ Vigore: 5 });   // la penalità che aveva tolto
+  const res = M.applyRevert(x, m, r, at(ds, '10:00'));
+  assert.deepEqual([res.restored.Vigore, x.Vigore, m.re, m.rj, res.routineChanged], [5, 25, ds, 1, true]);
 });
 
 /* ---------- recupero delle routine fallite ---------- */
