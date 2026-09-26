@@ -74,15 +74,16 @@
       const [y, mo, d] = ds.split('-').map(Number);
       const [hh, mm] = (time || '00:00').split(':').map(Number);
       const want = Date.UTC(y, mo - 1, d, hh, mm);
+      const offAt = t => { const p = zoneParts(t, tz); return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - Math.floor(t / 1000) * 1000; };   // di quanto il fuso è avanti
       let t = want;
       for (let i = 0; i < 3; i++) {
-        const p = zoneParts(t, tz);
-        const off = Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - Math.floor(t / 1000) * 1000;   // di quanto il fuso è avanti
-        const next = want - off;
-        if (next === t) break;
+        const next = want - offAt(t);
+        if (next === t) return t;
         t = next;
       }
-      return t;
+      // Non si ferma: l'ora cade nel salto dell'ora legale (per esempio le 02:30 della notte in cui si passa dalle 02:00
+      // alle 03:00) e il calcolo oscilla fra due istanti. Si prende il più tardi, cioè "la prima dopo" (le 03:30), come Date.
+      return Math.max(t, want - offAt(t));
     }
     // scadenza di una volta di una routine di gruppo: alla fine del minuto scelto o, senza ora, alla fine del giorno
     const groupDueMs = (r, ds) => (r.time ? zoneMs(ds, r.time, r.tz) + 60000 : zoneMs(addDaysStr(ds, 1), '00:00', r.tz));
