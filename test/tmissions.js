@@ -1,7 +1,8 @@
 /*
  * Life RPG — test delle regole di missioni e routine (missions.js)
  * Date, stelle e XP, dati salvati, scadenze, elenchi, routine (giorni, serie, bonus, recuperi),
- * fusi orari delle routine di gruppo, Google Calendar.
+ * routine settimanali e mensili e da più volte (periodi, contatore, penalità per volta mancante, cambi di frequenza),
+ * pause salvate prima, fusi orari delle routine di gruppo, Google Calendar.
  *
  * L'ora "di adesso" si fissa con t.mock.timers: così i test non dipendono da quando li lanci.
  */
@@ -18,6 +19,9 @@ const mis = o => M.normalizeMissions([{ id: 'm1', title: 'Prova', rewards: { Vig
 // una routine di tutti i giorni dal 1° marzo, con i campi che servono al test
 const rou = o => M.normalizeRoutines([{ id: 'r1', title: 'Corsa', rewards: { Vigore: 10 }, penalty: { Vigore: 5 },
   days: [0, 1, 2, 3, 4, 5, 6], start: '2026-03-01', streakDate: '2026-02-28', ...o }])[0];
+// una routine da 3 volte a settimana da venerdì 25 settembre 2026 (le settimane vanno da venerdì a giovedì)
+const rouP = o => M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { Vigore: 10 }, penalty: { Vigore: 5 },
+  freq: 'w', n: 3, start: '2026-09-25', streakDate: '2026-09-24', ...o }])[0];
 
 /* ---------- aiuti per le routine: usano le stesse funzioni dei pulsanti dell'app (applyComplete, applyUndo...) ---------- */
 // il "giro di oggi" all'apertura dell'app
@@ -209,11 +213,12 @@ test('penalità: le scadute, in ordine di scadenza', t => {
 });
 
 /* ---------- routine: giorni e "giro di oggi" ---------- */
-test('routine: in quali giorni conta', () => {
+test('routine: in quali giorni conta', t => {
+  now(t, '2026-03-20', '12:00');
   const r = rou({ days: [1, 3], pause: { from: '2026-03-09', until: '2026-03-15' } });   // lunedì e mercoledì
   assert.equal(M.dayCounts(r, '2026-03-02'), true, 'lunedì');
   assert.equal(M.dayCounts(r, '2026-03-03'), false, 'martedì');
-  assert.equal(M.dayCounts(r, '2026-03-09'), false, 'lunedì, ma in pausa');
+  assert.equal(M.dayCounts(r, '2026-03-09'), false, 'lunedì, ma in una pausa salvata prima (già passata)');
   assert.equal(M.dayCounts(r, '2026-02-23'), false, 'prima dell\'inizio');
 });
 
@@ -226,18 +231,31 @@ test('routine: crea le volte di oggi e di quelle saltate dall\'ultima apertura, 
   assert.equal(list.length, 2, 'una volta eliminata non torna');
 });
 
-test('routine: la pausa toglie le volte ancora da fare, la cronologia vecchia si pulisce', () => {
-  const r = rou({ made: '2026-03-04' });
-  let list = openApp([r], [], '2026-03-05');
-  r.pause = { from: '2026-03-05', until: '2026-03-06' };
-  list = openApp([r], list, '2026-03-05');
-  assert.equal(list.length, 0);
+test('routine: la cronologia vecchia si pulisce', () => {
   const old = mis({ id: 'old', rid: 'r1', due: '2026-01-01', done: { date: '2026-01-01', applied: {} } });
-  list = openApp([rou({ made: '2026-03-20' })], [old], '2026-03-20');
+  const list = openApp([rou({ made: '2026-03-20' })], [old], '2026-03-20');
   assert.equal(list.find(m => m.id === 'old'), undefined, 'più vecchia di 60 giorni');
-  r.pause = { from: '2026-03-01', until: '2026-03-02' };
-  openApp([r], [], '2026-03-05');
-  assert.equal(r.pause, null, 'la pausa finita si toglie');
+});
+
+/* ---------- pause salvate prima (le pause non ci sono più) ---------- */
+test('pause di prima: i giorni già passati restano saltati, da oggi la routine riparte', t => {
+  // pausa dal 5 al 15 marzo, app non aperta dal 4: si apre il 10
+  now(t, '2026-03-10', '09:00');
+  const r = rou({ made: '2026-03-04', streak: 4, streakDate: '2026-03-04', pause: { from: '2026-03-05', until: '2026-03-15' } });
+  assert.deepEqual(r.pause, { from: '2026-03-05', until: '2026-03-09' }, 'la parte futura della pausa si toglie');
+  const list = openApp([r], [], '2026-03-10');
+  assert.deepEqual(list.map(m => m.due), ['2026-03-10'], 'nessuna volta per i giorni di pausa: solo oggi');
+  assert.deepEqual([r.streak, r.brks], [4, []], 'la serie non si interrompe per la pausa');
+  assert.equal(r.pause, null, 'e poi la pausa sparisce');
+  assert.equal(rou({ pause: { from: '2026-03-12', until: '2026-03-20' } }).pause, null, 'una pausa che non era ancora iniziata sparisce');
+});
+
+test('pause di prima: i giorni prima della pausa, se l\'app non era aperta, contano ancora', t => {
+  now(t, '2026-03-10', '09:00');
+  const r = rou({ made: '2026-03-02', streak: 2, streakDate: '2026-03-02', pause: { from: '2026-03-05', until: '2026-03-07' } });
+  const list = openApp([r], [], '2026-03-10');
+  assert.deepEqual(list.map(m => m.due), ['2026-03-03', '2026-03-04', '2026-03-08', '2026-03-09', '2026-03-10']);
+  assert.equal(r.streak, 0);
 });
 
 /* ---------- serie e bonus ---------- */
@@ -388,6 +406,220 @@ test('recupero: dopo un recupero completato la serie continua normalmente', () =
   assert.equal(r.streak, 7);
   missions = openApp([r], missions, M.addDaysStr(ds, 1));
   assert.deepEqual([r.streak, r.brks], [7, []], 'il giorno dopo non si interrompe niente');
+});
+
+/* ---------- routine settimanali, mensili e da più volte ---------- */
+test('routine salvate: frequenza, volte, giorni e ora', () => {
+  const [w, d3, big, bad] = M.normalizeRoutines([
+    { id: 'a', title: 'A', rewards: { Vigore: 1 }, freq: 'w', n: 3, days: [1, 2], time: '08:00', start: '2026-09-25' },
+    { id: 'b', title: 'B', rewards: { Vigore: 1 }, n: 3, days: [1], time: '08:00', start: '2026-09-25' },
+    { id: 'c', title: 'C', rewards: { Vigore: 1 }, freq: 'm', n: 5000, start: '2026-09-25' },
+    { id: 'd', title: 'D', rewards: { Vigore: 1 }, freq: 'x', n: -2, days: [1], time: '08:00', start: '2026-09-25' },
+  ]);
+  assert.deepEqual([w.freq, w.n, w.days, w.time], ['w', 3, [], null], 'settimanale: niente giorni né ora');
+  assert.deepEqual([d3.freq, d3.n, d3.days, d3.time], ['d', 3, [1], null], 'più volte al giorno: niente ora');
+  assert.equal(big.n, 999, 'nessun limite pratico, solo un tetto contro i dati rovinati');
+  assert.deepEqual([bad.freq, bad.n, bad.time], ['d', 1, '08:00'], 'valori non validi: ogni giorno, una volta');
+  assert.deepEqual(M.normalizeRoutines([{ id: 'e', title: 'E', rewards: { Vigore: 1 }, freq: 'd', days: [], start: '2026-09-25' }]), [],
+    'ogni giorno senza giorni: si scarta');
+  const [c] = M.normalizeRoutines([{ id: 'f', title: 'F', rewards: { Vigore: 1 }, days: [1], start: '2026-09-01', at: '2026-09-10',
+    nx: { at: '2026-09-30', freq: 'm', n: 2, days: [1] } }]);
+  assert.equal(c.at, '2026-09-10');
+  assert.deepEqual(c.nx, { at: '2026-09-30', freq: 'm', n: 2, days: [] }, 'cambio in arrivo');
+  const [c2] = M.normalizeRoutines([{ id: 'g', title: 'G', rewards: { Vigore: 1 }, days: [1], start: '2026-09-01', at: '2026-09-10',
+    nx: { at: '2026-09-05', freq: 'w', n: 2 } }]);
+  assert.equal(c2.nx, undefined, 'un cambio che arriverebbe prima delle regole di adesso non vale');
+});
+
+test('missioni salvate: contatore e periodo delle volte di una routine', () => {
+  const m = mis({ rid: 'r1', due: '2026-10-01', ps: '2026-09-25', n: 3, p: ['2026-09-26', 'boh', '2026-09-27', '2026-09-28', '2026-09-29'] });
+  assert.deepEqual([m.n, m.p, m.ps], [3, ['2026-09-26', '2026-09-27', '2026-09-28'], '2026-09-25']);
+  const one = mis({ rid: 'r1', due: '2026-10-01', n: 1, p: ['2026-09-26'] });
+  assert.deepEqual([one.n, one.p], [undefined, undefined], 'una volta sola: niente contatore');
+  const plain = mis({ n: 3, ps: '2026-09-25' });
+  assert.deepEqual([plain.n, plain.ps], [undefined, undefined], 'solo per le routine');
+});
+
+test('date: mesi con lo stesso giorno, giorni fra due date', () => {
+  assert.deepEqual([0, 1, 2, 3, 4].map(k => M.addMonthsStr('2026-01-31', k)),
+    ['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30', '2026-05-31'], 'dal 31: nei mesi corti l\'ultimo giorno, senza perdere il 31');
+  assert.equal(M.addMonthsStr('2028-01-31', 1), '2028-02-29', 'anno bisestile');
+  assert.equal(M.addMonthsStr('2026-11-15', 2), '2027-01-15', 'a cavallo dell\'anno');
+  assert.equal(M.daysBetween('2026-03-28', '2026-03-30'), 2, 'attraverso il cambio dell\'ora');
+  assert.equal(M.daysBetween('2026-10-24', '2026-10-26'), 2);
+});
+
+test('periodi: settimane di 7 giorni e mesi dal giorno di inizio', () => {
+  const w = rouP();
+  assert.equal(M.periodAt(w, '2026-09-24'), null, 'prima dell\'inizio');
+  assert.deepEqual(M.periodAt(w, '2026-09-25'), { s: '2026-09-25', e: '2026-10-01' }, 'da venerdì a giovedì');
+  assert.deepEqual(M.periodAt(w, '2026-10-01'), { s: '2026-09-25', e: '2026-10-01' });
+  assert.deepEqual(M.periodAt(w, '2026-10-02'), { s: '2026-10-02', e: '2026-10-08' });
+  assert.deepEqual(M.periodAt(w, '2026-10-26'), { s: '2026-10-23', e: '2026-10-29' }, 'con il cambio dell\'ora');
+  const m = rouP({ freq: 'm', start: '2026-09-15' });
+  assert.deepEqual(M.periodAt(m, '2026-10-14'), { s: '2026-09-15', e: '2026-10-14' });
+  assert.deepEqual(M.periodAt(m, '2026-10-15'), { s: '2026-10-15', e: '2026-11-14' });
+  const end = rouP({ freq: 'm', start: '2026-01-31' });
+  assert.deepEqual(['2026-02-27', '2026-02-28', '2026-03-30', '2026-03-31'].map(d => M.periodAt(end, d).s),
+    ['2026-01-31', '2026-02-28', '2026-02-28', '2026-03-31'], 'dal 31: il 28 febbraio, poi di nuovo il 31');
+  assert.deepEqual(M.periodAt(end, '2026-02-28'), { s: '2026-02-28', e: '2026-03-30' });
+});
+
+test('settimanale: una volta per settimana, da fare in qualunque giorno', t => {
+  const r = rouP();
+  let list = openApp([r], [], '2026-09-25');
+  assert.equal(list.length, 1);
+  const m = list[0];
+  assert.deepEqual([m.id, m.ps, m.due, m.dueTime, m.n, m.p], ['r1-20260925', '2026-09-25', '2026-10-01', null, 3, []]);
+  now(t, '2026-09-30', '12:00');
+  assert.equal(M.notYet(m), false, 'si fa in qualunque giorno del periodo');
+  assert.equal(M.missionLists(list).groups.period.length, 1, 'nella lista: con i periodi in corso');
+  list = openApp([r], list, '2026-10-01');
+  assert.equal(list.length, 1, 'fino a giovedì è sempre la stessa');
+  list = openApp([r], list, '2026-10-02');
+  assert.deepEqual(list.map(x => x.id), ['r1-20260925', 'r1-20261002']);
+});
+
+test('più volte: le ricompense arrivano solo con l\'ultima', () => {
+  const x = xp({ Vigore: 100 });
+  const r = rouP();
+  const m = openApp([r], [], '2026-09-25')[0];
+  let res = M.applyComplete(x, m, r, 1, at('2026-09-26'));
+  assert.deepEqual([res.partial, res.count, res.need, res.applied.Vigore, x.Vigore, m.done, r.streak], [true, 1, 3, 0, 100, null, 0]);
+  res = M.applyComplete(x, m, r, 2, at('2026-09-26'));
+  assert.deepEqual([res.count, x.Vigore], [2, 100], 'anche due nello stesso giorno');
+  res = M.applyUndo(x, m, r);
+  assert.deepEqual([res.count, res.removed.Vigore, x.Vigore], [1, 0, 100], 'annullare una volta segnata: niente XP da togliere');
+  M.applyComplete(x, m, r, 3, at('2026-09-27'));
+  res = M.applyComplete(x, m, r, 4, at('2026-09-28'));
+  assert.deepEqual([res.partial, res.count, res.applied.Vigore, x.Vigore, m.done.date, r.streak, r.streakDate],
+    [undefined, 3, 10, 110, '2026-09-28', 1, '2026-09-25']);
+  assert.deepEqual(m.p, ['2026-09-26', '2026-09-27', '2026-09-28']);
+  res = M.applyUndo(x, m, r);
+  assert.deepEqual([res.removed.Vigore, x.Vigore, m.done, m.p.length, r.streak], [10, 100, null, 2, 0],
+    'annullando l\'ultima: via gli XP e la serie');
+});
+
+test('più volte: a fine periodo, penalità per ogni volta mancante e serie interrotta', t => {
+  const x = xp({ Vigore: 100 });
+  const r = rouP({ streak: 4, best: 4 });
+  let list = openApp([r], [], '2026-09-25');
+  const m = list[0];
+  M.applyComplete(x, m, r, 1, at('2026-09-27'));
+  now(t, '2026-10-02', '00:00');
+  assert.deepEqual(M.lateMissions(list).map(z => z.id), ['r1-20260925'], 'scaduta a mezzanotte di giovedì');
+  const f = M.applyFail(x, m, r, '2026-10-02', 1);
+  assert.deepEqual([f.missing, f.removed.Vigore, x.Vigore], [2, 10, 90], '1 su 3: la penalità due volte');
+  list = openApp([r], list, '2026-10-02');
+  assert.deepEqual([r.streak, r.best, r.brks], [0, 4, [{ d: '2026-09-25', n: 4 }]]);
+});
+
+test('settimanale: la serie conta le settimane completate di fila, il bonus ogni N settimane', () => {
+  const x = xp({});
+  const r = rouP({ n: 1, bonus: { every: 2, xp: 7 } });
+  let list = [];
+  const got = [];
+  for (const ds of ['2026-09-27', '2026-10-08', '2026-10-09']) {   // la seconda proprio all'ultimo giorno
+    list = openApp([r], list, ds);
+    const m = list.find(z => !z.done && z.ps <= ds);
+    got.push(M.applyComplete(x, m, r, 1, at(ds)).bonus);
+  }
+  assert.deepEqual([r.streak, r.best], [3, 3]);
+  assert.deepEqual(got.map(b => b.Vigore || 0), [0, 7, 0]);
+  list = openApp([r], list, '2026-10-23');   // saltata la settimana dal 16 al 22
+  assert.deepEqual([r.streak, r.brks], [0, [{ d: '2026-10-16', n: 3 }]]);
+});
+
+test('settimanale: annullare dopo la fine della settimana riporta indietro la serie', () => {
+  const r = rouP({ n: 1 });
+  let list = openApp([r], [], '2026-09-25');
+  const w1 = list[0];
+  complete(r, w1, '2026-09-30');
+  list = openApp([r], list, '2026-10-02');
+  assert.equal(r.streak, 1);
+  undo(r, w1);
+  openApp([r], list, '2026-10-03');
+  assert.deepEqual([r.streak, r.brks], [0, [{ d: '2026-09-25', n: 0 }]]);
+});
+
+test('più volte al giorno: senza ora, la serie conta i giorni completi', () => {
+  const r = rou({ n: 2, time: '08:00' });
+  let list = openApp([r], [], '2026-03-01');
+  let m = occ(list, r, '2026-03-01');
+  assert.deepEqual([r.time, m.dueTime, m.n, m.ps], [null, null, 2, undefined]);
+  complete(r, m, '2026-03-01');
+  assert.equal(r.streak, 0, 'una su due');
+  complete(r, m, '2026-03-01');
+  assert.equal(r.streak, 1);
+  list = openApp([r], list, '2026-03-02');
+  m = occ(list, r, '2026-03-02');
+  complete(r, m, '2026-03-02');
+  list = openApp([r], list, '2026-03-03');
+  assert.deepEqual([r.streak, r.brks], [0, [{ d: '2026-03-02', n: 1 }]], 'a metà non basta');
+  const marks = M.calendarMarks(list);
+  assert.deepEqual([marks.done['2026-03-01'], marks.done['2026-03-02'], marks.todo['2026-03-02']], [2, 1, 1]);
+});
+
+test('mensile: niente calendario, solo le volte fatte nel loro giorno', t => {
+  now(t, '2026-09-20', '12:00');
+  const r = rouP({ freq: 'm', n: 2, start: '2026-09-15', streakDate: '2026-09-14' });
+  const list = openApp([r], [], '2026-09-20');
+  const m = list[0];
+  assert.deepEqual([m.ps, m.due], ['2026-09-15', '2026-10-14']);
+  M.applyComplete(xp({}), m, r, 1, at('2026-09-20'));
+  const marks = M.calendarMarks(list);
+  assert.deepEqual([marks.done['2026-09-20'], marks.todo['2026-10-14']], [1, undefined]);
+  assert.deepEqual(M.dayLists(list, '2026-10-14').todo, [], 'non compare nel giorno di scadenza');
+  assert.deepEqual(M.plannedRoutines([r], '2026-10-15', new Set()), [], 'niente routine previste');
+  assert.equal(M.gcalRoutineUrl(r), null, 'niente Google Calendar');
+  M.applyComplete(xp({}), m, r, 2, at('2026-09-20'));
+  assert.equal(M.calendarMarks(list).done['2026-09-20'], 2, 'completata: ogni volta nel suo giorno, non una in più');
+});
+
+test('più volte: recuperare un periodo fallito ridà la serie e tiene le volte già segnate', () => {
+  const x = xp({ Vigore: 100 });
+  const r = rouP({ n: 2 });
+  let list = openApp([r], [], '2026-09-25');
+  const w1 = list[0];
+  M.applyComplete(x, w1, r, 1, at('2026-09-26'));
+  M.applyComplete(x, w1, r, 1, at('2026-09-27'));
+  list = openApp([r], list, '2026-10-02');
+  const w2 = occ(list, r, '2026-10-02');
+  M.applyComplete(x, w2, r, 1, at('2026-10-03'));
+  list = openApp([r], list, '2026-10-09');
+  M.applyFail(x, w2, r, '2026-10-09', 1);
+  assert.deepEqual([r.streak, r.brks, x.Vigore], [0, [{ d: '2026-10-02', n: 1 }], 105]);
+  M.applyRevert(x, w2, r, at('2026-10-10'));
+  assert.deepEqual([w2.re, w2.rj, w2.p.length, r.streak, x.Vigore], ['2026-10-10', 1, 1, 1, 110]);
+  const res = M.applyComplete(x, w2, r, 1, at('2026-10-10'));
+  assert.deepEqual([res.n, r.streak, !!w2.done], [2, 2, true]);
+});
+
+test('cambio di frequenza: vale dal periodo successivo, la serie resta', () => {
+  const r = rou();   // ogni giorno, dal 1° marzo
+  let list = [];
+  for (const ds of ['2026-03-01', '2026-03-02']) { list = openApp([r], list, ds); complete(r, occ(list, r, ds), ds); }
+  assert.equal(M.planChange(r, { freq: 'w', n: 2 }, '2026-03-02'), '2026-03-03', 'ogni giorno: da domani');
+  assert.deepEqual([r.freq, r.nx.freq], ['d', 'w'], 'per oggi valgono ancora le regole di prima');
+  list = openApp([r], list, '2026-03-03');
+  assert.deepEqual([r.freq, r.n, r.at, r.days, r.nx], ['w', 2, '2026-03-03', [], undefined]);
+  const w = occ(list, r, '2026-03-03');
+  assert.deepEqual([w.ps, w.due, w.n], ['2026-03-03', '2026-03-09', 2]);
+  assert.equal(list.length, 3, 'nessuna volta giornaliera in più');
+  complete(r, w, '2026-03-05');
+  complete(r, w, '2026-03-06');
+  assert.deepEqual([r.streak, r.best], [3, 3], 'due giorni e poi una settimana: 3 periodi di fila');
+  assert.equal(M.planChange(r, { freq: 'm', n: 1 }, '2026-03-07'), '2026-03-10', 'a metà settimana: dalla fine della settimana');
+  assert.equal(M.planChange(r, { freq: 'w', n: 2 }, '2026-03-07'), '2026-03-07', 'tornare alle regole di adesso: nessun cambio');
+  assert.equal(r.nx, undefined);
+  openApp([r], list, '2026-03-10');
+  assert.equal(r.streak, 3, 'la settimana era completa: la serie continua');
+});
+
+test('cambio di frequenza: una routine non ancora iniziata cambia subito', () => {
+  const r = rou({ start: '2026-03-10', streakDate: '2026-03-09', time: '07:00' });
+  assert.equal(M.planChange(r, { freq: 'd', n: 3, days: [1, 3] }, '2026-03-05'), '2026-03-10');
+  assert.deepEqual([r.n, r.days, r.time, r.nx], [3, [1, 3], null, undefined]);
 });
 
 /* ---------- fusi orari (routine di gruppo) ---------- */
