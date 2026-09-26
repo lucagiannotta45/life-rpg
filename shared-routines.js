@@ -262,7 +262,7 @@
         if (hasBonus && !MUI().groupBonus(m, bonus, n)) break;
         r.gs = n; r.gsd = day; r.gbest = Math.max(r.gbest || 0, n);
         changed = true;
-        if (!hasBonus && day === today) msg('sr.msg.together', { title: r.title, n }, 'good');
+        if (!hasBonus && day === today) { msg('sr.msg.together', { title: r.title, n }, 'good'); sfx('ok'); }
       }
       return changed;
     }
@@ -488,7 +488,7 @@
       leaving.delete(id);
       if (!ok) return;
       delete docs[id]; saveCache();
-      sfx('close');
+      sfx('leave');
       paint();
     }
     async function acceptChange(rid) {
@@ -497,7 +497,7 @@
       if (await guestWrite(r.sr, { [gPath('a')]: d.ver }, d.ver)) { sfx('ok'); msg('sh.msg.accepted.change', { title: r.title }, 'good'); }
     }
     // l'invitato esce: la routine resta sua (come routine normale, con le regole che aveva)
-    async function exit(rid) {
+    async function exit(rid, quiet) {
       const r = S.routines.find(x => x.id === rid), d = docOfR(r);
       if (!r || !ready(d)) return false;
       const id = r.sr;
@@ -507,13 +507,13 @@
       if (!ok) return false;
       delete docs[id]; saveCache();
       unlink(r);
-      sfx('close');
+      if (!quiet) sfx('leave');
       msg('sr.msg.exit', { title: r.title });
       paint();
       return true;
     }
     // chi l'ha creata scioglie il gruppo: il documento si elimina, la routine resta a tutti come routine normale
-    async function dissolve(rid) {
+    async function dissolve(rid, quiet) {
       const r = S.routines.find(x => x.id === rid), d = docOfR(r);
       if (!r || !r.sr) return true;
       if (!ready(d)) return false;
@@ -524,14 +524,14 @@
       if (!ok) return false;
       delete docs[id]; saveCache();
       unlink(r);
-      sfx('close');
+      if (!quiet) sfx('del');
       paint();
       return true;
     }
     // prima di eliminare una routine di gruppo: chi l'ha creata scioglie il gruppo, l'invitato esce
     async function beforeDelete(r) {
       if (!r || !r.sr) return true;
-      return r.sh === 'g' ? exit(r.id) : dissolve(r.id);
+      return r.sh === 'g' ? exit(r.id, true) : dissolve(r.id, true);   // il suono lo fa l'eliminazione
     }
     // chi l'ha creata toglie chi non ha risposto (inviti in attesa e chi è in sospeso), senza penalità per nessuno
     async function cancelInvite(rid) {
@@ -548,7 +548,7 @@
         if (!(await write(() => update(r.sr, data)))) return;
         msg('sh.msg.removed.by', { name: joinNames(guests(d).filter(x => waiting.includes(x.uid)).map(x => noname(x.n))) });
       }
-      sfx('close');
+      sfx('leave');
       paint();
     }
 

@@ -446,7 +446,7 @@
   soundBtn.addEventListener('click', () => {
     AUDIO.setSound(!AUDIO.soundOn());
     paintSound();
-    if (AUDIO.soundOn()) sfx('add');
+    if (AUDIO.soundOn()) sfx('ok');
   });
   paintSound();
 

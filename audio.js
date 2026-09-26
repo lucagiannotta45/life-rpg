@@ -53,10 +53,15 @@
 
     /* ---------- effetti sonori ---------- */
     let soundOn = readPref(LS_SOUND) !== '0';
-    // suoni dei menu: hanno un interruttore a parte (Impostazioni, scheda Suono)
-    const MENU_KINDS = new Set(['tab', 'open', 'close', 'save', 'del', 'err']);
+    // Un suono vuol dire una cosa sola:
+    // - navigazione (interruttore a parte, "Suoni dei menu"): tab = cambio di schermata, open / close = finestre;
+    // - premi: add (XP), bonus, up (livello); perdite: sub (XP tolti annullando), down (penalità, livello perso);
+    // - azioni: ok (fatto / accettato / inviato), save (creata o modificata), del (eliminata, abbandonata,
+    //   gruppo sciolto), leave (uscire o rifiutare, senza conseguenze), err (non si può).
+    const MENU_KINDS = new Set(['tab', 'open', 'close']);
     let menuOn = readPref(LS_SOUND_MENU) !== '0';
     let audio = null, lastMajor = 0, lastLow = 0;
+    let lowTimer = null, lowKind = '';   // apertura o chiusura di finestra in attesa (vedi sfx)
     function blip(freq, t0, dur, type, vol) {
       const o = audio.createOscillator(), g = audio.createGain();
       o.type = type; o.frequency.setValueAtTime(freq, t0);
@@ -69,8 +74,11 @@
       if (!soundOn) return;
       if (MENU_KINDS.has(kind) && !menuOn) return;
       if (kind === 'open' || kind === 'close') {
-        // apertura e chiusura di finestre contano poco: se suona già altro (salvataggio, penalità...) o un'altra finestra, si tacciono
-        setTimeout(() => { const n = Date.now(); if (n - lastMajor > 250 && n - lastLow > 100) sfxNow(kind, arg); }, 40);
+        // apertura e chiusura di finestre contano poco: se suona già altro (salvataggio, penalità...) o un'altra finestra, si tacciono.
+        // Una finestra che ne sostituisce un'altra (chiudi e subito apri) suona solo come apertura.
+        if (kind === 'open' && lowTimer && lowKind === 'close') clearTimeout(lowTimer);
+        lowKind = kind;
+        lowTimer = setTimeout(() => { lowTimer = null; const n = Date.now(); if (n - lastMajor > 250 && n - lastLow > 100) sfxNow(kind, arg); }, 40);
         return;
       }
       sfxNow(kind, arg);
@@ -94,7 +102,8 @@
             if (kind === 'ok') { blip(659, t, 0.08, 'triangle', 0.06); blip(988, t + 0.08, 0.14, 'triangle', 0.06); }   // accesso riuscito, amicizia accettata
             if (kind === 'save') { blip(523, t, 0.08, 'triangle', 0.06); blip(659, t + 0.08, 0.08, 'triangle', 0.06); blip(784, t + 0.16, 0.13, 'triangle', 0.06); }
             if (kind === 'del') { blip(330, t, 0.1, 'triangle', 0.07); blip(196, t + 0.09, 0.16, 'triangle', 0.07); }
-            if (kind === 'err') { blip(180, t, 0.11, 'square', 0.045); blip(150, t + 0.12, 0.15, 'square', 0.045); }
+            if (kind === 'leave') { blip(494, t, 0.07, 'triangle', 0.05); blip(440, t + 0.07, 0.1, 'triangle', 0.05); }   // uscire, rifiutare: neutro
+            if (kind === 'err') { blip(233, t, 0.06, 'triangle', 0.07); blip(233, t + 0.1, 0.08, 'triangle', 0.07); }      // "no": due tocchi sordi
             if (kind === 'bonus') [[784, 0, 0.08], [988, 0.08, 0.08], [1175, 0.16, 0.08], [1568, 0.24, 0.18]].forEach(([f, d, l]) => blip(f, t + d, l, 'square', 0.04));
           } catch (e) { /* audio non disponibile */ }
         };

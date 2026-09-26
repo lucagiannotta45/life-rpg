@@ -570,9 +570,9 @@
       const m = byId(id), d = docOf(m);
       if (!ready(m, d)) return;
       if (!(await write(() => update(m.sid, partData(d, Date.now()))))) return;
-      sfx('save');
       const dd = docs[m.sid] || d;
-      if (!allDone(dd)) MUI().missionMsg(T('sh.msg.part', { title: m.title }), 'good');
+      // se era l'ultima parte, suonano gli XP (arrivano subito): qui solo "fatto"
+      if (!allDone(dd)) { sfx('ok'); MUI().missionMsg(T('sh.msg.part', { title: m.title }), 'good'); }
     }
     async function undoPart(id) {
       const m = byId(id), d = docOf(m);
@@ -629,7 +629,7 @@
       if (!ok) return;
       delete docs[sid]; saveCache();
       if (S.missions.includes(m)) dropLocal(m);
-      sfx('close');
+      sfx('leave');
       MUI().missionMsg(T('sh.msg.exit', { title: m.title }), '');
       MUI().renderMissionViews();
     }
@@ -657,7 +657,7 @@
         if (!(await write(() => update(sid, data)))) return;
         MUI().missionMsg(T('sh.msg.removed.by', { name: removedNames }), '');
       }
-      sfx('close');
+      sfx('leave');
       MUI().renderMissionViews();
     }
 
@@ -694,7 +694,7 @@
         if (!gone) { console.warn('shared', e && e.code, e); MUI().missionMsg(T(errKey(e)), 'bad', true); sfx('err'); return; }
       }
       delete docs[sid]; saveCache();
-      sfx('close');
+      sfx('leave');
       MUI().renderMissionViews();
     }
 
