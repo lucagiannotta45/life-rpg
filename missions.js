@@ -154,6 +154,8 @@
         // volta di una routine recuperata (penalità annullata o riprogrammata): re = il giorno entro cui completarla;
         // rj = la serie che è tornata con il recupero (si toglie di nuovo se la volta fallisce ancora)
         if (it.rid && validDate(m.re)) it.re = m.re;
+        // gc = hai premuto "Aggiungi a Google Calendar": eliminandola, l'app ti ricorda di toglierla anche da lì
+        if (!it.rid && m.gc) it.gc = 1;
         if (it.re && Number.isInteger(m.rj) && m.rj >= 0 && m.rj <= 100000) it.rj = m.rj;
         // missione condivisa con un amico (vedi shared.js): sid = il documento condiviso, sh = il tuo ruolo
         // ('o' = l'hai creata tu, 'g' = sei stato invitato)
@@ -256,6 +258,7 @@
         // la serie di gruppo resta anche quando il gruppo non c'è più (si vede il record)
         if (validDate(r.gsd)) { it.gs = nn(r.gs, 100000); it.gsd = r.gsd; }
         if (nn(r.gbest, 100000)) it.gbest = nn(r.gbest, 100000);
+        if (r.gc) it.gc = 1;   // aggiunta a Google Calendar (vedi le missioni)
         if (out.length >= MAX_ROUTINES) break;
       }
       return out;
@@ -565,13 +568,17 @@
       return u;
     }
     // per una routine: un evento che si ripete, a partire dal primo giorno previsto (dopo un'eventuale pausa)
+    // Routine di gruppo: giorni e ora sono quelli del fuso del gruppo (r.tz), quindi lo si dice a Google Calendar (ctz),
+    // che mette l'evento all'ora giusta nel fuso di chi lo aggiunge (per esempio 18:00 in Italia = 13:00 in Brasile).
     function gcalRoutineUrl(r) {
-      let d = todayStr();
+      const zoned = !!(r.sr && r.tz);
+      let d = zoned ? zoneDay(Date.now(), r.tz) : todayStr();
       for (let i = 0; i < 400 && !dayCounts(r, d); i++) d = addDaysStr(d, 1);
-      if (!dayCounts(r, d)) { d = todayStr(); for (let i = 0; i < 7 && !r.days.includes(parseDate(d).getDay()); i++) d = addDaysStr(d, 1); }
+      if (!dayCounts(r, d)) { d = zoned ? zoneDay(Date.now(), r.tz) : todayStr(); for (let i = 0; i < 7 && !r.days.includes(parseDate(d).getDay()); i++) d = addDaysStr(d, 1); }
       const BY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
       const rule = r.days.length === 7 ? 'RRULE:FREQ=DAILY' : 'RRULE:FREQ=WEEKLY;BYDAY=' + WD_ALL.filter(x => r.days.includes(x)).map(x => BY[x]).join(',');
       let u = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(r.title) + '&dates=' + gcalDates(d, r.time) + '&recur=' + encodeURIComponent(rule);
+      if (zoned) u += '&ctz=' + encodeURIComponent(r.tz);
       if (r.desc) u += '&details=' + encodeURIComponent(r.desc);
       return u;
     }

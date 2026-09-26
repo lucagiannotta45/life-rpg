@@ -516,7 +516,7 @@
       };
       if (inCal) {
         // calendario: niente azioni sulla missione, solo Google Calendar (se serve) e il collegamento alla scheda Missioni
-        if (!m.done && !failedNow && (m.rid ? !!rtn : !!m.due)) act.appendChild(gcalLink(m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m), m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title));
+        if (!m.done && !failedNow && (m.rid ? !!rtn : !!m.due)) act.appendChild(gcalLink(m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m), m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title, m.rid ? { r: rtn } : { m }));
         act.appendChild(btn('', T('btn.goto'), T('aria.goto'), () => goToMission(m.id)));
       } else if (m.done) {
         // condivisa: non si annulla; routine di gruppo: non dopo che l'avete fatta tutti (la serie di gruppo l'ha contata)
@@ -796,10 +796,15 @@
       if (focus) { const b = $('cal-grid').querySelector('[data-date="' + ds + '"]'); if (b) b.focus(); }
     }
     // collegamento "Aggiungi a Google Calendar" (per una routine: un evento che si ripete)
-    function gcalLink(href, label) {
+    // m = la missione, oppure r = la routine: premendolo si segna (gc), così eliminandola ti ricordiamo di toglierla anche da lì
+    function gcalLink(href, label, { m, r } = {}) {
       const a = mk('a', 'btn small gcal', T('btn.gcal'));
       a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
       a.setAttribute('aria-label', label);
+      a.addEventListener('click', () => {
+        if (r && !r.gc) { r.gc = 1; saveRoutinesLocal(); }
+        else if (m && !m.gc) { m.gc = 1; touchMonth(monthOf(m)); }
+      });
       return a;
     }
     // dal calendario alla scheda Missioni, sulla missione (aprendo il gruppo se era dietro "Mostra altre")
@@ -838,7 +843,7 @@
           if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
           card.appendChild(chips(r.rewards));
           const act = mk('div', 'm-actions');
-          act.appendChild(gcalLink(gcalRoutineUrl(r), T('aria.gcal.routine') + ' ' + r.title));
+          act.appendChild(gcalLink(gcalRoutineUrl(r), T('aria.gcal.routine') + ' ' + r.title, { r }));
           card.appendChild(act);
           box.appendChild(card);
         });
@@ -1179,7 +1184,9 @@
       sfx('del');
       finishForm();
       renderMissionViews();
-      missionMsg(T('msg.routine.deleted', { title: r.title }), '');
+      // aggiunta a Google Calendar: il promemoria si vede (l'app non può togliere l'evento da sola)
+      if (r.gc) missionMsg(T('msg.routine.deleted.gcal', { title: r.title }), '', true);
+      else missionMsg(T('msg.routine.deleted', { title: r.title }), '');
     }
     function submitMission() {
       const fail = (t, el) => { mfMsg(t); sfx('err'); if (el) el.focus(); };
@@ -1332,7 +1339,8 @@
       sfx('del');
       closeModal();
       renderMissionViews();
-      missionMsg(T('msg.deleted', { title: m.title }), '');
+      if (m.gc) missionMsg(T('msg.deleted.gcal', { title: m.title }), '', true);   // come per le routine
+      else missionMsg(T('msg.deleted', { title: m.title }), '');
     }
     $('mf-save').addEventListener('click', submitMission);
     $('mf-cancel').addEventListener('click', finishForm);
