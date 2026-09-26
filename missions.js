@@ -596,17 +596,23 @@
     // serie e record sono in un posto solo. Cambiano xp, la missione e la routine (rt, anche null) che ricevono;
     // non salvano e non disegnano niente. routineChanged = la routine è cambiata (va salvata).
 
+    // Volte fatte di una routine da più volte (m.n): si scrive il numero (k), da 0 a m.n; ogni volta ha il suo giorno
+    // in m.p (quelle nuove: oggi; togliendone si tolgono le ultime). Niente XP: arrivano con "Completa". Restituisce il numero.
+    function applySetCount(m, k, now = Date.now()) {
+      if (!m.n || m.done || m.failed) return m.p ? m.p.length : 0;
+      if (!m.p) m.p = [];
+      const want = Math.max(0, Math.min(m.n, Math.floor(Number(k) || 0)));
+      while (m.p.length < want) m.p.push(isoDate(new Date(now)));
+      m.p.length = want;
+      return want;
+    }
+    const fullCount = m => !m.n || (m.p ? m.p.length : 0) >= m.n;
     // Completare: XP (con l'eventuale bonus della serie), serie e record. t = l'istante da salvare (ordina le completate).
-    // Una volta da fare più volte (m.n): ogni pressione ne segna una (m.p); gli XP, la serie e il bonus arrivano solo con
-    // l'ultima. Restituisce { applied, bonus, n, routineChanged, count, need }; n = la serie da mostrare nel messaggio,
-    // count / need = volte segnate / volte che servono (partial = true: non è ancora completa).
+    // Una routine da più volte si completa solo con tutte le volte fatte (applySetCount): prima non cambia niente
+    // (partial = true). Restituisce { applied, bonus, n, routineChanged, count, need }; n = la serie da mostrare.
     function applyComplete(xp, m, rt, t = Date.now(), now = Date.now()) {
       const need = m.n || 1;
-      if (need > 1) {
-        if (!m.p) m.p = [];
-        m.p.push(isoDate(new Date(now)));
-        if (m.p.length < need) return { applied: normalizeRewards(null), bonus: {}, n: 0, routineChanged: false, count: m.p.length, need, partial: true };
-      }
+      if (!fullCount(m)) return { applied: normalizeRewards(null), bonus: {}, n: 0, routineChanged: false, count: m.p ? m.p.length : 0, need, partial: true };
       const { rs, bonus, join, n } = streakStep(rt, m, routineToday(rt, now));
       const applied = gainXp(xp, m.rewards, bonus);
       m.done = { date: isoDate(new Date(now)), t, applied };
@@ -624,25 +630,19 @@
       }
       return { applied, bonus, n: rs ? rs.n : join ? n : 0, routineChanged, count: need, need };
     }
-    // Annullare: se era completa, gli XP tornano indietro, la serie e il record tornano com'erano (e, se era da più volte,
-    // si toglie l'ultima segnata). Se non era ancora completa si toglie solo l'ultima volta segnata (niente XP da togliere).
-    // Restituisce { removed, routineChanged, count }.
+    // Annullare un completamento: gli XP tornano indietro, la serie e il record tornano com'erano. Le volte fatte restano
+    // (si può completare di nuovo, o cambiare il numero). Restituisce { removed, routineChanged }.
     function applyUndo(xp, m, rt) {
-      if (!m.done) {
-        if (m.p && m.p.length) m.p.pop();
-        return { removed: normalizeRewards(null), routineChanged: false, count: m.p ? m.p.length : 0, partial: true };
-      }
       const removed = undoXp(xp, m.done.applied);
       const { rs, rj, pb } = m.done;
       m.done = null;
-      if (m.p && m.p.length) m.p.pop();
       let routineChanged = false;
       if (rj && rt) {   // volta recuperata: toglie il +1 (e il record torna com'era, se l'aveva alzato lei)
         const was = rt.streak || 0;
         if (streakShift(rt, occKey(m), -1) && Number.isInteger(pb) && rt.best === was) rt.best = pb;
         routineChanged = true;
       } else routineChanged = streakUndo(rt, rs, occKey(m));
-      return { removed, routineChanged, count: m.p ? m.p.length : 0 };
+      return { removed, routineChanged };
     }
     // Fallire: si perdono gli XP della penalità, una volta per ogni volta mancante (pay = false: nessuna perdita, per
     // esempio se ha abbandonato un amico). Una volta di routine recuperata che fallisce di nuovo perde la serie ridata.
@@ -911,7 +911,7 @@
       gainXp, undoXp, penaltyXp,
       WD_ALL, isDaily, anchorOf, dayCounts, periodAt, nextPeriod, occKey, occEnd, missingOf, changeAt, planChange,
       occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay,
-      applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
+      applySetCount, fullCount, applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
       foldedCopy, shapeOf, groupPeriods,
       gcalUrl, gcalRoutineUrl,

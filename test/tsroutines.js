@@ -81,18 +81,19 @@ test('invitato: entrando a metà settimana conta dalla settimana dopo, con le se
 // il \"giro di oggi\" come lo fa l'app
 function D_sync(S) { const res = M.routineDay(S.routines, S.missions, M.todayStr()); S.missions = res.missions; }
 
-test('invitato: la mia parte si segna solo con l\'ultima volta, sul primo giorno della settimana', t => {
+test('invitato: la mia parte si segna solo con "Completa", sul primo giorno della settimana', t => {
   now(t, '2026-09-26');
   const { SR, S, writes } = fakeWorld('uG', baseDoc());
   SR.evaluate();
   D_sync(S);
   const r = S.routines[0], m = S.missions[0];
   const x = M.normalizeRewards(null);
-  for (let i = 0; i < 3; i++) {
-    const res = M.applyComplete(x, m, r, i + 1);
-    if (!res.partial) SR.markPart(r, m, true);   // come fa l'app (grant): solo quando è completa
-  }
-  assert.equal(writes.length, 1, 'una sola scrittura, con l\'ultima volta');
+  M.applySetCount(m, 2);
+  assert.equal(writes.length, 0, 'scrivere il numero non tocca il gruppo');
+  M.applySetCount(m, 3);
+  const res = M.applyComplete(x, m, r, 1);
+  if (!res.partial) SR.markPart(r, m, true);   // come fa l'app (grant): solo quando la completi
+  assert.equal(writes.length, 1, 'una sola scrittura, con "Completa"');
   assert.deepEqual(writes[0].data['k.20260925.uG'], 'ORA_DEL_SERVER');
   assert.equal(writes[0].data.lk, '20260925');
 });

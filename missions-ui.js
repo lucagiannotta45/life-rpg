@@ -102,15 +102,7 @@
       const rt = routineOf(m);
       const lastT = S.missions.reduce((mx, x) => x.done ? Math.max(mx, x.done.t) : mx, 0);
       const res = MISSIONS.applyComplete(S.xp, m, rt, Math.max(Date.now(), lastT + 1));   // t cresce sempre: ordina le completate
-      // da fare più volte e non ancora l'ultima: segnata, ma niente XP (arrivano con l'ultima)
-      if (res.partial) {
-        persist();
-        touchMonth(monthOf(m));
-        missionMsg(T('msg.marked', { title: m.title, k: res.count, n: res.need }), 'good');
-        renderMissionViews();
-        sfx('add');
-        return;
-      }
+      if (res.partial) return;   // da fare più volte e non ancora tutte fatte: non si completa ("Completa" non c'è)
       const { applied, bonus, n, routineChanged } = res;
       if (routineChanged) saveRoutinesLocal();
       if (rt && rt.sr) SR().markPart(rt, m, true);   // routine di gruppo: la tua parte di oggi, per la serie di gruppo
@@ -173,16 +165,15 @@
       if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after)); sfx('up'); } else sfx('bonus');
       return true;
     }
-    // togliere l'ultima volta segnata di una routine da più volte non ancora completa: niente XP da togliere
-    function unmarkMission(id) {
+    // routine da più volte: il numero di volte fatte, scritto nella scheda (niente XP: arrivano con "Completa")
+    function setCount(id, k) {
       const m = S.missions.find(x => x.id === id);
-      if (!m || m.done || m.failed || !m.p || !m.p.length) return;
-      const { count } = MISSIONS.applyUndo(S.xp, m, routineOf(m));
-      persist();
-      touchMonth(monthOf(m));
-      missionMsg(T('msg.unmarked', { title: m.title, k: count, n: m.n }), '');
+      if (!m || m.done || m.failed || isLate(m) || notYet(m)) { renderMissionViews(); return; }
+      const before = m.p ? m.p.length : 0;
+      const count = MISSIONS.applySetCount(m, k);
+      if (count !== before) { persist(); touchMonth(monthOf(m)); sfx(count > before ? 'add' : 'sub'); }
+      missionMsg(T('msg.count', { title: m.title, k: count, n: m.n }), '');
       renderMissionViews();
-      sfx('sub');
     }
     function undoMission(id) {
       const m = S.missions.find(x => x.id === id);
@@ -287,7 +278,24 @@
         due = due.filter(m => !held.includes(m));
         if (!due.length) renderMissionViews();
       }
-      if (!due.length) return true;
+      // da più volte, con tutte le volte fatte ma senza "Completa": alla scadenza si completa da sola (il lavoro è fatto),
+      // come se l'avessi completata l'ultimo momento utile (così conta anche per la serie)
+      const full = due.filter(m => m.n > 1 && MISSIONS.fullCount(m));
+      if (full.length) {
+        full.forEach(m => {
+          const rt = routineOf(m);
+          const lastT = S.missions.reduce((mx, x) => x.done ? Math.max(mx, x.done.t) : mx, 0);
+          const res = MISSIONS.applyComplete(S.xp, m, rt, Math.max(Date.now(), lastT + 1), dueEndMs(m) - 1);
+          if (res.routineChanged) saveRoutinesLocal();
+          if (rt && rt.sr) SR().markPart(rt, m, true);
+          touchMonth(monthOf(m));
+          missionMsg(T('msg.autodone', { title: m.title, gain: gainText(res.applied) }), 'good');
+        });
+        persist();
+        render(true);
+        due = due.filter(m => !full.includes(m));
+        if (!due.length) { renderMissionViews(); sfx('add'); return true; }
+      }
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
       const list = [];
       let routinesChanged = false;
@@ -434,17 +442,18 @@
       wrap.setAttribute('aria-label', T('m.stars.aria', { d: stars.d, f: stars.f }));
       return wrap;
     }
-    // a che punto è una volta da fare più volte: "Fatte 2 su 3", con un quadratino per volta (fino a 20)
-    function progressLine(m) {
+    // a che punto è una volta da fare più volte: "Fatte [2] su 3"; il numero si scrive (o si toglie) direttamente.
+    // editable = false: solo il testo (calendario, completata, fallita, non ancora completabile o scaduta)
+    function countLine(m, editable) {
       const k = m.p ? m.p.length : 0;
-      const line = mk('p', 'm-routine m-progress');
-      if (m.n <= 20) {
-        const pips = mk('span', 'm-pips');
-        pips.setAttribute('aria-hidden', 'true');
-        for (let i = 0; i < m.n; i++) pips.appendChild(mk('i', i < k ? 'on' : null));
-        line.appendChild(pips);
-      }
-      line.appendChild(mk('span', null, T('m.progress', { k, n: m.n })));
+      const line = mk('p', 'm-routine m-count');
+      if (!editable) { line.textContent = T('m.count', { k, n: m.n }); return line; }
+      const inp = mk('input', 'xp-in m-count-in');
+      inp.type = 'number'; inp.min = '0'; inp.max = String(m.n); inp.step = '1'; inp.inputMode = 'numeric'; inp.value = String(k);
+      inp.setAttribute('aria-label', T('m.count.aria', { n: m.n }) + ' ' + m.title);
+      inp.addEventListener('change', () => setCount(m.id, inp.value));
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+      line.append(mk('span', null, T('m.count.pre')), inp, mk('span', null, T('m.count.post', { n: m.n })));
       return line;
     }
     // inCal: scheda del pannello "Giorno" del calendario, in sola lettura
@@ -504,8 +513,8 @@
       const msl = starsLine(m.stars);
       if (msl) card.appendChild(msl);
       if (failedNow) card.appendChild(mk('p', 'm-still', T('m.still')));
-      // da fare più volte: a che punto sei (con un quadratino per ogni volta, se non sono troppe)
-      if (m.n > 1 && !m.done) card.appendChild(progressLine(m));
+      // da fare più volte: quante ne hai fatte (il numero si scrive nella scheda della lista)
+      if (m.n > 1 && !m.done) card.appendChild(countLine(m, !inCal && !failedNow && !isLate(m) && !notYet(m) && !(sri && sri.pending)));
       const chipBox = chips(m.done ? m.done.applied : m.rewards);
       if (failedNow) chipBox.classList.add('missed');   // ricompensa che non arriverà più
       card.appendChild(chipBox);
@@ -567,17 +576,14 @@
         // sei l'invitato, ma le informazioni sulla missione non sono ancora arrivate: niente pulsanti per ora
       } else {
         // con un invito in attesa, completarla da solo annulla l'invito: si chiede conferma (secondo tocco)
-        // da fare più volte: "Segna una" finché non manca solo l'ultima, che è "Completa" (e dà le ricompense)
-        const multi = m.n > 1 && (m.p ? m.p.length : 0) < m.n - 1;
         const cb = shi && shi.invited
           ? armedBtn(' add', T('btn.complete'), T('aria.complete') + ' ' + m.title, T('sh.solo.aria'),
             () => missionMsg(T('sh.solo.warn', { name: shi.invitedNames }), '', true), () => completeMission(m.id))
-          : multi ? btn(' add', T('btn.mark'), T('aria.mark'), () => completeMission(m.id))
           : btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
         if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }   // data nel futuro: si completa dal giorno stesso; scaduta: mai più
-        // routine di gruppo in sospeso (chi l'ha creata l'ha cambiata): prima si sceglie Accetta o Esci, niente Completa
-        if (!(sri && sri.pending)) act.append(cb);
-        if (m.p && m.p.length && !isLate(m)) act.appendChild(btn('', T('btn.unmark'), T('aria.unmark'), () => unmarkMission(m.id)));
+        // routine di gruppo in sospeso (chi l'ha creata l'ha cambiata): prima si sceglie Accetta o Esci, niente Completa.
+        // Da più volte: "Completa" compare solo con tutte le volte fatte
+        if (!(sri && sri.pending) && MISSIONS.fullCount(m)) act.append(cb);
         // una routine di gruppo la modifica solo chi l'ha creata; chi è in sospeso sceglie qui (o nell'elenco delle routine)
         if (!(rtn && rtn.sh === 'g')) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
         // routine: "Invita" anche qui (come "Modifica"), per tutta la routine; solo chi l'ha creata, finché c'è posto
