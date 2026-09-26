@@ -4,7 +4,9 @@
  * Chi crea una missione può invitare fino a 3 amici. Ognuno sceglie da solo se accettare o rifiutare.
  * - La missione è superata quando tutti quelli che l'hanno accettata hanno fatto la loro parte
  *   (gli XP arrivano a tutti in quel momento);
- * - fallisce per tutti se uno abbandona, oppure se alla scadenza anche uno solo non ha fatto la sua parte;
+ * - fallisce per tutti se uno abbandona, oppure se alla scadenza anche uno solo non ha fatto la sua parte:
+ *   la ricompensa non arriva a nessuno, ma la penalità la paga solo chi ha abbandonato o non ha fatto la sua parte
+ *   (chi l'aveva fatta non perde XP; lo decide missions-ui.js con il "perché" di failInfo);
  * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla quando vuole. Se cambia XP,
  *   penalità o scadenza, oppure invita altri amici, chi è dentro va "in sospeso" e sceglie "Accetta" oppure
  *   "Esci" (uscire così non è un fallimento); in sospeso non può fare la sua parte né abbandonare.
@@ -395,7 +397,11 @@
       leaving.add(sid);
       ref(sid).delete()
         .then(() => { leaving.delete(sid); if (docs[sid]) { delete docs[sid]; gone(sid); saveCache(); MUI().renderMissionViews(); } })
-        .catch(e => { leaving.delete(sid); console.warn('shared delete', e && e.code, e); });
+        .catch(e => {
+          leaving.delete(sid);
+          // un altro partecipante l'ha già eliminato (o non ne fai più parte): è normale, non serve dirlo
+          if (!e || (e.code !== 'permission-denied' && e.code !== 'not-found')) console.warn('shared delete', e && e.code, e);
+        });
     }
     // Dopo la scadenza si chiede al server lo stato vero: appena i dati descrivono di sicuro un momento dopo la
     // scadenza (safeAfter), poi, se serve ancora, al massimo ogni 5 secondi per documento.
@@ -503,17 +509,54 @@
       const j = joinedOf(d);
       if (rulesChanged && j.length) MUI().missionMsg(T('sh.msg.changed', { name: joinNames(j.map(x => noname(x.n))) }), '');
     }
-    // eliminare una missione condivisa: gli inviti si annullano; se qualcuno ha già accettato, si può solo abbandonare
-    // checkOnly: solo il controllo (al primo tocco su "Elimina"), senza annullare ancora gli inviti
-    function beforeDelete(m, checkOnly) {
+    // eliminare una missione condivisa: se qualcuno ha già accettato, si può solo abbandonare.
+    // Gli inviti ancora in attesa li annulla release(), prima di togliere la missione (vedi missions-ui.js)
+    function beforeDelete(m) {
       const d = docOf(m);
       if (!m.sid) return '';
       if (!d && !m.done && !m.failed) return T('sh.err.offline');
       if (d && isV2(d) && joinedOf(d).length && !isFinal(d)) return T('sh.err.delete');
-      if (!checkOnly && d && isV2(d) && d.owner === me() && !joinedOf(d).length) deleteDoc(m.sid);
       return '';
     }
     const myName = () => String((S.settings && S.settings.name) || '').trim().slice(0, 30);
+    // Missione con soli inviti in attesa, che chi l'ha creata completa da sola o elimina: prima si elimina il documento
+    // sul server, e solo se ci riesce la missione torna solo sua. Se nel frattempo un amico ha accettato, le regole
+    // rifiutano l'eliminazione (qualcuno è dentro): la missione resta di gruppo e lo si dice. Prima si faceva il
+    // contrario (XP subito, eliminazione dopo) e l'amico appena entrato restava in una missione che nessuno avrebbe
+    // più completato, fallendo alla scadenza.
+    // true: la missione non è più collegata (o non lo era); false: resta condivisa (il motivo è già stato detto)
+    async function release(m) {
+      if (!m || !m.sid || m.done || m.failed) return true;   // finita: il documento (se c'è ancora) lo chiude l'esito
+      const sid = m.sid, d = docOf(m);
+      if (!d) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return false; }   // non si sa ancora a che punto è
+      if (!isV2(d) || roleOf(d) !== 'o' || joinedOf(d).length) return false;
+      if (!navigator.onLine || !online()) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return false; }
+      leaving.add(sid);
+      try { await ref(sid).delete(); }
+      catch (e) {
+        console.warn('shared release', e && e.code, e);
+        // Il documento resta "in uscita" finché non arriva quello vero dal server: un aggiornamento in diretta
+        // calcolato con l'eliminazione ancora in attesa lo darebbe per sparito, e la missione si scollegherebbe.
+        ref(sid).get({ source: 'server' }).then(x => {
+          leaving.delete(sid);
+          if (x.exists) docs[sid] = { ...x.data(), _pw: false, _srv: Math.max(docs[sid] ? docs[sid]._srv || 0 : 0, Date.now() - LISTEN_LAG) };
+          saveCache(); evaluate(); MUI().renderMissionViews();
+        }).catch(() => { leaving.delete(sid); });
+        MUI().missionMsg(T(e && e.code === 'permission-denied' ? 'sh.msg.joined.now' : errKey(e)), 'bad', true);
+        sfx('err');
+        return false;
+      }
+      leaving.delete(sid);
+      delete docs[sid]; saveCache();
+      if (m.sid === sid) unlink(m);
+      return true;
+    }
+    // "Completa" con soli inviti in attesa: gli inviti si annullano e la missione si completa da sola
+    async function completeSolo(id) {
+      const m = byId(id);
+      if (!(await release(m))) { MUI().renderMissionViews(); return; }
+      if (S.missions.includes(m) && !m.sid) MUI().completeMission(id);
+    }
 
     /* ---------- azioni sulle schede ---------- */
     const byId = id => S.missions.find(x => x.id === id);
@@ -655,26 +698,27 @@
       MUI().renderMissionViews();
     }
 
-    /* ---------- finestra "Invita amici" ---------- */
+    /* ---------- finestra "Invita amici" (per le missioni e, con shared-routines.js, per le routine) ---------- */
+    // pickFriends(t) apre la finestra per un \"bersaglio\" t:
+    //   t.id: che cosa (serve solo a capire se nel frattempo è stata aperta per altro)
+    //   t.text: il testo in cima; t.full / t.allin: i messaggi \"già pieno\" e \"già tutti dentro\"
+    //   t.inside(): gli uid già dentro (o invitati); t.slots(): i posti ancora liberi
+    //   t.canSend(): si può ancora invitare?; t.send(chosen): invia, true se è andata bene
     const shmodal = $('shmodal');
-    let inviteFor = '';
+    let target = null;
     const picked = new Set();
     function shMsg(t, kind) { const e = $('sh-msg'); e.textContent = t || ''; e.className = 'msg' + (kind ? ' ' + kind : ''); }
-    // posti ancora liberi nella missione
-    function slotsFor(m) {
-      const d = m && m.sid ? docOf(m) : null;
-      return MAX_GUESTS - (d && isV2(d) ? guests(d).length : 0);
-    }
     function paintSend() {
       const b = $('sh-send');
       b.textContent = picked.size ? T('sh.send.n', { n: picked.size }) : T('sh.send');
       b.disabled = !picked.size;
     }
-    async function openInvite(id) {
-      inviteFor = id;
+    async function pickFriends(t) {
+      target = t;
       picked.clear();
       const list = $('sh-list');
       list.textContent = '';
+      $('sh-text').textContent = t.text;
       shMsg('');
       $('sh-send').hidden = true;
       openModal(shmodal, $('sh-close'));
@@ -682,15 +726,14 @@
       if (!S.dbRef) { shMsg(T('fr.connecting')); await fbConnect(); if (!S.dbRef) { shMsg(T('fr.offline'), 'bad'); return; } }
       shMsg(T('fr.msg.wait'));
       try { await loadFriendsList(); } catch (e) { console.warn('shared friends', e); }
-      if (shmodal.hidden || inviteFor !== id) return;
-      const m = byId(id), d = m && m.sid ? docOf(m) : null;
-      const inside = new Set(d && isV2(d) ? guests(d).map(x => x.uid) : []);
-      const slots = slotsFor(m);
+      if (shmodal.hidden || target !== t) return;
+      const inside = t.inside();
+      const slots = t.slots();
       const all = friendsList();
       const friends = all.filter(f => !inside.has(f.uid));
       if (!all.length) { shMsg(T('sh.pick.none')); return; }
-      if (slots <= 0) { shMsg(T('sh.pick.full')); return; }
-      if (!friends.length) { shMsg(T('sh.pick.allin')); return; }
+      if (slots <= 0) { shMsg(t.full); return; }
+      if (!friends.length) { shMsg(t.allin); return; }
       shMsg(TN('sh.pick.left', slots));
       friends.forEach(f => {
         const b = mk('button', 'fr-friend');
@@ -712,23 +755,46 @@
       paintSend();
     }
     async function sendInvite() {
-      const id = inviteFor, m = byId(id);
+      const t = target;
+      if (!t) return;
       const chosen = friendsList().filter(f => picked.has(f.uid));
       if (!chosen.length) { shMsg(T('sh.pick.sel'), 'bad'); sfx('err'); return; }
-      if (!m || !canInvite(m) || chosen.length > slotsFor(m)) { shMsg(T('sh.err.cannot'), 'bad'); sfx('err'); return; }
+      if (!t.canSend() || chosen.length > t.slots()) { shMsg(T('sh.err.cannot'), 'bad'); sfx('err'); return; }
       // senza rete Firebase non conferma la scrittura finché la connessione non torna: meglio dirlo subito
       if (!navigator.onLine) { shMsg(T('fr.offline'), 'bad'); sfx('err'); return; }
-      const entry = f => ({ n: String(f.name || '').slice(0, 30), j: false, a: 0, d: null, s: false });
-      const names = joinNames(chosen.map(f => f.name || T('fr.noname')));
       shMsg(T('fr.msg.wait'));
       $('sh-send').disabled = true;
+      let ok = false;
+      try { ok = await t.send(chosen); }
+      catch (e) { console.warn('shared invite', e && e.code, e); shMsg(T(errKey(e)), 'bad'); sfx('err'); paintSend(); return; }
+      if (!ok) { paintSend(); return; }
+      if (!shmodal.hidden && target === t) closeModal();   // se nel frattempo l'hai chiusa (o ne hai aperta un'altra) non si tocca niente
+      sfx('ok');
+      MUI().renderMissionViews();
+    }
+    // l'amico appena invitato, come lo vuole il documento
+    const guestEntry = f => ({ n: String(f.name || '').slice(0, 30), j: false, a: 0, d: null, s: false });
+
+    // \"Invita\" su una missione
+    const slotsFor = m => MAX_GUESTS - (m && m.sid && docOf(m) && isV2(docOf(m)) ? guests(docOf(m)).length : 0);
+    function openInvite(id) {
+      const t = {
+        id, text: T('sh.pick.text'), full: T('sh.pick.full'), allin: T('sh.pick.allin'),
+        inside: () => { const m = byId(id), d = m && m.sid ? docOf(m) : null; return new Set(d && isV2(d) ? guests(d).map(x => x.uid) : []); },
+        slots: () => slotsFor(byId(id)),
+        canSend: () => { const m = byId(id); return !!m && canInvite(m); },
+        send: chosen => sendMission(byId(id), chosen),
+      };
+      return pickFriends(t);
+    }
+    async function sendMission(m, chosen) {
+      const names = joinNames(chosen.map(f => f.name || T('fr.noname')));
       if (m.sid) {
         // missione già condivisa: si aggiungono i nuovi amici; vale come modifica (chi è dentro deve riaccettare)
         const d = docOf(m);
         const data = { members: FV().arrayUnion(...chosen.map(f => f.uid)), ver: FV().increment(1) };
-        chosen.forEach(f => { data['g.' + f.uid] = entry(f); });
-        try { await update(m.sid, data); }
-        catch (e) { console.warn('shared invite', e && e.code, e); shMsg(T(errKey(e)), 'bad'); sfx('err'); paintSend(); return; }
+        chosen.forEach(f => { data['g.' + f.uid] = guestEntry(f); });
+        await update(m.sid, data);
         const j = d ? joinedOf(d) : [];
         if (j.length) MUI().missionMsg(T('sh.msg.changed', { name: joinNames(j.map(x => noname(x.n))) }), '');
       } else {
@@ -736,25 +802,19 @@
         const now = Date.now();
         const data = {
           v: 2, owner: me(), ownerName: myName(), members: [me()].concat(chosen.map(f => f.uid)),
-          g: Object.fromEntries(chosen.map(f => [f.uid, entry(f)])),
+          g: Object.fromEntries(chosen.map(f => [f.uid, guestEntry(f)])),
           ...fieldsOf(m), ver: 1, oDone: null, left: '', seenO: false, created: now, updated: now,
         };
         // la missione si collega al documento PRIMA di scriverlo: l'aggiornamento in diretta arriva già durante la scrittura
         m.sid = sid; m.sh = 'o';
         docs[sid] = { ...data, _pw: true, _srv: 0 };
         try { await ref(sid).set(data); }
-        catch (e) {
-          console.warn('shared invite', e && e.code, e);
-          delete m.sid; delete m.sh; delete docs[sid];
-          shMsg(T(errKey(e)), 'bad'); sfx('err'); paintSend(); return;
-        }
+        catch (e) { delete m.sid; delete m.sh; delete docs[sid]; throw e; }
         saveCache();
         touchMonth(monthOf(m));
       }
-      if (!shmodal.hidden && inviteFor === id) closeModal();   // se nel frattempo l'hai chiusa (o ne hai aperta un'altra) non si tocca niente
-      sfx('ok');
       if (!m.sid || docs[m.sid]) MUI().missionMsg(T('sh.msg.sent', { name: names }), 'good');
-      MUI().renderMissionViews();
+      return true;
     }
     $('sh-send').addEventListener('click', sendInvite);
     $('sh-close').addEventListener('click', closeModal);
@@ -762,8 +822,10 @@
 
     return {
       start, reset, evaluate, info, holds, joined, canInvite, editBlock, afterEdit, beforeDelete,
-      completePart, undoPart, abandon, acceptChange, exitChange, cancelInvite, openInvite,
+      completePart, undoPart, abandon, acceptChange, exitChange, cancelInvite, openInvite, completeSolo, release,
       invites, acceptInvite, declineInvite, joinNames,
+      // per shared-routines.js: la finestra "Invita amici" e l'amico come va scritto nel documento
+      pickFriends, myName,
       // per le prove
       outcome, localDue, localFrom, failInfo,
     };

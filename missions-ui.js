@@ -35,9 +35,15 @@
     // missioni condivise (shared.js): nasce dopo questo file; finché non c'è, nessuna missione risulta condivisa
     const NOSH = {
       info: () => null, holds: m => !!m.sid, joined: () => false, canInvite: () => false, invites: () => [], evaluate() {},
-      editBlock: () => '', afterEdit() {}, beforeDelete: () => '',
+      editBlock: () => '', afterEdit() {}, beforeDelete: () => '', release: async () => true, completeSolo() {},
     };
     const SH = () => D.SH || NOSH;
+    // routine di gruppo (shared-routines.js): come sopra, finché non c'è nessuna routine risulta di gruppo
+    const NOSR = {
+      info: () => null, occInfo: () => null, streakNow: () => 0, canInvite: () => false, editBlock: () => '', canUndo: () => true,
+      markPart() {}, afterEdit() {}, invites: () => [], evaluate() {}, beforeDelete: async () => true,
+    };
+    const SR = () => D.SR || NOSR;
 
     const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
     const fmtClock = ms => new Date(ms).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -76,6 +82,8 @@
       // missione condivisa: completi la tua parte; gli XP arrivano quando la completa anche l'amico
       if (m.sid && SH().joined(m)) { SH().completePart(id); return; }
       if (m.sid && SH().holds(m)) { missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }   // non si sa ancora a che punto è
+      // solo inviti in attesa: prima si annullano sul server (se nel frattempo un amico ha accettato, resta di gruppo)
+      if (m.sid) { SH().completeSolo(id); return; }
       grant(m);
     }
     // dà gli XP di una missione e la segna completata (con serie, bonus, animazioni e suoni)
@@ -84,15 +92,16 @@
       const ovFrom = overallOf(before);
       // routine: la serie cresce solo se la completi entro il giorno previsto
       const rt = routineOf(m);
-      const { rs, bonus } = MISSIONS.streakStep(rt, m, todayStr());
+      const { rs, bonus } = MISSIONS.streakStep(rt, m, MISSIONS.routineToday(rt));
       const applied = MISSIONS.gainXp(S.xp, m.rewards, bonus);
       const lastT = S.missions.reduce((mx, x) => x.done ? Math.max(mx, x.done.t) : mx, 0);
       m.done = { date: todayStr(), t: Math.max(Date.now(), lastT + 1), applied };   // t cresce sempre: ordina le completate
       if (rs) {
         m.done.rs = rs;
-        rt.streak = rs.n; rt.streakDate = m.due; rt.best = Math.max(rt.best || 0, rs.n);
+        rt.streak = rs.n; rt.streakDate = m.gd || m.due; rt.best = Math.max(rt.best || 0, rs.n);
         saveRoutinesLocal();
       }
+      if (rt && rt.sr) SR().markPart(rt, m, true);   // routine di gruppo: la tua parte di oggi, per la serie di gruppo
       persist();
       touchMonth(monthOf(m));
       const after = STATS.map(s => levelFromXp(S.xp[s.key]));
@@ -114,11 +123,14 @@
     // kind: perché è fallita — 'me' (hai abbandonato tu), 'friend' (ha abbandonato un altro), oppure scaduta:
     // 'mine' (mancava solo la tua parte), 'theirs' / 'theirs_many' (mancava quella di uno / più altri),
     // 'both' (mancava la tua e quella di altri). name: i nomi da mostrare, già uniti ("Anna e Marco")
+    // La ricompensa è "tutti o nessuno", la penalità no: la paga solo chi ha abbandonato ('me') o non ha fatto
+    // la sua parte in tempo ('mine', 'both'). Chi l'aveva fatta, o chi ha visto abbandonare un altro, non perde XP.
+    const PAYS = new Set(['me', 'mine', 'both']);
     function failShared(m, kind, name) {
       if (!outcomeReady()) return false;
       if (m.done || m.failed) return true;
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
-      const removed = MISSIONS.penaltyXp(S.xp, m.penalty);
+      const removed = PAYS.has(kind) ? MISSIONS.penaltyXp(S.xp, m.penalty) : MISSIONS.normalizeRewards(null);
       m.failed = { date: todayStr(), t: Date.now(), applied: removed };
       touchMonth(monthOf(m));
       persist();
@@ -129,14 +141,38 @@
       showPenalties([{ m, removed, kind, name }], before, after, overallOf(before), overallOf(after));
       return true;
     }
+    // routine di gruppo: il bonus di gruppo di una volta già completata (quel giorno l'avete fatta tutti).
+    // false se ora non si può (finestra aperta): shared-routines.js riprova più tardi
+    function groupBonus(m, bonus, n) {
+      if (!outcomeReady()) return false;
+      if (!m.done || m.done.gb) return true;
+      const before = STATS.map(s => levelFromXp(S.xp[s.key]));
+      const ovFrom = overallOf(before);
+      const applied = MISSIONS.gainXp(S.xp, bonus);
+      STATS.forEach(s => { m.done.applied[s.key] = (m.done.applied[s.key] || 0) + applied[s.key]; });
+      m.done.gb = n;
+      persist();
+      touchMonth(monthOf(m));
+      const after = STATS.map(s => levelFromXp(S.xp[s.key]));
+      const ups = STATS.map((s, i) => ({ s, from: before[i], to: after[i] })).filter(u => u.to > u.from);
+      render(true);
+      STATS.forEach(s => { if (applied[s.key] > 0) floatText(s.key, '+' + fmt(applied[s.key]), false); });
+      missionMsg(T('sr.msg.bonus', { title: m.title, gain: gainText(applied), n }), 'good');
+      renderMissionViews();
+      if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after)); sfx('up'); } else sfx('bonus');
+      return true;
+    }
     function undoMission(id) {
       const m = S.missions.find(x => x.id === id);
       if (!m || !m.done || m.sid) return;   // una missione condivisa completata non si annulla: gli XP li ha avuti anche l'amico
+      // routine di gruppo: se quel giorno l'avete già fatta tutti, la serie di gruppo l'ha contata
+      if (!SR().canUndo(m)) { missionMsg(T('sr.err.undo'), 'bad', true); sfx('err'); return; }
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
       const removed = MISSIONS.undoXp(S.xp, m.done.applied);
       const rsBack = m.done.rs, rtBack = routineOf(m);
       m.done = null;
-      if (MISSIONS.streakUndo(rtBack, rsBack, m.due)) saveRoutinesLocal();   // la serie torna com'era prima
+      if (MISSIONS.streakUndo(rtBack, rsBack, m.gd || m.due)) saveRoutinesLocal();   // la serie torna com'era prima
+      if (rtBack && rtBack.sr) SR().markPart(rtBack, m, false);
       persist();
       touchMonth(monthOf(m));
       const after = STATS.map(s => levelFromXp(S.xp[s.key]));
@@ -251,6 +287,7 @@
         if (syncRoutines()) renderMissionViews();
         applyPenalties();
         SH().evaluate();
+        SR().evaluate();
       }
       const sig = todayStr() + ':' + S.missions.filter(m => !m.done && isLate(m)).length;
       if (sig !== lastSig) { lastSig = sig; renderMissionViews(); }
@@ -352,8 +389,13 @@
       card.dataset.id = m.id;
       const rtn = routineOf(m);
       const shi = m.sid ? SH().info(m) : null;   // missione condivisa: con chi, a che punto
+      // routine di gruppo: chi l'ha già fatta quel giorno, e se l'avete fatta tutti
+      const sri = rtn && rtn.sr ? SR().occInfo(m) : null;
       // etichetta "Routine" (o "Condivisa con…") in cima, sopra il titolo
-      if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
+      if (rtn && rtn.sr) {
+        const gs = SR().streakNow(rtn), who = SH().joinNames ? SH().joinNames(rtn.shn || []) : '';
+        card.appendChild(routineTag(who ? T(gs ? 'sr.tag.streak' : 'sr.tag', { name: who, n: gs }) : T('sr.tag.plain')));
+      } else if (rtn) card.appendChild(routineTag(!m.done && !m.failed && rtn.streak ? T('m.routine.streak', { n: rtn.streak }) : T('m.routine')));
       // missione condivisa già finita: il nome dell'amico è salvato nella missione, perché il documento condiviso
       // a un certo punto viene eliminato (e l'etichetta non deve cambiare in quel momento)
       else if (m.sid && (m.done || m.failed) && m.shn && m.shn.length) card.appendChild(sharedTag(T('sh.tag', { name: SH().joinNames(m.shn) })));
@@ -382,6 +424,14 @@
         if (!shi.pending && shi.pendNames && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.pend.others', { name: shi.pendNames })));
         if (shi.role === 'o' && shi.invitedCount && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.invited.wait', { name: shi.invitedNames })));
       }
+      if (sri && !failedNow) {
+        if (sri.pending && !m.done) card.appendChild(mk('p', 'm-shared warn', T('sr.changed', { name: (SR().info(rtn) || {}).ownerName || '' })));
+        else if (sri.inGroup) {
+          if (sri.together) card.appendChild(mk('p', 'm-shared', T('sr.together')));
+          else if (m.done && sri.missingNames && Date.now() < dueEndMs(m)) card.appendChild(mk('p', 'm-shared', T('sr.waiting', { name: sri.missingNames })));
+          else if (!m.done && sri.doneCount) card.appendChild(mk('p', 'm-shared', TN('sr.partner.done', sri.doneCount, { name: sri.doneNames })));
+        }
+      }
       if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
       const msl = starsLine(m.stars);
       if (msl) card.appendChild(msl);
@@ -391,6 +441,8 @@
       card.appendChild(chipBox);
       if (m.done && m.failed) {
         card.appendChild(mk('p', 'm-pen', T('m.pen.late', { loss: lossText(m.failed.applied) })));
+      } else if (failedNow && m.sid && hasAny(m.penalty) && !hasAny(m.failed.applied)) {
+        card.appendChild(mk('p', 'm-shared', T('sh.nopen')));   // condivisa fallita per colpa di altri: nessun XP perso
       } else if (failedNow) {
         const sameDate = m.failed.date === m.due;   // la data qui sopra ("Scaduta il...") è già quella giusta: non ripeterla
         card.appendChild(mk('p', 'm-pen', T(sameDate ? 'm.pen.lost.same' : 'm.pen.lost', { when: fmtDay(m.failed.date), loss: lossText(m.failed.applied) })));
@@ -410,7 +462,8 @@
         if (!m.done && !failedNow && (m.rid ? !!rtn : !!m.due)) act.appendChild(gcalLink(m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m), m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title));
         act.appendChild(btn('', T('btn.goto'), T('aria.goto'), () => goToMission(m.id)));
       } else if (m.done) {
-        if (!m.sid) act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));   // condivisa: non si annulla
+        // condivisa: non si annulla; routine di gruppo: non dopo che l'avete fatta tutti (la serie di gruppo l'ha contata)
+        if (!m.sid && SR().canUndo(m)) act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
       } else if (failedNow) {
         if (!m.rid && !m.sid) {
           const hadPenalty = hasAny(m.penalty);
@@ -449,7 +502,10 @@
             () => missionMsg(T('sh.solo.warn', { name: shi.invitedNames }), '', true), () => completeMission(m.id))
           : btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
         if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }   // data nel futuro: si completa dal giorno stesso; scaduta: mai più
-        act.append(cb, btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+        act.append(cb);
+        // una routine di gruppo la modifica solo chi l'ha creata; chi è in sospeso sceglie qui (o nell'elenco delle routine)
+        if (!(rtn && rtn.sh === 'g')) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+        if (sri && sri.pending) act.append(btn(' add', T('sh.accept.change'), T('sh.accept.change'), () => SR().acceptChange(rtn.id)), exitBtn(rtn));
         if (SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
         if (shi && shi.invited) act.appendChild(btn('', T('sh.cancel'), T('sh.cancel'), () => SH().cancelInvite(m.id)));
       }
@@ -475,10 +531,42 @@
       });
       return b;
     }
+    // "Esci" da una routine di gruppo: nessuna penalità, la routine resta tua (chiede conferma)
+    const exitBtn = r => armedBtn('', T('sh.exit'), T('sr.exit.aria') + ' ' + r.title, T('sr.exit.confirm'), null, () => SR().exit(r.id));
     // "Abbandona": fa fallire la missione per entrambi, quindi chiede conferma
     const abandonBtn = m => armedBtn(' sub', T('sh.abandon'), T('sh.abandon') + ' ' + m.title, T('sh.abandon.confirm'), null, () => SH().abandon(m.id));
+    // invito ricevuto a una routine di gruppo: la routine come la vedresti, con "Accetta" e "Rifiuta"
+    function routineInviteCard(x) {
+      const r = x.r;
+      const card = mk('article', 'mission invite');
+      card.dataset.sid = x.sid;
+      card.appendChild(routineTag(T('sr.tag.from', { name: x.from })));
+      const head = mk('div', 'm-head');
+      head.appendChild(mk('h3', 'm-title', r.title));
+      head.appendChild(mk('span', 'm-date', daysText(r) + (r.time ? ' ' + T('r.at', { time: r.time }) : '')));
+      card.appendChild(head);
+      if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
+      const sl = starsLine(r.stars);
+      if (sl) card.appendChild(sl);
+      card.appendChild(chips(r.rewards));
+      if (hasAny(r.penalty)) card.appendChild(mk('p', 'm-pen', T('sr.pen.warn', { loss: lossText(r.penalty) })));
+      if (r.bonus) card.appendChild(mk('p', 'm-desc', T('sr.bonus', { xp: fmt(r.bonus.xp), n: r.bonus.every })));
+      card.appendChild(mk('p', 'm-shared', T('sr.inv.rule')));
+      if (x.others) card.appendChild(mk('p', 'm-shared', T('sh.inv.others', { name: x.others })));
+      const act = mk('div', 'm-actions');
+      const b1 = mk('button', 'btn small add', T('sh.inv.accept')); b1.type = 'button';
+      b1.setAttribute('aria-label', T('sh.inv.accept') + ' ' + r.title);
+      b1.addEventListener('click', () => SR().acceptInvite(x.sid));
+      const b2 = mk('button', 'btn small', T('sh.inv.decline')); b2.type = 'button';
+      b2.setAttribute('aria-label', T('sh.inv.decline') + ' ' + r.title);
+      b2.addEventListener('click', () => SR().declineInvite(x.sid));
+      act.append(b1, b2);
+      card.appendChild(act);
+      return card;
+    }
     // invito ricevuto: la missione come la vedresti, con "Accetta" e "Rifiuta"
     function inviteCard(x) {
+      if (x.kind === 'r') return routineInviteCard(x);
       const m = x.m;
       const card = mk('article', 'mission invite');
       card.dataset.sid = x.sid;
@@ -536,7 +624,7 @@
       tl.textContent = ''; fl.textContent = ''; dl.textContent = '';
 
       // inviti ricevuti a missioni condivise, in cima
-      const inv = SH().invites();
+      const inv = SH().invites().concat(SR().invites());
       if (inv.length) {
         tl.appendChild(mk('h4', 'sub', T('sh.inv.h') + ' (' + inv.length + ')'));
         inv.forEach(x => tl.appendChild(inviteCard(x)));
@@ -909,6 +997,7 @@
     }
     function openRoutineForm(rid) {
       const r = rid ? S.routines.find(x => x.id === rid) : null;
+      if (r && r.sh === 'g') { missionMsg(T('sr.err.guest'), 'bad', true); sfx('err'); return; }   // la modifica solo chi l'ha creata
       editingId = null; editingRid = r ? r.id : null;
       $('mf-rep-field').hidden = false;
       $('mf-rep-toggle').hidden = true;
@@ -969,6 +1058,8 @@
       if (pf && pf < todayStr() && !(cur && cur.pause && cur.pause.from === pf)) return fail(T('mf.err.past'), $('mf-pause-from'));
       if (pu && pf && pu < pf) return fail(T('mf.err.pause'), $('mf-pause-until'));
       let r = editingRid ? S.routines.find(x => x.id === editingRid) : null;
+      const blk = SR().editBlock(r);   // routine di gruppo: serve il documento, e la connessione, per avvisare gli amici
+      if (blk) return fail(blk, null);
       // data di inizio: se non la tocchi resta quella di prima (anche se è già passata); una data nuova va da oggi a un anno
       const start = $('mf-start').value || (r ? r.start : today);
       const newStart = !r || start !== r.start;
@@ -1000,6 +1091,7 @@
       });
       months.forEach(touchMonth);
       saveRoutinesLocal();
+      if (r.sr) SR().afterEdit(r);   // gli amici della routine di gruppo ricevono le modifiche
       const wasEdit = !!editingRid;
       syncRoutines();
       sfx('save');
@@ -1007,10 +1099,13 @@
       renderMissionViews();
       missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }), 'good');
     }
-    function deleteRoutine() {
+    async function deleteRoutine() {
       const r = S.routines.find(x => x.id === editingRid);
       if (!r) return;
       if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
+      // routine di gruppo: prima si scioglie il gruppo sul server (agli amici la routine resta, come routine normale)
+      if (r.sr && !(await SR().beforeDelete(r))) { mfDelArm(false); return; }
+      if (!S.routines.includes(r)) return;
       const drop = S.missions.filter(m => m.rid === r.id && !m.done && !m.failed);
       const months = new Set(drop.map(monthOf));
       tombMissions(drop);
@@ -1159,14 +1254,16 @@
       bar.querySelector('[data-sel="del"]').addEventListener('click', selDelete);
     });
 
-    function deleteMission() {
+    async function deleteMission() {
       if (editingRid) { deleteRoutine(); return; }
       const m = editingId ? S.missions.find(x => x.id === editingId) : null;
       if (!m || m.done) return;
-      const blk = m.sid ? SH().beforeDelete(m, true) : '';
+      const blk = m.sid ? SH().beforeDelete(m) : '';
       if (blk) { mfMsg(blk); sfx('err'); return; }
       if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
-      if (m.sid) SH().beforeDelete(m);   // un invito ancora in attesa si annulla
+      // inviti ancora in attesa: prima si annullano sul server; se nel frattempo un amico ha accettato, la missione resta
+      if (m.sid && !(await SH().release(m))) { mfDelArm(false); closeModal(); renderMissionViews(); return; }
+      if (!S.missions.includes(m)) return;
       tombMissions([m]);
       S.missions = S.missions.filter(x => x !== m);
       touchMonth(monthOf(m));
@@ -1190,6 +1287,9 @@
     }
     function routineCard(r) {
       const card = mk('article', 'mission');
+      const sri = r.sr ? SR().info(r) : null;
+      if (sri) card.appendChild(routineTag(sri.invited ? T('sh.tag.invited', { name: sri.invitedNames }) : sri.name ? T('sr.tag', { name: sri.name }) : T('sr.tag.plain')));
+      else if (r.sr) card.appendChild(routineTag(T('sr.tag.plain')));
       const head = mk('div', 'm-head');
       head.appendChild(mk('h3', 'm-title', r.title));
       head.appendChild(mk('span', 'm-date', daysText(r) + (r.time ? ' ' + T('r.at', { time: r.time }) : '')));
@@ -1199,7 +1299,12 @@
       if (rsl) card.appendChild(rsl);
       card.appendChild(chips(r.rewards));
       card.appendChild(mk('p', 'm-desc', T('r.streak', { n: r.streak || 0 }) + ', ' + T('r.best', { n: r.best || 0 })));
-      if (r.bonus) card.appendChild(mk('p', 'm-desc', T('r.bonus', { xp: fmt(r.bonus.xp), n: r.bonus.every })));
+      // serie di gruppo: anche dopo che il gruppo non c'è più si vede il record
+      if (r.sr || r.gbest) card.appendChild(mk('p', 'm-desc', T('sr.streak', { n: SR().streakNow(r) }) + ', ' + T('r.best', { n: r.gbest || 0 })));
+      if (r.bonus) card.appendChild(mk('p', 'm-desc', T(r.sr ? 'sr.bonus' : 'r.bonus', { xp: fmt(r.bonus.xp), n: r.bonus.every })));
+      if (sri && sri.pending) card.appendChild(mk('p', 'm-shared warn', T('sr.changed', { name: sri.ownerName })));
+      if (sri && !sri.pending && sri.pendNames) card.appendChild(mk('p', 'm-shared', T('sh.pend.others', { name: sri.pendNames })));
+      if (sri && sri.role === 'o' && sri.invitedCount && !sri.invited) card.appendChild(mk('p', 'm-shared', T('sh.invited.wait', { name: sri.invitedNames })));
       if (r.start > todayStr()) card.appendChild(mk('p', 'm-routine', T('r.starts', { when: fmtDay(r.start) })));
       if (r.pause && r.pause.until >= todayStr()) {
         card.appendChild(mk('p', 'm-pen', r.pause.from > todayStr()
@@ -1207,11 +1312,23 @@
           : T('r.paused', { when: fmtDay(r.pause.until) })));
       }
       const act = mk('div', 'm-actions');
-      const b = mk('button', 'btn small', T('btn.edit'));
-      b.type = 'button';
-      b.setAttribute('aria-label', T('aria.edit') + ' ' + r.title);
-      b.addEventListener('click', () => { closeModal(); routinesBack = true; openRoutineForm(r.id); });
-      act.appendChild(b);
+      const rbtn = (cls, text, label, fn) => {
+        const b = mk('button', 'btn small' + cls, text);
+        b.type = 'button';
+        b.setAttribute('aria-label', label + ' ' + r.title);
+        b.addEventListener('click', fn);
+        return b;
+      };
+      if (r.sh === 'g') {
+        // routine di un amico: la modifica solo lui; tu puoi accettare le sue modifiche, oppure uscire (la routine resta tua)
+        if (sri && sri.pending) act.appendChild(rbtn(' add', T('sh.accept.change'), T('sh.accept.change'), () => SR().acceptChange(r.id)));
+        if (sri) act.appendChild(exitBtn(r));
+      } else {
+        act.appendChild(rbtn('', T('btn.edit'), T('aria.edit'), () => { closeModal(); routinesBack = true; openRoutineForm(r.id); }));
+        if (SR().canInvite(r)) act.appendChild(rbtn('', T('sh.invite'), T('sr.invite.aria'), () => { closeModal(); SR().openInvite(r.id); }));
+        if (sri && sri.removable) act.appendChild(armedBtn('', T('sh.remove.waiting'), T('sh.remove.waiting') + ' ' + r.title, T('sh.remove.confirm'), null, () => SR().cancelInvite(r.id)));
+        if (sri) act.appendChild(armedBtn('', T('sr.dissolve'), T('sr.dissolve') + ' ' + r.title, T('sr.dissolve.confirm'), null, () => SR().dissolve(r.id)));
+      }
       card.appendChild(act);
       return card;
     }
@@ -1244,7 +1361,7 @@
     function setPenaltyReady() { penaltyReady = true; }
 
     return {
-      grantShared, failShared, fmtDay,
+      grantShared, failShared, groupBonus, completeMission, fmtDay,
       missionMsg, syncRoutines, checkPenalties, setPenaltyReady, collapseMissionLists, renderMissions, renderCalendar, renderMissionViews, initCal, formLabels, paintFormRepeat, sel, rmodal, renderRoutines,
     };
   }

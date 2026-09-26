@@ -1,6 +1,6 @@
 /* Service worker di Life RPG.
    Tiene una copia dell'app sul dispositivo, così si apre anche senza internet.
-   - La pagina e i file dell'app (index.html, style.css, i18n.js, game.js, draw.js, look.js, sync.js, missions.js, missions-ui.js, settings-ui.js, cloud.js, friends.js, shared.js, audio.js, index.js): prima si prova la rete,
+   - La pagina e i file dell'app (index.html, style.css, i18n.js, game.js, draw.js, look.js, sync.js, missions.js, missions-ui.js, settings-ui.js, cloud.js, friends.js, shared.js, shared-routines.js, audio.js, index.js): prima si prova la rete,
      così un aggiornamento arriva sempre tutto insieme (markup, stili e logica della stessa versione).
      Se la rete manca o è lenta (più di 4 secondi) si usa la copia salvata; la risposta arrivata in ritardo
      aggiorna comunque la copia, per la prossima volta.
@@ -14,9 +14,9 @@
    a ogni release per evitare HTML nuovo con JS vecchio. Cambiala solo se vuoi forzare la pulizia
    di tutta la copia salvata (per esempio se togli o rinomini dei file). */
 
-const CACHE = 'life-rpg-v53';
+const CACHE = 'life-rpg-v54';
 const PAGE = './index.html';
-const APP_FILES = ['./style.css', './i18n.js', './game.js', './draw.js', './look.js', './sync.js', './missions.js', './missions-ui.js', './settings-ui.js', './cloud.js', './friends.js', './shared.js', './audio.js', './index.js'];
+const APP_FILES = ['./style.css', './i18n.js', './game.js', './draw.js', './look.js', './sync.js', './missions.js', './missions-ui.js', './settings-ui.js', './cloud.js', './friends.js', './shared.js', './shared-routines.js', './audio.js', './index.js'];
 const FILES = [
   './', PAGE, './manifest.webmanifest', './icon-192.png', './icon-512.png',
   ...APP_FILES,

@@ -233,6 +233,122 @@ service cloud.firestore {
         || (me() in o.members && shFinal(o) && (me() == o.owner || o.seenO) && allSeen(o));
     }
 
+    // ---------- routine di gruppo con fino a 3 amici (shared-routines.js) ----------
+    // Un documento per routine. Lo leggono e scrivono solo chi l'ha creata (owner) e gli amici invitati.
+    //   members: [owner, amico1, amico2, amico3]
+    //   g: { uid: { n: nome, j: ha accettato, a: versione delle regole accettata, since: giorno del gruppo da cui partecipa } }
+    //   k: { AAAAMMGG: { uid: ora del server in cui ha fatto la sua parte } }; lk: il giorno toccato dall'ultima scrittura
+    // Ognuno segna solo la propria parte, con l'ora del server, e solo vicino a quel giorno (il fuso del gruppo lo conosce
+    // l'app: qui si accetta da 14 ore prima a 38 ore dopo la mezzanotte UTC di quel giorno, che copre tutti i fusi).
+    // Se la parte è arrivata dopo la scadenza vera, la serie di gruppo non la conta: lo controlla l'app con l'ora del server.
+    function srKeys() {
+      return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time',
+              'start', 'pause', 'bonus', 'tz', 'ver', 'k', 'lk', 'created', 'updated'];
+    }
+    function srTplKeys() {
+      return ['title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time', 'start', 'pause', 'bonus', 'tz', 'ver', 'ownerName', 'updated'];
+    }
+    // il modello della routine (lo decide chi l'ha creata)
+    function srTpl(n) {
+      return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
+        && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
+        && n.days is list && n.days.size() >= 1 && n.days.size() <= 7 && n.days.hasOnly([0, 1, 2, 3, 4, 5, 6])
+        && okClockOrNull(n.time) && n.start is string && n.start.size() == 10 && shortStr(n.tz, 64)
+        && (n.pause == null || (n.pause is map && n.pause.keys().hasOnly(['from', 'until'])
+            && n.pause.from is string && n.pause.from.size() == 10 && n.pause.until is string && n.pause.until.size() == 10))
+        && (n.bonus == null || (n.bonus is map && n.bonus.keys().hasOnly(['every', 'xp'])
+            && n.bonus.every is int && n.bonus.every >= 2 && n.bonus.every <= 365
+            && n.bonus.xp is int && n.bonus.xp >= 1 && n.bonus.xp <= 100000));
+    }
+    function okNewSrGuest(e) {
+      return e is map && e.keys().hasOnly(['n', 'j', 'a', 'since']) && e.keys().size() == 4
+        && shortStr(e.n, 30) && e.j == false && e.a == 0 && e.since == '';
+    }
+    function newSrGuestAt(from, n, i) {
+      return n.members.size() <= i || i < from
+        || (n.members[i] != me() && okNewSrGuest(n.g[n.members[i]]) && areFriends(n.members[i]));
+    }
+    function srCreate(n) {
+      return n.keys().hasOnly(srKeys()) && n.keys().size() == 21
+        && n.v == 1 && n.owner == me() && n.members is list && n.members[0] == me()
+        && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
+        && newSrGuestAt(1, n, 1) && newSrGuestAt(1, n, 2) && newSrGuestAt(1, n, 3)
+        && srTpl(n) && n.ver == 1 && n.k == {} && n.lk == '' && n.created is int && n.updated is int;
+    }
+    // chi può segnare la sua parte: chi l'ha creata, o un amico dentro con le regole attuali
+    function srIn(o) { return me() == o.owner || (me() in o.g && o.g[me()].j == true && o.g[me()].a == o.ver); }
+    // il giorno "AAAAMMGG" come istante (mezzanotte UTC)
+    function srDay(s) { return timestamp.date(int(s[0:4]), int(s[4:6]), int(s[6:8])); }
+    function srDayOpen(s) {
+      return request.time > srDay(s) - duration.value(14, 'h') && request.time < srDay(s) + duration.value(38, 'h');
+    }
+    // segnare (con l'ora del server) o togliere la propria parte di un giorno: cambia solo k[lk][me]
+    function srPart(o, n, k) {
+      return k.hasOnly(['k', 'lk', 'updated']) && srIn(o)
+        && n.lk is string && n.lk.matches('^[0-9]{8}$') && n.k is map && n.lk in n.k
+        && n.k.diff(o.k).affectedKeys().hasOnly([n.lk])
+        && n.k[n.lk] is map && n.k[n.lk].diff(o.k.get(n.lk, {})).affectedKeys().hasOnly([me()])
+        && (!(me() in n.k[n.lk]) || n.k[n.lk][me()] == request.time)
+        && srDayOpen(n.lk);
+    }
+    // togliere un giorno vecchio (più di 60 giorni fa), uno per volta: lo può fare chiunque partecipi
+    function srPrune(o, n, k) {
+      return k.hasOnly(['k', 'lk', 'updated']) && me() in o.members
+        && n.lk is string && n.lk.matches('^[0-9]{8}$') && n.k is map
+        && n.lk in o.k && !(n.lk in n.k) && n.k.diff(o.k).affectedKeys().hasOnly([n.lk])
+        && srDay(n.lk) < request.time - duration.value(60, 'd');
+    }
+    function srOwnerUpdate(o, n, k) {
+      return me() == o.owner && (
+        // modificare la routine; se cambiano XP, penalità, giorni o ora la versione sale di uno (gli amici dovranno riaccettare)
+        (k.hasOnly(srTplKeys()) && srTpl(n)
+          && (k.hasAny(['rewards', 'penalty', 'days', 'time']) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
+        // invitare altri amici (chi è già dentro non deve riaccettare: per lui non cambia niente)
+        || (k.hasOnly(['g', 'members', 'updated'])
+            && n.members.size() > o.members.size() && n.members.size() <= 4
+            && n.members[0:o.members.size()] == o.members && gMatches(n)
+            && n.g.diff(o.g).changedKeys().size() == 0 && n.g.diff(o.g).removedKeys().size() == 0
+            && newSrGuestAt(o.members.size(), n, 1) && newSrGuestAt(o.members.size(), n, 2) && newSrGuestAt(o.members.size(), n, 3))
+        // togliere chi non ha risposto: inviti senza risposta e chi è in sospeso (chi è dentro con le regole attuali resta)
+        || (k.hasOnly(['g', 'members', 'updated']) && n.members.size() >= 1 && n.members.size() < o.members.size()
+            && n.members[0] == o.owner && gMatches(n)
+            && n.g.diff(o.g).addedKeys().size() == 0 && n.g.diff(o.g).changedKeys().size() == 0
+            && gRemovedOk(o, n, 1) && gRemovedOk(o, n, 2) && gRemovedOk(o, n, 3))
+      );
+    }
+    function srGuestUpdate(o, n, k) {
+      return me() in o.g && (
+        // uscire (o rifiutare l'invito), quando si vuole: nessuna penalità per nessuno
+        (k.hasOnly(['g', 'members', 'updated']) && !(me() in n.g)
+          && n.g.diff(o.g).affectedKeys().hasOnly([me()]) && n.members == o.members.removeAll([me()]))
+        // tutto il resto cambia solo la propria voce in g
+        || (k.hasOnly(['g', 'updated']) && me() in n.g && n.g.diff(o.g).affectedKeys().hasOnly([me()])
+            && srGuestEntry(o, o.g[me()], n.g[me()], n.g[me()].diff(o.g[me()]).affectedKeys()))
+      );
+    }
+    function srGuestEntry(o, e, ne, ek) {
+      // accettare l'invito (solo se siete ancora amici): da quale giorno del gruppo partecipi
+      return (ek.hasOnly(['n', 'j', 'a', 'since']) && !e.j && ne.j == true && ne.a == o.ver && shortStr(ne.n, 30)
+          && ne.since is string && ne.since.size() == 10 && areFriends(o.owner))
+        // accettare le regole nuove dopo una modifica
+        || (ek.hasOnly(['a']) && e.j && ne.a == o.ver);
+    }
+    function srUpdate() {
+      let o = resource.data;
+      let n = request.resource.data;
+      let k = n.diff(o).affectedKeys();
+      return o.v == 1 && n.updated is int
+        && (srPart(o, n, k) || srPrune(o, n, k) || srOwnerUpdate(o, n, k) || srGuestUpdate(o, n, k));
+    }
+
+    match /sroutines/{rid} {
+      allow read: if signedIn() && (resource == null || me() in resource.data.members);
+      allow create: if signedIn() && rid.matches('^q[a-z0-9]{6,11}$') && srCreate(request.resource.data);
+      allow update: if signedIn() && srUpdate();
+      // sciogliere il gruppo: solo chi l'ha creata (agli amici la routine resta, come routine normale)
+      allow delete: if signedIn() && resource.data.owner == me();
+    }
+
     match /shared/{sid} {
       // resource == null: il documento non esiste. Leggerlo non rivela niente e permette all'app di accorgersi
       // che è stato eliminato (altrimenti la lettura viene rifiutata e l'app non lo capisce)

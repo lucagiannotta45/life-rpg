@@ -310,7 +310,7 @@
   // I dati stanno solo nell'account: sul dispositivo non si scrive niente di tuo (progressi, missioni, routine,
   // immagini, stato della sincronizzazione, missioni condivise). Restano solo le preferenze del dispositivo:
   // lingua, suoni, musica. Le chiavi qui sotto si possono solo cancellare (dati di versioni precedenti).
-  const ACCOUNT_KEYS = new Set(['liferpg:v1', 'liferpg:missions:v1', 'liferpg:routines:v1', 'liferpg:sync:v2', 'liferpg:acc', 'liferpg:shared:v1']);
+  const ACCOUNT_KEYS = new Set(['liferpg:v1', 'liferpg:missions:v1', 'liferpg:routines:v1', 'liferpg:sync:v2', 'liferpg:acc', 'liferpg:shared:v1', 'liferpg:sroutines:v1']);
   const isAccountKey = k => ACCOUNT_KEYS.has(k) || k.startsWith('liferpg:img:');
   let storageLocked = false;   // dopo l'uscita dall'account non si riscrive più niente
   function lsSet(key, value) {
@@ -969,12 +969,14 @@
   // Schede, elenco, calendario, finestre di missioni e routine, penalità e messaggi sono in missions-ui.js.
   // D = funzioni e valori che non cambiano; S = stato che cambia (letto sempre "fresco").
   let SH = null;   // missioni condivise (shared.js): si creano più avanti, dopo gli amici
+  let SR = null;   // routine di gruppo (shared-routines.js): subito dopo le missioni condivise
   const MUI = window.LIFE_RPG_MISSIONS_UI.create({
     GAME, MISSIONS, T, TN, locale, fmt, sfx, $, mk, mfDelArm, selArm, reduce, iconSvg, digitsSvg,
     saveRoutinesLocal, tombMissions, tombRoutine, persist, render, floatText, showLevelUp, openModal, closeModal,
     statColor, readable, touchMonth, showView,
     get nameSpan() { return nameSpan; },   // definito più avanti (sezione "info")
     get SH() { return SH; },
+    get SR() { return SR; },
   }, {
     get missions() { return missions; }, set missions(v) { missions = v; },
     get routines() { return routines; }, set routines(v) { routines = v; },
@@ -1261,9 +1263,20 @@
     get fbDb() { return fbDb; },
     get fbUser() { return fbUser; },
   });
+  /* ----- routine di gruppo (shared-routines.js): usano la finestra "Invita amici" di shared.js ----- */
+  SR = window.LIFE_RPG_SHARED_ROUTINES.create({
+    T, GAME, MISSIONS, sfx, touchMonth, lsSet, saveRoutinesLocal, MUI,
+    get SH() { return SH; },
+  }, {
+    get missions() { return missions; }, set missions(v) { missions = v; },
+    get routines() { return routines; }, set routines(v) { routines = v; },
+    get dbRef() { return dbRef; },
+    get fbDb() { return fbDb; },
+    get fbUser() { return fbUser; },
+  });
   // "ponti" per cloud.js: si parte quando l'account è collegato, si azzera uscendo
-  function sharedStart() { return SH.start(); }
-  function sharedReset() { return SH.reset(); }
+  function sharedStart() { SH.start(); SR.start(); }
+  function sharedReset() { SH.reset(); SR.reset(); }
 
   /* ================= avvio ================= */
   initCal();

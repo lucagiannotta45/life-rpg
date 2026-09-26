@@ -24,6 +24,7 @@
     cloud.js        -> account e sincronizzazione (Firebase)
     friends.js      -> amici
     shared.js       -> missioni condivise con un amico
+    shared-routines.js -> routine di gruppo con gli amici
     audio.js        -> effetti sonori e musica
     index.js        -> dati dell'app e collegamento di tutti i pezzi
     sw.js           -> service worker (funzionamento offline)
@@ -480,7 +481,7 @@
 <div class="modal" id="shmodal" hidden>
   <div class="win modal-win" role="dialog" aria-modal="true" aria-labelledby="t-sh">
     <h2 class="win-title" id="t-sh" data-i18n="sh.pick.title">Invita amici</h2>
-    <p class="tip" data-i18n="sh.pick.text">Scegli con chi condividere questa missione.</p>
+    <p class="tip" id="sh-text">Scegli con chi condividere questa missione.</p>
     <p class="msg" id="sh-msg" role="status" aria-live="polite"></p>
     <div class="fr-list" id="sh-list"></div>
     <div class="modal-actions"><button type="button" class="btn add" id="sh-send" hidden>Invita</button><button type="button" class="btn" id="sh-close" data-i18n="btn.close">Chiudi</button></div>
@@ -549,6 +550,7 @@
 <script src="cloud.js" defer></script>
 <script src="friends.js" defer></script>
 <script src="shared.js" defer></script>
+<script src="shared-routines.js" defer></script>
 <script src="audio.js" defer></script>
 <script src="index.js" defer></script>
 <script>

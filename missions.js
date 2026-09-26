@@ -48,6 +48,53 @@
     }
     const validTime = s => typeof s === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 
+    /* ---------- fusi orari (routine di gruppo) ---------- */
+    // Una routine di gruppo ha UN giorno per tutti: quello di chi l'ha creata (il suo fuso, tz). Chi è in un altro
+    // fuso vede la scadenza nella sua ora. Se il fuso non è valido (o manca) si usa quello di questo dispositivo.
+    const hereTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } };
+    const zoneFmt = {};
+    function zoneParts(ms, tz) {
+      try {
+        const f = zoneFmt[tz] || (zoneFmt[tz] = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+        }));
+        const p = {};
+        f.formatToParts(new Date(ms)).forEach(x => { p[x.type] = Number(x.value); });
+        return { y: p.year, mo: p.month, d: p.day, h: p.hour % 24, mi: p.minute, s: p.second };
+      } catch (e) {
+        const d = new Date(ms);
+        return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate(), h: d.getHours(), mi: d.getMinutes(), s: d.getSeconds() };
+      }
+    }
+    // il giorno (AAAA-MM-GG) di quell'istante nel fuso tz
+    const zoneDay = (ms, tz) => { const p = zoneParts(ms, tz); return p.y + '-' + pad2(p.mo) + '-' + pad2(p.d); };
+    // l'istante in cui nel fuso tz è il giorno ds all'ora hh:mm (con l'ora legale: se quell'ora non esiste, la prima dopo)
+    function zoneMs(ds, time, tz) {
+      const [y, mo, d] = ds.split('-').map(Number);
+      const [hh, mm] = (time || '00:00').split(':').map(Number);
+      const want = Date.UTC(y, mo - 1, d, hh, mm);
+      let t = want;
+      for (let i = 0; i < 3; i++) {
+        const p = zoneParts(t, tz);
+        const off = Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - Math.floor(t / 1000) * 1000;   // di quanto il fuso è avanti
+        const next = want - off;
+        if (next === t) break;
+        t = next;
+      }
+      return t;
+    }
+    // scadenza di una volta di una routine di gruppo: alla fine del minuto scelto o, senza ora, alla fine del giorno
+    const groupDueMs = (r, ds) => (r.time ? zoneMs(ds, r.time, r.tz) + 60000 : zoneMs(addDaysStr(ds, 1), '00:00', r.tz));
+    // la scadenza (istante) nell'ora di questo dispositivo: senza ora se cade a mezzanotte (fine del giorno)
+    function localDue(ms) {
+      const dt = new Date(ms);
+      if (dt.getHours() === 0 && dt.getMinutes() === 0) return { due: isoDate(new Date(ms - 1)), dueTime: null };
+      const e = new Date(ms - 60000);   // "entro le 18:00" vuol dire fino alla fine del minuto 18:00
+      return { due: isoDate(e), dueTime: pad2(e.getHours()) + ':' + pad2(e.getMinutes()) };
+    }
+    // il "giorno di oggi" di una routine: per quelle di gruppo è il giorno nel fuso del gruppo
+    const routineToday = (r, now = Date.now()) => (r && r.tz ? zoneDay(now, r.tz) : todayStr());
+
     /* ---------- stelle e XP della missione ---------- */
     function normalizeRewards(o) {
       const r = {};
@@ -100,6 +147,9 @@
           created: m.created, done: null, failed: null, stars: normalizeStars(rewards, m.stars),
         };
         if (typeof m.rid === 'string' && /^\w{1,12}$/.test(m.rid)) it.rid = m.rid;
+        // volta di una routine di gruppo: gd = il giorno del gruppo (nel fuso di chi l'ha creata), che può essere
+        // diverso da "due" (la scadenza nell'ora di questo dispositivo) se siete in fusi orari diversi
+        if (it.rid && validDate(m.gd)) it.gd = m.gd;
         // missione condivisa con un amico (vedi shared.js): sid = il documento condiviso, sh = il tuo ruolo
         // ('o' = l'hai creata tu, 'g' = sei stato invitato)
         if (!it.rid && typeof m.sid === 'string' && /^[\w-]{1,40}$/.test(m.sid)) { it.sid = m.sid; it.sh = m.sh === 'g' ? 'g' : 'o'; }
@@ -134,6 +184,8 @@
           if (rs && Number.isInteger(rs.prev) && rs.prev >= 0 && Number.isInteger(rs.n) && rs.n > 0) {
             it.done.rs = { prev: rs.prev, prevDate: validDate(rs.prevDate) ? rs.prevDate : '', n: rs.n };
           }
+          // routine di gruppo: gb = la serie di gruppo con cui è arrivato il bonus di gruppo (già dentro applied)
+          if (it.rid && Number.isInteger(m.done.gb) && m.done.gb > 0) it.done.gb = m.done.gb;
         }
         seen.add(id);
         out.push(it);
@@ -172,6 +224,19 @@
         });
         const ru = Number(r.u);
         if (Number.isFinite(ru) && ru > 0) out[out.length - 1].u = Math.floor(ru);   // istante dell'ultima modifica
+        // routine di gruppo (vedi shared-routines.js): sr = il documento condiviso, sh = il tuo ruolo ('o' = l'hai creata,
+        // 'g' = sei stato invitato), shn = i nomi degli altri, tz = il fuso del gruppo (quello di chi l'ha creata),
+        // gs / gsd / gbest = serie di gruppo, giorno dell'ultima volta "tutti insieme" e record
+        const it = out[out.length - 1];
+        if (typeof r.sr === 'string' && /^q[a-z0-9]{6,11}$/.test(r.sr)) {
+          it.sr = r.sr; it.sh = r.sh === 'g' ? 'g' : 'o';
+          const names = (Array.isArray(r.shn) ? r.shn : []).filter(x => typeof x === 'string' && x.trim()).map(x => x.trim().slice(0, 30)).slice(0, 3);
+          if (names.length) it.shn = names;
+          if (typeof r.tz === 'string' && r.tz && r.tz.length <= 64) it.tz = r.tz;
+        }
+        // la serie di gruppo resta anche quando il gruppo non c'è più (si vede il record)
+        if (validDate(r.gsd)) { it.gs = nn(r.gs, 100000); it.gsd = r.gsd; }
+        if (nn(r.gbest, 100000)) it.gbest = nn(r.gbest, 100000);
         if (out.length >= MAX_ROUTINES) break;
       }
       return out;
@@ -300,10 +365,11 @@
     function streakStep(rt, m, today) {
       let rs = null;
       const bonus = {};
-      if (rt && m.due && today <= m.due && m.due > (rt.streakDate || '')) {
+      const day = m.gd || m.due;
+      if (rt && day && today <= day && day > (rt.streakDate || '')) {
         const n = (rt.streak || 0) + 1;
         rs = { prev: rt.streak || 0, prevDate: rt.streakDate || '', n };
-        if (rt.bonus && n % rt.bonus.every === 0) STATS.forEach(s => { if (m.rewards[s.key] > 0) bonus[s.key] = rt.bonus.xp; });
+        if (rt.bonus && !rt.sr && n % rt.bonus.every === 0) STATS.forEach(s => { if (m.rewards[s.key] > 0) bonus[s.key] = rt.bonus.xp; });
       }
       return { rs, bonus };
     }
@@ -318,12 +384,16 @@
     // non rispettate, toglie le pause finite e pulisce le volte che non servono più.
     // Cambia le routine ricevute e aggiunge le volte nuove all'elenco delle missioni; restituisce:
     //   missions (l'elenco dopo la pulizia), changed (missioni cambiate), routinesChanged, months (mesi da salvare).
-    function routineDay(routines, missions, today) {
+    function routineDay(routines, missions, today0, nowMs = Date.now()) {
       const months = new Set();
       if (!routines.length && !missions.some(m => m.rid)) return { missions, changed: false, routinesChanged: false, months };
-      const yesterday = addDaysStr(today, -1);
       let changed = false, routinesChanged = false;
+      const here = hereTz();
       routines.forEach(r => {
+        // routine di gruppo: i giorni sono quelli del fuso del gruppo
+        const zoned = !!(r.sr && r.tz);
+        const today = zoned ? zoneDay(nowMs, r.tz) : today0;
+        const yesterday = addDaysStr(today, -1);
         // la serie si interrompe se un giorno previsto (già passato) non è stato completato in tempo
         if ((r.streakDate || '') < yesterday) {
           let d = r.streakDate ? addDaysStr(r.streakDate, 1) : r.start;
@@ -346,8 +416,13 @@
           if (!dayCounts(r, d)) continue;
           const id = occId(r, d);
           if (existing.has(id) || missions.length >= MAX_MISSIONS) continue;
-          missions.push({ id, title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
-            due: d, dueTime: r.time, created: d, done: null, failed: null, rid: r.id, stars: r.stars });
+          const occ = { id, title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
+            due: d, dueTime: r.time, created: d, done: null, failed: null, rid: r.id, stars: r.stars };
+          if (zoned) {
+            occ.gd = d;
+            if (r.tz !== here) Object.assign(occ, localDue(groupDueMs(r, d)));   // la scadenza del gruppo, nella tua ora
+          }
+          missions.push(occ);
           existing.add(id);
           months.add(d.slice(0, 7));
           changed = true;
@@ -355,18 +430,47 @@
         if (r.start <= today && r.made !== today) { r.made = today; routinesChanged = true; }
       });
       // pulizia: volte saltate senza penalità, volte in pausa, cronologia vecchia
-      const keepFrom = addDaysStr(today, -KEEP_DAYS);
+      const keepFrom = addDaysStr(today0, -KEEP_DAYS);
       missions = missions.filter(m => {
         if (!m.rid) return true;
         const r = routineOf(routines, m);
         let drop = false;
-        if (!m.done && !m.failed) drop = !!r && (inPause(r, m.due) || m.due < r.start);
+        const day = m.gd || m.due;
+        if (!m.done && !m.failed) drop = !!r && (inPause(r, day) || day < r.start);
         else drop = (m.done || m.failed).date < keepFrom;
         if (drop) { months.add(monthOf(m)); changed = true; }
         return !drop;
       });
       return { missions, changed, routinesChanged, months };
     }
+    /* ---------- serie di gruppo ---------- */
+    // il giorno previsto più vicino prima di ds (dopo l'inizio, fuori dalle pause); '' se non c'è
+    function prevDay(r, ds) {
+      let d = addDaysStr(ds, -1);
+      for (let i = 0; i < 400 && d >= r.start; i++, d = addDaysStr(d, -1)) if (dayCounts(r, d)) return d;
+      return '';
+    }
+    // l'ultimo giorno previsto già chiuso (scadenza passata) a quell'istante
+    function lastClosedDay(r, now) {
+      let d = zoneDay(now, r.tz);
+      for (let i = 0; i < 400 && d >= r.start; i++, d = addDaysStr(d, -1)) if (dayCounts(r, d) && groupDueMs(r, d) <= now) return d;
+      return '';
+    }
+    // la serie di gruppo che si vede adesso: 0 se dopo l'ultima volta "tutti insieme" un giorno previsto è passato senza
+    function groupStreakNow(r, now = Date.now()) {
+      if (!r.gsd || !r.gs) return 0;
+      const last = r.tz ? lastClosedDay(r, now) : '';
+      return !last || r.gsd >= last ? r.gs : 0;
+    }
+    // un giorno "tutti insieme" in più: serie nuova e bonus (se la serie arriva a un multiplo di bonus.every).
+    // Non cambia niente: restituisce { n, bonus }.
+    function groupStep(r, ds) {
+      const n = r.gsd && r.gsd === prevDay(r, ds) ? (r.gs || 0) + 1 : 1;
+      const bonus = {};
+      if (r.bonus && n % r.bonus.every === 0) STATS.forEach(s => { if (r.rewards[s.key] > 0) bonus[s.key] = r.bonus.xp; });
+      return { n, bonus };
+    }
+
     // routine previste nei giorni futuri (non sono ancora missioni: compaiono il giorno stesso)
     // ids: gli id delle missioni che esistono già
     function plannedRoutines(routines, ds, ids) {
@@ -412,6 +516,7 @@
       missionLists, dayLists, calendarMarks, lateMissions,
       gainXp, undoXp, penaltyXp,
       WD_ALL, inPause, dayCounts, occId, routineOf, streakStep, streakUndo, routineDay, plannedRoutines,
+      hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
       gcalUrl, gcalRoutineUrl,
     };
   }
