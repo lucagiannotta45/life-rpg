@@ -46,6 +46,13 @@
     const SR = () => D.SR || NOSR;
 
     const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
+    // primo giorno della settimana (0 = domenica, 1 = lunedì, 6 = sabato): scelto nelle impostazioni, oppure secondo
+    // la regione del dispositivo (Brasile: domenica, Italia: lunedì). Le regole sono in missions.js.
+    const deviceLocale = () => { try { return (navigator.languages && navigator.languages[0]) || navigator.language || ''; } catch (e) { return ''; } };
+    const firstDay = () => MISSIONS.firstDayOf(S.settings ? S.settings.week : 'auto', deviceLocale());
+    const firstDayName = () => new Date(2024, 0, 7 + firstDay()).toLocaleDateString(locale(), { weekday: 'long' });   // 7/1/2024 = domenica
+    // nomi brevi dei giorni: "cal.wd" li elenca da lunedì; d = numero di Date.getDay
+    const wdName = d => T('cal.wd').split(',')[(d + 6) % 7] || '';
     const fmtClock = ms => new Date(ms).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
     const fmtDay = (s, long) => cap1(parseDate(s).toLocaleDateString(locale(),
       long ? { weekday: 'long', day: 'numeric', month: 'long' } : { day: 'numeric', month: 'short' }));
@@ -702,8 +709,9 @@
     function renderCalendar(focusDate) {
       const grid = $('cal-grid');
       grid.textContent = '';
-      T('cal.wd').split(',').forEach(w => grid.appendChild(mk('div', 'cal-wd', w)));
-      const offset = (new Date(calY, calM, 1).getDay() + 6) % 7;
+      const first = firstDay();
+      MISSIONS.weekOrder(first).forEach(d => grid.appendChild(mk('div', 'cal-wd', wdName(d))));
+      const offset = MISSIONS.calOffset(calY, calM, first);
       const days = new Date(calY, calM + 1, 0).getDate();
       for (let i = 0; i < offset; i++) grid.appendChild(mk('div', 'cal-blank'));
       const { todo, done, fail } = MISSIONS.calendarMarks(S.missions);
@@ -939,7 +947,7 @@
       setRewardStars(match ? match[0] : 0, match ? match[1] : 0, match ? null : sum);
     }
     function mfMsg(t) { $('mf-msg').textContent = t; }   // (in rosso: sono errori)
-    // giorni della settimana della routine (lunedì per primo)
+    // giorni della settimana della routine (nell'ordine della settimana: vedi paintDayChips)
     WD_ALL.forEach(d => {
       const b = mk('button');
       b.type = 'button'; b.setAttribute('role', 'checkbox'); b.setAttribute('aria-checked', 'true'); b.dataset.d = String(d);
@@ -948,7 +956,14 @@
       dayBtns.push(b);
     });
     const setDays = list => dayBtns.forEach(b => b.setAttribute('aria-checked', String(list.includes(Number(b.dataset.d)))));
-    function paintDayChips() { const wd = T('cal.wd').split(','); dayBtns.forEach((b, i) => { b.textContent = wd[i] || ''; }); }
+    function paintDayChips() {
+      const box = $('mf-days');
+      MISSIONS.weekOrder(firstDay()).forEach(d => {
+        const b = dayBtns.find(x => Number(x.dataset.d) === d);
+        b.textContent = wdName(d);
+        box.appendChild(b);   // rimesso in fondo: alla fine sono in ordine, dal primo giorno della settimana
+      });
+    }
     function paintFormRepeat() {
       $('mf-rep').textContent = formRepeat ? T('mf.rep.on') : T('mf.rep.off');
       $('mf-rep').setAttribute('aria-pressed', String(formRepeat));
@@ -1073,7 +1088,7 @@
     }
     function submitRoutine(title, rewards, penalty, stars) {
       const fail = (t, el) => { mfMsg(t); sfx('err'); if (el) el.focus(); };
-      const days = WD_ALL.filter((d, i) => dayBtns[i].getAttribute('aria-checked') === 'true');
+      const days = WD_ALL.filter(d => dayBtns.find(b => Number(b.dataset.d) === d).getAttribute('aria-checked') === 'true');
       if (!days.length) return fail(T('mf.err.days'), dayBtns[0]);
       const timeRaw = $('mf-time').value;
       if (timeRaw && !validTime(timeRaw)) return fail(T('mf.err.time'), $('mf-time'));
@@ -1321,8 +1336,7 @@
     const rmodal = $('rmodal');
     function daysText(r) {
       if (r.days.length === 7) return T('r.everyday');
-      const wd = T('cal.wd').split(',');
-      return WD_ALL.map((d, i) => (r.days.includes(d) ? wd[i] : null)).filter(Boolean).join(', ');
+      return MISSIONS.weekOrder(firstDay()).filter(d => r.days.includes(d)).map(wdName).join(', ');
     }
     function routineCard(r) {
       const card = mk('article', 'mission');
@@ -1402,6 +1416,7 @@
     return {
       grantShared, failShared, groupBonus, completeMission, fmtDay,
       missionMsg, syncRoutines, checkPenalties, setPenaltyReady, collapseMissionLists, renderMissions, renderCalendar, renderMissionViews, initCal, formLabels, paintFormRepeat, sel, rmodal, renderRoutines,
+      firstDay, firstDayName,
     };
   }
   window.LIFE_RPG_MISSIONS_UI = { create };

@@ -380,6 +380,13 @@
 
       "lang.label": "Lingua",
       "lang.tip": "Cambia la lingua di tutta l'app.",
+      "week.label": "Primo giorno della settimana",
+      "week.auto": "Automatico",
+      "week.mon": "Lunedì",
+      "week.sun": "Domenica",
+      "week.sat": "Sabato",
+      "week.tip.auto": "Segue la regione del dispositivo: ora è {day}. Vale per il Calendario e per le routine.",
+      "week.tip": "Vale per il Calendario e per le routine.",
 
       "sound.label": "Effetti sonori",
       "sound.desc": "Brevi suoni quando completi o riapri una missione, sali di livello, perdi XP, salvi, elimini o qualcosa non si può fare. Vale solo per questo dispositivo.",
@@ -994,6 +1001,13 @@
 
       "lang.label": "Language",
       "lang.tip": "Changes the language of the whole app.",
+      "week.label": "First day of the week",
+      "week.auto": "Automatic",
+      "week.mon": "Monday",
+      "week.sun": "Sunday",
+      "week.sat": "Saturday",
+      "week.tip.auto": "Follows your device's region: right now it's {day}. Applies to the Calendar and to routines.",
+      "week.tip": "Applies to the Calendar and to routines.",
 
       "sound.label": "Sound effects",
       "sound.desc": "Short sounds when you complete or reopen a mission, level up, lose XP, save, delete or something can't be done. This only applies to this device.",
@@ -1608,6 +1622,13 @@
 
       "lang.label": "Idioma",
       "lang.tip": "Muda o idioma de todo o app.",
+      "week.label": "Primeiro dia da semana",
+      "week.auto": "Automático",
+      "week.mon": "Segunda",
+      "week.sun": "Domingo",
+      "week.sat": "Sábado",
+      "week.tip.auto": "Segue a região do dispositivo: agora é {day}. Vale para o Calendário e para as rotinas.",
+      "week.tip": "Vale para o Calendário e para as rotinas.",
 
       "sound.label": "Efeitos sonoros",
       "sound.desc": "Sons curtos quando você conclui ou reabre uma missão, sobe de nível, perde XP, salva, exclui ou algo não pode ser feito. Vale apenas para este dispositivo.",

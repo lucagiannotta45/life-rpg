@@ -14,7 +14,7 @@
  * - XP guadagnati, tolti e persi (completare, annullare, penalità);
  * - le azioni su una missione: completare, annullare, fallire, annullare la penalità (XP, serie e record insieme);
  * - routine: in quali giorni contano, creazione delle "volte" di ogni giorno, serie e bonus;
- * - calendario: pallini dei giorni e routine previste;
+ * - calendario: pallini dei giorni e routine previste; primo giorno della settimana (secondo la regione);
  * - collegamenti "Aggiungi a Google Calendar".
  *
  * Alcune funzioni cambiano gli oggetti che ricevono (per esempio gli XP o una routine), come faceva
@@ -617,6 +617,44 @@
       return routines.filter(r => dayCounts(r, ds) && !ids.has(occId(r, ds)));
     }
 
+    /* ---------- primo giorno della settimana ---------- */
+    // Non è uguale ovunque: lunedì in Italia e quasi tutta l'Europa, domenica in Brasile, Stati Uniti, Giappone...,
+    // sabato in parte del Medio Oriente. I numeri sono quelli di Date.getDay (0 = domenica, 1 = lunedì, 6 = sabato).
+    // Il browser di solito lo sa (Intl.Locale); dove non lo sa (per esempio Firefox) si usa questa tabella,
+    // presa dai dati internazionali CLDR: le regioni non elencate iniziano di lunedì.
+    const WEEK_SUN = new Set(('AG AS BD BR BS BT BW BZ CA CO DM DO ET GT GU HK HN ID IL IN IS JM JP KE KH KR LA MH MM MO MT MX MZ NI '
+      + 'NP PA PE PH PK PR PT PY SA SG SV TH TT TW UM US VE VI WS YE ZA ZW').split(' '));
+    const WEEK_SAT = new Set('AF BH DJ DZ EG IQ IR JO KW LY OM QA SD SY'.split(' '));
+    const WEEK_FRI = new Set(['MV']);
+    const regionFirstDay = region => {
+      const r = String(region || '').toUpperCase();
+      return WEEK_SUN.has(r) ? 0 : WEEK_SAT.has(r) ? 6 : WEEK_FRI.has(r) ? 5 : 1;
+    };
+    // il primo giorno della settimana per una lingua del dispositivo ("pt-BR", "it-IT", "en"...); senza regione
+    // si prende quella più probabile ("pt" → Brasile, "en" → Stati Uniti). useIntl = false: solo la tabella (per i test)
+    function localeFirstDay(tag, useIntl = true) {
+      let loc = null;
+      try { loc = new Intl.Locale(tag); } catch (e) { return 1; }
+      if (useIntl) {
+        try {
+          const wi = typeof loc.getWeekInfo === 'function' ? loc.getWeekInfo() : loc.weekInfo;
+          if (wi && Number.isInteger(wi.firstDay) && wi.firstDay >= 1 && wi.firstDay <= 7) return wi.firstDay % 7;
+        } catch (e) { /* non disponibile: si usa la tabella */ }
+      }
+      let region = loc.region;
+      if (!region) { try { region = loc.maximize().region; } catch (e) { region = ''; } }
+      return regionFirstDay(region);
+    }
+    // la scelta delle impostazioni: 'auto' (secondo la regione del dispositivo) oppure 1, 0, 6 (lunedì, domenica, sabato)
+    const WEEK_PREFS = ['auto', 1, 0, 6];
+    const firstDayOf = (pref, tag) => (pref === 0 || pref === 1 || pref === 6 ? pref : localeFirstDay(tag));
+    // i sette giorni in ordine, dal primo (numeri di Date.getDay)
+    const weekOrder = first => Array.from({ length: 7 }, (_, i) => (first + i) % 7);
+    // il primo giorno della settimana che contiene ds
+    const weekStart = (ds, first) => addDaysStr(ds, -((parseDate(ds).getDay() - first + 7) % 7));
+    // calendario: le caselle vuote prima del giorno 1 del mese (m da 0 a 11)
+    const calOffset = (y, m, first) => (new Date(y, m, 1).getDay() - first + 7) % 7;
+
     /* ---------- Google Calendar ---------- */
     const d8 = ds => ds.replace(/-/g, '');
     // l'evento dura mezz'ora dall'ora scelta; senza ora è un evento di tutto il giorno
@@ -662,6 +700,7 @@
       applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
       gcalUrl, gcalRoutineUrl,
+      regionFirstDay, localeFirstDay, WEEK_PREFS, firstDayOf, weekOrder, weekStart, calOffset,
     };
   }
   window.LIFE_RPG_MISSIONS = { create };

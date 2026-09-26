@@ -135,7 +135,7 @@
     { id: 'allunga', name: 'Allunga', size: '100% 100%' },
   ];
   const HEX = /^#[0-9a-f]{6}$/i;
-  const defaultSettings = () => ({ name: '', titleText: '', titleShow: true, frame: 'semplice', frameV: 2, bgFit: 'adatta', winColor: null, inkColor: null, softColor: null, accentColor: null, nameColor: null, titleColor: null, trans: 0, colors: {}, shareBg: false, lang: 'it' });
+  const defaultSettings = () => ({ name: '', titleText: '', titleShow: true, frame: 'semplice', frameV: 2, bgFit: 'adatta', winColor: null, inkColor: null, softColor: null, accentColor: null, nameColor: null, titleColor: null, trans: 0, colors: {}, shareBg: false, lang: 'it', week: 'auto' });
   // indovina la lingua dalle impostazioni del dispositivo (usata solo al primissimo avvio in assoluto,
   // quando non c'è ancora nessuna preferenza salvata): se il dispositivo è in una lingua che non
   // supportiamo, si parte dall'inglese, più neutro dell'italiano per chi capita qui la prima volta
@@ -158,6 +158,8 @@
     if (o.titleShow === false) s.titleShow = false;
     if (o.shareBg === true) s.shareBg = true;
     if (LANGS.some(l => l.id === o.lang)) s.lang = o.lang;
+    // primo giorno della settimana: 'auto' (secondo la regione del dispositivo), 1 lunedì, 0 domenica, 6 sabato
+    if (o.week === 0 || o.week === 1 || o.week === 6) s.week = o.week;
     if (typeof o.winColor === 'string' && HEX.test(o.winColor)) {
       s.winColor = o.winColor.toLowerCase();
     } else {
@@ -822,6 +824,8 @@
     GIF_MAX_FILE, isGif, validImg, imgs, $, resetArm, custResetArm, icoPx, iconSvg, rows, settingsWin, paneLook,
     openModal, closeModal, dataMsg, applyLang, applyAll, changed, setImg, renderInfo, loadFirebase, schedulePublish,
     get missionMsg() { return missionMsg; },   // definito più avanti (missions-ui.js)
+    get firstDay() { return firstDay; },         // idem
+    get firstDayName() { return firstDayName; },
   }, {
     get settings() { return settings; }, set settings(v) { settings = v; },
     get dbRef() { return dbRef; },
@@ -995,6 +999,7 @@
     get SH() { return SH; },
     get SR() { return SR; },
   }, {
+    get settings() { return settings; },
     get missions() { return missions; }, set missions(v) { missions = v; },
     get routines() { return routines; }, set routines(v) { routines = v; },
     get xp() { return xp; },
@@ -1003,6 +1008,7 @@
   });
   const {
     missionMsg, syncRoutines, checkPenalties, collapseMissionLists, renderMissions, renderCalendar, renderMissionViews, initCal, formLabels, paintFormRepeat, sel, rmodal, renderRoutines,
+    firstDay, firstDayName,
   } = MUI;
 
   /* ================= musica ================= */

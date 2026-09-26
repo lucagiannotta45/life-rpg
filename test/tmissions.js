@@ -425,6 +425,61 @@ test('serie di gruppo: giorni "tutti insieme" di fila', t => {
   assert.equal(M.groupStreakNow(r), 0, 'lunedì 9 è passato senza');
 });
 
+/* ---------- primo giorno della settimana ---------- */
+test('settimana: il primo giorno dipende dalla regione', () => {
+  // numeri di Date.getDay: 0 = domenica, 1 = lunedì, 6 = sabato, 5 = venerdì
+  assert.deepEqual(['IT', 'BR', 'US', 'EG', 'MV', 'DE', 'it', 'XX', ''].map(M.regionFirstDay), [1, 0, 0, 6, 5, 1, 1, 1, 1]);
+  for (const useIntl of [true, false]) {
+    const got = ['it-IT', 'pt-BR', 'pt', 'en', 'en-GB', 'pt-PT', 'ar-EG', 'es-MX', 'es-ES', '!!'].map(t => M.localeFirstDay(t, useIntl));
+    assert.deepEqual(got, [1, 0, 0, 0, 1, 0, 6, 0, 1, 1], useIntl ? 'con Intl' : 'solo tabella (browser senza Intl)');
+  }
+});
+
+test('settimana: la tabella di riserva dà gli stessi risultati del browser, per ogni regione', t => {
+  const probe = new Intl.Locale('und-BR');
+  if (typeof probe.getWeekInfo !== 'function' && !probe.weekInfo) { t.skip('questo Node non conosce i dati delle settimane'); return; }
+  const names = new Intl.DisplayNames('en', { type: 'region' });
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', diff = [];
+  let n = 0;
+  for (const a of A) for (const b of A) {
+    const r = a + b;
+    let known = false;
+    try { known = names.of(r) !== r; } catch (e) { /* non è una regione */ }
+    if (!known) continue;
+    n++;
+    if (M.localeFirstDay('und-' + r) !== M.localeFirstDay('und-' + r, false)) diff.push(r);
+  }
+  assert.ok(n > 200, 'regioni provate: ' + n);
+  assert.deepEqual(diff, [], 'regioni in cui la tabella va aggiornata');
+});
+
+test('settimana: la scelta delle impostazioni vince sulla regione', () => {
+  assert.equal(M.firstDayOf(1, 'pt-BR'), 1);
+  assert.equal(M.firstDayOf(0, 'it-IT'), 0);
+  assert.equal(M.firstDayOf(6, 'it-IT'), 6);
+  assert.equal(M.firstDayOf('auto', 'pt-BR'), 0);
+  assert.equal(M.firstDayOf('auto', 'it-IT'), 1);
+  assert.equal(M.firstDayOf(3, 'it-IT'), 1, 'una scelta non valida vale come automatico');
+  assert.deepEqual(M.WEEK_PREFS, ['auto', 1, 0, 6]);
+});
+
+test('settimana: ordine dei giorni, inizio della settimana, caselle vuote del calendario', () => {
+  assert.deepEqual(M.weekOrder(1), [1, 2, 3, 4, 5, 6, 0]);
+  assert.deepEqual(M.weekOrder(0), [0, 1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(M.weekOrder(6), [6, 0, 1, 2, 3, 4, 5]);
+  // sabato 26 settembre 2026
+  assert.equal(M.weekStart('2026-09-26', 1), '2026-09-21');
+  assert.equal(M.weekStart('2026-09-26', 0), '2026-09-20');
+  assert.equal(M.weekStart('2026-09-26', 6), '2026-09-26');
+  assert.equal(M.weekStart('2026-01-01', 1), '2025-12-29', 'a cavallo dell\'anno');
+  assert.equal(M.weekStart('2026-03-01', 1), '2026-02-23', 'a cavallo del mese');
+  // il 1° settembre 2026 è martedì
+  assert.equal(M.calOffset(2026, 8, 1), 1, 'da lunedì: una casella vuota');
+  assert.equal(M.calOffset(2026, 8, 0), 2, 'da domenica: due');
+  assert.equal(M.calOffset(2026, 8, 6), 3, 'da sabato: tre');
+  assert.equal(M.calOffset(2026, 1, 0), 0, 'febbraio 2026 inizia di domenica');
+});
+
 /* ---------- calendario e Google Calendar ---------- */
 test('calendario: routine previste nei giorni futuri', t => {
   now(t, '2026-03-10', '12:00');

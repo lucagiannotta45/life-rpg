@@ -27,6 +27,8 @@
       openModal, closeModal, dataMsg, applyLang, applyAll, changed, setImg, renderInfo, loadFirebase, schedulePublish,
     } = D;
     const missionMsg = (...a) => D.missionMsg(...a);   // in index.js nasce più avanti: si prende al momento dell'uso
+    const WEEK_PREFS = ['auto', 1, 0, 6];              // primo giorno della settimana: automatico, lunedì, domenica, sabato
+    const WEEK_KEY = { auto: 'auto', 1: 'mon', 0: 'sun', 6: 'sat' };
 
     // Impostazioni: cinque schede (Aspetto, Lingua, Suono, Dati, Info)
     const SET_TABS = { look: ['tab-look', 'pane-look'], lang: ['tab-lang', 'pane-lang'], sound: ['tab-sound', 'pane-sound'], data: ['tab-data', 'pane-data'], info: ['tab-info', 'pane-info'] };
@@ -242,6 +244,18 @@
         });
         $('seg-lang').appendChild(b);
       });
+      // primo giorno della settimana (calendario e routine): automatico secondo la regione, oppure scelto
+      WEEK_PREFS.forEach(w => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.dataset.id = String(w);
+        b.setAttribute('role', 'radio');
+        b.addEventListener('click', () => {
+          if (S.settings.week === w) return;
+          S.settings.week = w;
+          applyLang(); paintCustom(); changed();   // ridisegna calendario e giorni delle routine
+        });
+        $('seg-week').appendChild(b);
+      });
       // adattamento dell'immagine di sfondo
       FITS.forEach(f => {
         const b = document.createElement('button');
@@ -349,6 +363,12 @@
       });
       document.querySelectorAll('#seg-lang button').forEach(b =>
         b.setAttribute('aria-checked', String(b.dataset.id === S.settings.lang)));
+      document.querySelectorAll('#seg-week button').forEach(b => {
+        b.textContent = T('week.' + WEEK_KEY[b.dataset.id]);
+        b.setAttribute('aria-checked', String(b.dataset.id === String(S.settings.week)));
+      });
+      // automatico: si dice quale giorno ha scelto l'app
+      $('week-tip').textContent = S.settings.week === 'auto' ? T('week.tip.auto', { day: D.firstDayName() }) : T('week.tip');
       STATS.forEach(s => {
         const c = cs[s.key], col = statColor(s.key);
         c.item.style.setProperty('--c', col);
