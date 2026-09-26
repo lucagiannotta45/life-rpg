@@ -188,11 +188,15 @@
           const rs = m.done.rs;
           if (rs && Number.isInteger(rs.prev) && rs.prev >= 0 && Number.isInteger(rs.n) && rs.n > 0) {
             it.done.rs = { prev: rs.prev, prevDate: validDate(rs.prevDate) ? rs.prevDate : '', n: rs.n };
+            if (Number.isInteger(rs.pb) && rs.pb >= 0) it.done.rs.pb = rs.pb;   // il record di prima (per annullare)
           }
           // routine di gruppo: gb = la serie di gruppo con cui è arrivato il bonus di gruppo (già dentro applied)
           if (it.rid && Number.isInteger(m.done.gb) && m.done.gb > 0) it.done.gb = m.done.gb;
           // volta recuperata completata: ha allungato la serie di 1 (si toglie annullando)
-          if (it.rj !== undefined && m.done.rj) it.done.rj = 1;
+          if (it.rj !== undefined && m.done.rj) {
+            it.done.rj = 1;
+            if (Number.isInteger(m.done.pb) && m.done.pb >= 0) it.done.pb = m.done.pb;   // il record di prima (per annullare)
+          }
         }
         seen.add(id);
         out.push(it);
@@ -391,7 +395,7 @@
       }
       if (rt && day && today <= (m.re && m.re > day ? m.re : day) && day > (rt.streakDate || '')) {
         const n = (rt.streak || 0) + 1;
-        rs = { prev: rt.streak || 0, prevDate: rt.streakDate || '', n };
+        rs = { prev: rt.streak || 0, prevDate: rt.streakDate || '', n, pb: rt.best || 0 };
         if (rt.bonus && !rt.sr && n % rt.bonus.every === 0) STATS.forEach(s => { if (m.rewards[s.key] > 0) bonus[s.key] = rt.bonus.xp; });
       }
       return { rs, bonus };
@@ -401,17 +405,20 @@
       if (!rs || !rt || rt.streakDate !== due) return false;
       rt.streak = rs.prev;
       rt.streakDate = rs.prevDate || addDaysStr(due, -1);
+      // il record torna com'era, se era stato questo completamento ad alzarlo
+      if (Number.isInteger(rs.pb) && rt.best === rs.n) rt.best = Math.max(rs.pb, rt.streak);
       return true;
     }
     // La serie è fatta di pezzi separati dai giorni mancati (rt.brks). Aggiunge delta al pezzo che viene dopo il giorno
     // "day": il prossimo giorno mancato (la sua n) oppure, se non ce ne sono, la serie di adesso. Cambia la routine;
     // restituisce true se è cambiata la serie di adesso.
-    function streakShift(rt, day, delta) {
+    // Il record (best) sale solo con upBest: cioè completando, non recuperando (la serie ridata non è ancora "guadagnata").
+    function streakShift(rt, day, delta, upBest) {
       if (!rt || !delta) return false;
       const next = (rt.brks || []).find(b => b.d > day);
       if (next) { next.n = Math.max(0, next.n + delta); return false; }
       rt.streak = Math.max(0, (rt.streak || 0) + delta);
-      rt.best = Math.max(rt.best || 0, rt.streak);
+      if (upBest) rt.best = Math.max(rt.best || 0, rt.streak);
       return true;
     }
     // recuperando il giorno mancato "day": la serie di prima si riattacca (cambia la routine). Restituisce la serie

@@ -99,7 +99,8 @@
       if (join) {
         // volta recuperata: la serie ridata si allunga di 1, come se l'avessi completata in tempo
         m.done.rj = 1;
-        MISSIONS.streakShift(rt, m.gd || m.due, 1);
+        const pb = rt.best || 0;
+        if (MISSIONS.streakShift(rt, m.gd || m.due, 1, true)) m.done.pb = pb;   // il record di prima, per annullare
         saveRoutinesLocal();
       } else if (rs) {
         m.done.rs = rs;
@@ -174,9 +175,13 @@
       if (!SR().canUndo(m)) { missionMsg(T('sr.err.undo'), 'bad', true); sfx('err'); return; }
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
       const removed = MISSIONS.undoXp(S.xp, m.done.applied);
-      const rsBack = m.done.rs, rjBack = m.done.rj, rtBack = routineOf(m);
+      const rsBack = m.done.rs, rjBack = m.done.rj, pbBack = m.done.pb, rtBack = routineOf(m);
       m.done = null;
-      if (rjBack && rtBack) { MISSIONS.streakShift(rtBack, m.gd || m.due, -1); saveRoutinesLocal(); }   // volta recuperata: toglie il +1
+      if (rjBack && rtBack) {   // volta recuperata: toglie il +1 (e il record torna com'era, se l'aveva alzato lei)
+        const was = rtBack.streak || 0;
+        if (MISSIONS.streakShift(rtBack, m.gd || m.due, -1) && Number.isInteger(pbBack) && rtBack.best === was) rtBack.best = pbBack;
+        saveRoutinesLocal();
+      }
       else if (MISSIONS.streakUndo(rtBack, rsBack, m.gd || m.due)) saveRoutinesLocal();   // la serie torna com'era prima
       if (rtBack && rtBack.sr) SR().markPart(rtBack, m, false);
       persist();
