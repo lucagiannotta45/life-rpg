@@ -208,23 +208,23 @@
         }), T('fr.msg.sent'));
       } catch (e) { console.warn('friends', e); frMsg(T('fr.msg.err'), 'bad'); sfx('err'); }
     }
-    async function openFriends(afterMsg) {
+    async function openFriends(afterMsg, opts) {
       frMsg('');
       const noacc = t => {   // niente amici per ora: senza accesso (con il pulsante) oppure account non raggiungibile
         $('fr-noacc-text').textContent = t;
         $('fr-goacc').hidden = !!S.fbUser;
         $('fr-noacc').hidden = false; $('fr-main').hidden = true;
       };
-      if (!S.fbUser) { noacc(T('fr.needacc')); openModal($('fmodal'), $('fr-goacc')); return; }
+      if (!S.fbUser) { noacc(T('fr.needacc')); openModal($('fmodal'), $('fr-goacc'), opts); return; }
       if (!S.dbRef) {
         noacc(T('fr.connecting'));
-        openModal($('fmodal'), $('fr-close'));
+        openModal($('fmodal'), $('fr-close'), opts);
         await fbConnect();
         if ($('fmodal').hidden) return;                  // nel frattempo hai chiuso la finestra
         if (!S.dbRef) { noacc(T('fr.offline')); return; }
       }
       $('fr-noacc').hidden = true; $('fr-main').hidden = false;
-      if ($('fmodal').hidden) openModal($('fmodal'), $('fr-in'));
+      if ($('fmodal').hidden) openModal($('fmodal'), $('fr-in'), opts);
       renderFriends();
       frMsg(T('fr.msg.wait'));
       try { await ensureCode(); await publishProfile(); await loadFriends(); renderFriends(); frMsg(afterMsg || ''); }
@@ -313,7 +313,10 @@
         if (id) bgCache.put(uid, { id, data: d });
       } catch (e) { console.warn('friend bg', e); if (c) show(c.data); }   // senza rete: meglio la copia vecchia che niente
     }
-    function backToFriends(msg) { closeModal(); openFriends(msg); }
+    // uscire dal profilo di un amico e tornare alla lista: concettualmente è una CHIUSURA (del profilo),
+    // non un'apertura — si lascia sentire il decrescendo di closeModal(), invece di coprirlo con
+    // l'apertura (silenziosa qui apposta) della lista dietro
+    function backToFriends(msg) { closeModal(); openFriends(msg, { silentOpen: true }); }
     $('fp-close').addEventListener('click', () => backToFriends());
     $('fpmodal').addEventListener('click', e => { if (e.target === $('fpmodal')) backToFriends(); });
     $('fp-remove').addEventListener('click', async () => {

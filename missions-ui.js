@@ -1047,9 +1047,11 @@
       paintFormColors();
       openModal(mform, $('mf-title'));
     }
+    // uscire dal modulo (annullando) e tornare alla lista routine: è una chiusura, non un'apertura —
+    // stesso motivo di backToFriends in friends.js
     function finishForm() {
       closeModal();
-      if (routinesBack) { routinesBack = false; openRoutines(); }
+      if (routinesBack) { routinesBack = false; openRoutines({ silentOpen: true }); }
     }
     function submitRoutine(title, rewards, penalty, stars) {
       const fail = (t, el) => { mfMsg(t); sfx('err'); if (el) el.focus(); };
@@ -1354,7 +1356,7 @@
       $('r-empty').hidden = S.routines.length > 0;
       S.routines.forEach(r => box.appendChild(routineCard(r)));
     }
-    function openRoutines() { renderRoutines(); openModal(rmodal, $('r-new')); }
+    function openRoutines(opts) { renderRoutines(); openModal(rmodal, $('r-new'), opts); }
     $('m-routines').addEventListener('click', openRoutines);
     $('r-new').addEventListener('click', () => { closeModal(); routinesBack = true; openRoutineForm(null); });
     $('r-close').addEventListener('click', closeModal);

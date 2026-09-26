@@ -663,7 +663,7 @@
   // altrimenti la tastiera si apre da sola: il fuoco va sulla finestra stessa (per i lettori di schermo)
   const isTouch = () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   const isTextField = el => !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['button', 'checkbox', 'radio', 'range', 'color', 'file', 'submit'].includes(el.type)));
-  function openModal(m, focusEl) {
+  function openModal(m, focusEl, opts) {
     lastFocus = document.activeElement;
     activeModal = m;
     m.hidden = false;
@@ -672,7 +672,7 @@
       win.setAttribute('tabindex', '-1');
       win.focus({ preventScroll: true });
     } else if (focusEl) focusEl.focus();
-    sfx('open');
+    if (!(opts && opts.silentOpen)) sfx('open');
   }
   function closeModal() {
     if (!activeModal) return;
