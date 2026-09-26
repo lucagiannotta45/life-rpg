@@ -14,7 +14,7 @@
  * - XP guadagnati, tolti e persi (completare, annullare, penalità);
  * - le azioni su una missione: completare, annullare, fallire, annullare la penalità (XP, serie e record insieme);
  * - routine: in quali giorni contano, creazione delle "volte" di ogni giorno, serie e bonus;
- * - calendario: pallini dei giorni e routine previste; primo giorno della settimana (secondo la regione);
+ * - calendario: pallini dei giorni e routine previste; primo giorno della settimana (secondo la lingua dell'app);
  * - collegamenti "Aggiungi a Google Calendar".
  *
  * Alcune funzioni cambiano gli oggetti che ricevono (per esempio gli XP o una routine), come faceva
@@ -630,7 +630,7 @@
       const r = String(region || '').toUpperCase();
       return WEEK_SUN.has(r) ? 0 : WEEK_SAT.has(r) ? 6 : WEEK_FRI.has(r) ? 5 : 1;
     };
-    // il primo giorno della settimana per una lingua del dispositivo ("pt-BR", "it-IT", "en"...); senza regione
+    // il primo giorno della settimana per una lingua ("pt-BR", "it-IT", "en"...); senza regione
     // si prende quella più probabile ("pt" → Brasile, "en" → Stati Uniti). useIntl = false: solo la tabella (per i test)
     function localeFirstDay(tag, useIntl = true) {
       let loc = null;
@@ -645,7 +645,7 @@
       if (!region) { try { region = loc.maximize().region; } catch (e) { region = ''; } }
       return regionFirstDay(region);
     }
-    // la scelta delle impostazioni: 'auto' (secondo la regione del dispositivo) oppure 1, 0, 6 (lunedì, domenica, sabato)
+    // la scelta delle impostazioni: 'auto' (secondo la lingua dell'app, tag) oppure 1, 0, 6 (lunedì, domenica, sabato)
     const WEEK_PREFS = ['auto', 1, 0, 6];
     const firstDayOf = (pref, tag) => (pref === 0 || pref === 1 || pref === 6 ? pref : localeFirstDay(tag));
     // i sette giorni in ordine, dal primo (numeri di Date.getDay)

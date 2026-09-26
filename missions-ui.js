@@ -46,10 +46,10 @@
     const SR = () => D.SR || NOSR;
 
     const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
-    // primo giorno della settimana (0 = domenica, 1 = lunedì, 6 = sabato): scelto nelle impostazioni, oppure secondo
-    // la regione del dispositivo (Brasile: domenica, Italia: lunedì). Le regole sono in missions.js.
-    const deviceLocale = () => { try { return (navigator.languages && navigator.languages[0]) || navigator.language || ''; } catch (e) { return ''; } };
-    const firstDay = () => MISSIONS.firstDayOf(S.settings ? S.settings.week : 'auto', deviceLocale());
+    // primo giorno della settimana (0 = domenica, 1 = lunedì, 6 = sabato): scelto nelle impostazioni, oppure, in
+    // automatico, secondo la lingua dell'app (italiano: lunedì; inglese e portoghese del Brasile: domenica).
+    // Le regole sono in missions.js.
+    const firstDay = () => MISSIONS.firstDayOf(S.settings ? S.settings.week : 'auto', locale());
     const firstDayName = () => new Date(2024, 0, 7 + firstDay()).toLocaleDateString(locale(), { weekday: 'long' });   // 7/1/2024 = domenica
     // nomi brevi dei giorni: "cal.wd" li elenca da lunedì; d = numero di Date.getDay
     const wdName = d => T('cal.wd').split(',')[(d + 6) % 7] || '';

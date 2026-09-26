@@ -8,7 +8,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { MISSIONS: M, GAME, at } = require('./carica');
+const { MISSIONS: M, GAME, LANGS, at } = require('./carica');
 const { MAX_XP, blank } = GAME;
 
 const xp = o => Object.assign(blank(), o);
@@ -453,7 +453,12 @@ test('settimana: la tabella di riserva dà gli stessi risultati del browser, per
   assert.deepEqual(diff, [], 'regioni in cui la tabella va aggiornata');
 });
 
-test('settimana: la scelta delle impostazioni vince sulla regione', () => {
+test('settimana: in automatico segue la lingua dell\'app', () => {
+  const byLang = Object.fromEntries(LANGS.map(l => [l.id, M.firstDayOf('auto', l.locale)]));
+  assert.deepEqual(byLang, { it: 1, en: 0, 'pt-BR': 0 }, 'italiano: lunedì; inglese e portoghese del Brasile: domenica');
+});
+
+test('settimana: la scelta delle impostazioni vince sulla lingua', () => {
   assert.equal(M.firstDayOf(1, 'pt-BR'), 1);
   assert.equal(M.firstDayOf(0, 'it-IT'), 0);
   assert.equal(M.firstDayOf(6, 'it-IT'), 6);

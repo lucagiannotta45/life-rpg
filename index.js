@@ -158,7 +158,7 @@
     if (o.titleShow === false) s.titleShow = false;
     if (o.shareBg === true) s.shareBg = true;
     if (LANGS.some(l => l.id === o.lang)) s.lang = o.lang;
-    // primo giorno della settimana: 'auto' (secondo la regione del dispositivo), 1 lunedì, 0 domenica, 6 sabato
+    // primo giorno della settimana: 'auto' (secondo la lingua dell'app), 1 lunedì, 0 domenica, 6 sabato
     if (o.week === 0 || o.week === 1 || o.week === 6) s.week = o.week;
     if (typeof o.winColor === 'string' && HEX.test(o.winColor)) {
       s.winColor = o.winColor.toLowerCase();

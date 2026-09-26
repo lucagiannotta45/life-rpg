@@ -244,7 +244,7 @@
         });
         $('seg-lang').appendChild(b);
       });
-      // primo giorno della settimana (calendario e routine): automatico secondo la regione, oppure scelto
+      // primo giorno della settimana (calendario e routine): automatico secondo la lingua dell'app, oppure scelto
       WEEK_PREFS.forEach(w => {
         const b = document.createElement('button');
         b.type = 'button'; b.dataset.id = String(w);
