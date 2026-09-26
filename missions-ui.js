@@ -237,7 +237,20 @@
       if (S.activeModal) return false;   // non interrompere chi sta scrivendo: si riprova dopo
       const today = todayStr();
       // le missioni condivise le decide l'esito condiviso (shared.js), non la scadenza di questo dispositivo
-      const due = MISSIONS.lateMissions(S.missions).filter(m => !SH().holds(m));
+      let due = MISSIONS.lateMissions(S.missions).filter(m => !SH().holds(m));
+      // routine di gruppo in sospeso (non potevi completarla finché non sceglievi Accetta o Esci):
+      // si chiude senza perdere XP e senza la finestra delle penalità, solo con un messaggio
+      const held = due.filter(m => { const oi = m.rid ? SR().occInfo(m) : null; return !!(oi && oi.pending); });
+      if (held.length) {
+        held.forEach((m, i) => {
+          m.failed = { date: today, t: Date.now() + i, applied: MISSIONS.normalizeRewards(null) };
+          missionMsg(T('sr.msg.pendlate', { title: m.title }), '');
+        });
+        new Set(held.map(monthOf)).forEach(touchMonth);
+        persist();
+        due = due.filter(m => !held.includes(m));
+        if (!due.length) renderMissionViews();
+      }
       if (!due.length) return true;
       const before = STATS.map(s => levelFromXp(S.xp[s.key]));
       const list = [];
@@ -502,7 +515,8 @@
             () => missionMsg(T('sh.solo.warn', { name: shi.invitedNames }), '', true), () => completeMission(m.id))
           : btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
         if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }   // data nel futuro: si completa dal giorno stesso; scaduta: mai più
-        act.append(cb);
+        // routine di gruppo in sospeso (chi l'ha creata l'ha cambiata): prima si sceglie Accetta o Esci, niente Completa
+        if (!(sri && sri.pending)) act.append(cb);
         // una routine di gruppo la modifica solo chi l'ha creata; chi è in sospeso sceglie qui (o nell'elenco delle routine)
         if (!(rtn && rtn.sh === 'g')) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
         // routine: "Invita" anche qui (come "Modifica"), per tutta la routine; solo chi l'ha creata, finché c'è posto
