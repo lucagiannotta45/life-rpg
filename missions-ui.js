@@ -1159,7 +1159,7 @@
       setDays(sh && formFreq === 'd' ? sh.days : WD_ALL);
       $('mf-bonus-every').value = r && r.bonus ? String(r.bonus.every) : '';
       $('mf-bonus-xp').value = r && r.bonus ? String(r.bonus.xp) : '';
-      // la data di inizio si cambia solo finché la routine non è iniziata (poi sarebbe una pausa con un altro nome)
+      // la data di inizio si cambia solo finché la routine non è iniziata (poi servirebbe solo a rimandarla)
       const started = !!r && r.start <= todayStr();
       $('mf-start').disabled = started;
       $('mf-start-tip').textContent = T(started ? 'mf.start.locked' : 'mf.start.tip');
@@ -1222,7 +1222,6 @@
         MISSIONS.planChange(r, { freq, n: times, days, time }, routineToday(r));
         if (!r.nx && isDaily(r) && (r.n || 1) === 1) r.time = time;   // stesse regole: l'ora nuova vale subito
         if (r.made && r.made >= today) r.made = addDaysStr(today, -1);   // se oggi ora è un giorno previsto, compare subito
-        delete r.pause;
       } else {
         if (S.routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
         r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty,

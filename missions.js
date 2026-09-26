@@ -256,7 +256,6 @@
         const b = r.bonus;
         const bonus = b && Number.isInteger(b.every) && b.every >= 2 && b.every <= 365 && Number.isInteger(b.xp) && b.xp >= 1 && b.xp <= MAX_XP
           ? { every: b.every, xp: b.xp } : null;
-        const pz = r.pause;
         seen.add(id);
         out.push({
           id, title,
@@ -265,7 +264,6 @@
           // l'ora vale solo per una volta al giorno: con più volte (o per settimana, per mese) si scade a fine periodo
           time: freq === 'd' && times === 1 && validTime(r.time) ? r.time : null,
           start: r.start,
-          pause: pz && validDate(pz.from) && validDate(pz.until) && pz.from <= pz.until ? { from: pz.from, until: pz.until } : null,
           streak: nn(r.streak, 100000), streakDate: validDate(r.streakDate) ? r.streakDate : '', best: nn(r.best, 100000),
           bonus, stars: normalizeStars(rewards, r.stars),
           made: validDate(r.made) ? r.made : '',   // fin qui le missioni della routine sono già state create
@@ -303,13 +301,6 @@
         if (validDate(r.gsd)) { it.gs = nn(r.gs, 100000); it.gsd = r.gsd; }
         if (nn(r.gbest, 100000)) it.gbest = nn(r.gbest, 100000);
         if (r.gc) it.gc = 1;   // aggiunta a Google Calendar (vedi le missioni)
-        // Le pause non ci sono più. Una pausa salvata prima vale ancora solo per i giorni già passati (che restano
-        // saltati, senza penalità: magari l'app non è stata aperta in quei giorni); da oggi la routine riparte.
-        if (it.pause) {
-          const yday = addDaysStr(it.tz ? zoneDay(Date.now(), it.tz) : todayStr(), -1);
-          if (it.pause.until > yday) it.pause.until = yday;
-          if (it.pause.from > it.pause.until) it.pause = null;
-        }
         if (out.length >= MAX_ROUTINES) break;
       }
       return out;
@@ -336,8 +327,9 @@
     const isLate = m => !m.done && Date.now() >= dueEndMs(m);
     const dueKey = m => (m.rid && m.re && !m.done && !m.failed ? m.re + ' 99:99' : (m.due || m.from || '9999-99-99') + ' ' + (m.dueTime || '99:99'));
     // non ancora completabile: una missione prima della sua disponibilità (giorno e ora), una routine prima del suo giorno
-    // (settimanali e mensili: prima del primo giorno del periodo)
-    const notYet = m => !m.done && !m.failed && (m.rid ? !!(m.ps || m.due) && (m.ps || m.due) > todayStr() : !!m.from && Date.now() < startMs(m));
+    // (settimanali e mensili: prima del primo giorno del periodo). Una volta di una routine di gruppo (gd) si crea solo
+    // quando il suo periodo è iniziato nel fuso del gruppo: si può fare subito, anche se qui è ancora il giorno prima.
+    const notYet = m => !m.done && !m.failed && (m.rid ? !m.gd && !!(m.ps || m.due) && (m.ps || m.due) > todayStr() : !!m.from && Date.now() < startMs(m));
     // il prossimo istante in cui una missione cambia stato (diventa disponibile o scade); Infinity se nessuna
     function nextChange(missions, now) {
       return missions.reduce((mn, m) => {
@@ -370,6 +362,8 @@
         if (!key) groups.nodate.push(m);
         else if (isLate(m)) groups.late.push(m);
         else if (m.ps && !m.re) groups.period.push(m);
+        // routine di gruppo di ogni giorno: è la volta del giorno del gruppo, anche se qui la scadenza cade domani
+        else if (m.rid && m.gd && !m.re) groups.routine.push(m);
         else if (key === today) (m.rid ? groups.routine : groups.today).push(m);
         else if (key <= soonEnd) groups.soon.push(m);
         else groups.later.push(m);
@@ -379,21 +373,20 @@
     // le missioni di un giorno del calendario (da fare, fallite, completate)
     function dayLists(missions, ds) {
       const byTime = (a, b) => dueKey(a).localeCompare(dueKey(b)) || a.title.localeCompare(b.title);
-      // le routine settimanali e mensili non stanno in un giorno preciso: nel calendario solo quando le completi
-      const todo = missions.filter(m => !m.done && !m.failed && !m.ps && (m.due || m.from) === ds).sort(byTime);
-      const failed = missions.filter(m => !m.done && m.failed && !m.ps && m.due === ds).sort(byTime);
+      // (le routine settimanali e mensili stanno nel giorno della scadenza, l'ultimo del periodo, come le missioni)
+      const todo = missions.filter(m => !m.done && !m.failed && (m.due || m.from) === ds).sort(byTime);
+      const failed = missions.filter(m => !m.done && m.failed && m.due === ds).sort(byTime);
       const done = missions.filter(m => m.done && m.done.date === ds).sort((a, b) => b.done.t - a.done.t || a.title.localeCompare(b.title));   // le più recenti in alto
       return { todo, failed, done };
     }
     // i pallini del calendario: quante missioni da fare, fallite e completate per ogni giorno.
-    // Una routine da più volte conta ogni volta segnata nel suo giorno; settimanali e mensili non hanno pallini
-    // "da fare" né "fallita" (non stanno in un giorno preciso), solo quelli delle volte fatte.
+    // Una routine da più volte conta ogni volta segnata nel suo giorno; settimanali e mensili sono "da fare" (o
+    // "fallita") nel giorno della scadenza, l'ultimo del periodo, come una missione con scadenza.
     function calendarMarks(missions) {
       const todo = {}, done = {}, fail = {};
       missions.forEach(m => {
         if (m.p) m.p.forEach(d => { done[d] = (done[d] || 0) + 1; });
         if (m.done) { if (!m.p) done[m.done.date] = (done[m.done.date] || 0) + 1; }
-        else if (m.ps) return;
         else if (m.due && m.failed) fail[m.due] = (fail[m.due] || 0) + 1;
         else if (m.due || m.from) { const k = m.due || m.from; todo[k] = (todo[k] || 0) + 1; }
       });
@@ -445,10 +438,8 @@
     const WD_ALL = [1, 2, 3, 4, 5, 6, 0];   // giorni nel modulo, lunedì per primo (numeri di Date.getDay)
     const isDaily = r => !r.freq || r.freq === 'd';
     const anchorOf = r => r.at || r.start;   // da qui si contano i periodi
-    // (solo per le pause salvate prima, vedi normalizeRoutines: valgono ancora per i giorni già passati)
-    const inPause = (r, d) => !!r.pause && r.pause.from <= d && d <= r.pause.until;
     // quel giorno una routine di ogni giorno c'è (per settimanali e mensili: mai, non hanno giorni precisi)
-    const dayCounts = (r, d) => isDaily(r) && d >= r.start && d >= anchorOf(r) && r.days.includes(parseDate(d).getDay()) && !inPause(r, d);
+    const dayCounts = (r, d) => isDaily(r) && d >= r.start && d >= anchorOf(r) && r.days.includes(parseDate(d).getDay());
     // il periodo che contiene il giorno ds: { s: primo giorno, e: ultimo }. null prima dell'inizio e,
     // per le routine di ogni giorno, nei giorni in cui non c'è
     function periodAt(r, ds) {
@@ -758,16 +749,15 @@
           routinesChanged = true;
         }
         run(today, addDaysStr(today, -1));
-        if (r.pause && r.pause.until < today) { r.pause = null; routinesChanged = true; }
       });
-      // pulizia: volte saltate senza penalità, volte di prima dell'inizio, cronologia vecchia
+      // pulizia: volte di prima dell'inizio (ancora da fare), cronologia vecchia
       const keepFrom = addDaysStr(today0, -KEEP_DAYS);
       missions = missions.filter(m => {
         if (!m.rid) return true;
         const r = routineOf(routines, m);
         let drop = false;
         const day = occKey(m);
-        if (!m.done && !m.failed) drop = !!r && (inPause(r, day) || day < r.start);
+        if (!m.done && !m.failed) drop = !!r && day < r.start;
         else drop = (m.done || m.failed).date < keepFrom;
         if (drop) { months.add(monthOf(m)); changed = true; }
         return !drop;
@@ -892,7 +882,7 @@
       if (m.desc) u += '&details=' + encodeURIComponent(m.desc);
       return u;
     }
-    // per una routine: un evento che si ripete, a partire dal primo giorno previsto (dopo un'eventuale pausa)
+    // per una routine: un evento che si ripete, a partire dal primo giorno previsto
     // Routine di gruppo: giorni e ora sono quelli del fuso del gruppo (r.tz), quindi lo si dice a Google Calendar (ctz),
     // che mette l'evento all'ora giusta nel fuso di chi lo aggiunge (per esempio 18:00 in Italia = 13:00 in Brasile).
     // Settimanali e mensili: null (non stanno in giorni precisi, niente evento nel calendario).
@@ -918,7 +908,7 @@
       startMs, dueEndMs, isLate, dueKey, notYet, nextChange,
       missionLists, dayLists, calendarMarks, lateMissions,
       gainXp, undoXp, penaltyXp,
-      WD_ALL, inPause, isDaily, anchorOf, dayCounts, periodAt, nextPeriod, occKey, occEnd, missingOf, changeAt, planChange,
+      WD_ALL, isDaily, anchorOf, dayCounts, periodAt, nextPeriod, occKey, occEnd, missingOf, changeAt, planChange,
       occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay,
       applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,

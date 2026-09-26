@@ -86,11 +86,11 @@
     // ogni giorno, una volta)
     function tplOf(d) {
       const r = normalizeRoutines([{ id: 'x', title: d.title, desc: d.desc, rewards: d.rewards, penalty: d.penalty, days: d.days,
-        time: d.time, start: d.start, pause: d.pause, bonus: d.bonus, stars: d.stars, freq: d.freq, n: d.n, at: d.at, pk: d.pk, nx: d.nx }])[0];
+        time: d.time, start: d.start, bonus: d.bonus, stars: d.stars, freq: d.freq, n: d.n, at: d.at, pk: d.pk, nx: d.nx }])[0];
       if (!r) return null;
       const tz = typeof d.tz === 'string' && d.tz ? d.tz : hereTz();
       const t = { title: r.title, desc: r.desc, rewards: r.rewards, penalty: r.penalty, freq: r.freq, n: r.n, days: r.days, time: r.time,
-        start: r.start, pause: r.pause, bonus: r.bonus, stars: r.stars, tz };
+        start: r.start, bonus: r.bonus, stars: r.stars, tz };
       if (r.at) t.at = r.at;
       if (r.pk) t.pk = r.pk;
       if (r.nx) t.nx = r.nx;
@@ -224,7 +224,6 @@
       Object.assign(r, { title: t.title, desc: t.desc, rewards: t.rewards, penalty: t.penalty, bonus: t.bonus, stars: t.stars,
         start, sr: id, sh: 'g', tz: t.tz });
       takeShape(r, t);
-      delete r.pause;
       if (r.made && r.made >= todayStr()) r.made = addDaysStr(todayStr(), -1);   // se oggi è un giorno previsto, compare subito
       return r;
     }
@@ -392,14 +391,13 @@
       catch (e) { console.warn('sroutines', e && e.code, e); fail(errKey(e)); return false; }
     }
     // i campi del modello che finiscono nel documento (li scrive solo chi l'ha creata)
-    // (la pausa non c'è più: resta nel documento, vuota, per le versioni precedenti dell'app)
     function fieldsOf(r) {
       const nx = r.nx ? { at: r.nx.at, freq: r.nx.freq, n: r.nx.n, days: r.nx.days.slice(), time: r.nx.time || null } : null;
       if (nx && r.nx.pk) nx.pk = r.nx.pk;
       return {
         title: r.title, desc: r.desc || '', rewards: { ...r.rewards }, penalty: { ...r.penalty },
         stars: r.stars ? { d: r.stars.d, f: r.stars.f } : null, days: r.days.slice(), time: r.time || null,
-        start: r.start, pause: null,
+        start: r.start,
         bonus: r.bonus ? { every: r.bonus.every, xp: r.bonus.xp } : null, tz: r.tz || hereTz(),
         freq: r.freq || 'd', n: r.n || 1, at: r.at || null, pk: r.pk || null, nx,
       };

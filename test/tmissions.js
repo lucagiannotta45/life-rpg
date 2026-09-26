@@ -2,7 +2,7 @@
  * Life RPG — test delle regole di missioni e routine (missions.js)
  * Date, stelle e XP, dati salvati, scadenze, elenchi, routine (giorni, serie, bonus, recuperi),
  * routine settimanali e mensili e da più volte (periodi, contatore, penalità per volta mancante, cambi di frequenza),
- * pause salvate prima, fusi orari delle routine di gruppo, Google Calendar.
+ * serie di gruppo, fusi orari delle routine di gruppo, Google Calendar.
  *
  * L'ora "di adesso" si fissa con t.mock.timers: così i test non dipendono da quando li lanci.
  */
@@ -120,13 +120,13 @@ test('missioni salvate: campi delle routine, delle condivise e di Google Calenda
   assert.equal(mis({ rid: 'r1', rj: 5 }).rj, undefined, 'rj senza re non vale');
 });
 
-test('routine salvate: giorni, bonus, pausa, giorni mancati', () => {
+test('routine salvate: giorni, bonus, giorni mancati', () => {
   const [r] = M.normalizeRoutines([{ id: 'r1', title: 'Corsa', rewards: { Vigore: 10 }, days: [3, 1, 1, 9, 'x'], start: '2026-03-01',
-    bonus: { every: 1, xp: 5 }, pause: { from: '2026-03-10', until: '2026-03-05' }, gc: true,
+    bonus: { every: 1, xp: 5 }, pause: { from: '2026-03-10', until: '2026-03-15' }, gc: true,
     brks: [{ d: '2026-03-09', n: 2 }, { d: '2026-03-03', n: 5 }, { d: '2026-03-03', n: 1 }, { d: 'boh', n: 1 }, { d: '2026-03-04', n: -1 }] }]);
   assert.deepEqual(r.days, [1, 3]);
   assert.equal(r.bonus, null, 'un bonus ogni 1 volta non vale');
-  assert.equal(r.pause, null, 'pausa al contrario');
+  assert.equal(r.pause, undefined, 'le pause non ci sono più: una salvata prima si ignora');
   assert.equal(r.gc, 1);
   assert.deepEqual(r.brks, [{ d: '2026-03-03', n: 5 }, { d: '2026-03-09', n: 2 }], 'validi, senza doppioni, in ordine');
   const many = Array.from({ length: 40 }, (_, i) => ({ d: M.addDaysStr('2026-01-01', i), n: i }));
@@ -213,12 +213,10 @@ test('penalità: le scadute, in ordine di scadenza', t => {
 });
 
 /* ---------- routine: giorni e "giro di oggi" ---------- */
-test('routine: in quali giorni conta', t => {
-  now(t, '2026-03-20', '12:00');
-  const r = rou({ days: [1, 3], pause: { from: '2026-03-09', until: '2026-03-15' } });   // lunedì e mercoledì
+test('routine: in quali giorni conta', () => {
+  const r = rou({ days: [1, 3] });   // lunedì e mercoledì
   assert.equal(M.dayCounts(r, '2026-03-02'), true, 'lunedì');
   assert.equal(M.dayCounts(r, '2026-03-03'), false, 'martedì');
-  assert.equal(M.dayCounts(r, '2026-03-09'), false, 'lunedì, ma in una pausa salvata prima (già passata)');
   assert.equal(M.dayCounts(r, '2026-02-23'), false, 'prima dell\'inizio');
 });
 
@@ -235,27 +233,6 @@ test('routine: la cronologia vecchia si pulisce', () => {
   const old = mis({ id: 'old', rid: 'r1', due: '2026-01-01', done: { date: '2026-01-01', applied: {} } });
   const list = openApp([rou({ made: '2026-03-20' })], [old], '2026-03-20');
   assert.equal(list.find(m => m.id === 'old'), undefined, 'più vecchia di 60 giorni');
-});
-
-/* ---------- pause salvate prima (le pause non ci sono più) ---------- */
-test('pause di prima: i giorni già passati restano saltati, da oggi la routine riparte', t => {
-  // pausa dal 5 al 15 marzo, app non aperta dal 4: si apre il 10
-  now(t, '2026-03-10', '09:00');
-  const r = rou({ made: '2026-03-04', streak: 4, streakDate: '2026-03-04', pause: { from: '2026-03-05', until: '2026-03-15' } });
-  assert.deepEqual(r.pause, { from: '2026-03-05', until: '2026-03-09' }, 'la parte futura della pausa si toglie');
-  const list = openApp([r], [], '2026-03-10');
-  assert.deepEqual(list.map(m => m.due), ['2026-03-10'], 'nessuna volta per i giorni di pausa: solo oggi');
-  assert.deepEqual([r.streak, r.brks], [4, []], 'la serie non si interrompe per la pausa');
-  assert.equal(r.pause, null, 'e poi la pausa sparisce');
-  assert.equal(rou({ pause: { from: '2026-03-12', until: '2026-03-20' } }).pause, null, 'una pausa che non era ancora iniziata sparisce');
-});
-
-test('pause di prima: i giorni prima della pausa, se l\'app non era aperta, contano ancora', t => {
-  now(t, '2026-03-10', '09:00');
-  const r = rou({ made: '2026-03-02', streak: 2, streakDate: '2026-03-02', pause: { from: '2026-03-05', until: '2026-03-07' } });
-  const list = openApp([r], [], '2026-03-10');
-  assert.deepEqual(list.map(m => m.due), ['2026-03-03', '2026-03-04', '2026-03-08', '2026-03-09', '2026-03-10']);
-  assert.equal(r.streak, 0);
 });
 
 /* ---------- serie e bonus ---------- */
@@ -560,7 +537,7 @@ test('più volte al giorno: senza ora, la serie conta i giorni completi', () => 
   assert.deepEqual([marks.done['2026-03-01'], marks.done['2026-03-02'], marks.todo['2026-03-02']], [2, 1, 1]);
 });
 
-test('mensile: niente calendario, solo le volte fatte nel loro giorno', t => {
+test('mensile: nel calendario il giorno della scadenza, e le volte fatte nel loro giorno', t => {
   now(t, '2026-09-20', '12:00');
   const r = rouP({ freq: 'm', n: 2, start: '2026-09-15', streakDate: '2026-09-14' });
   const list = openApp([r], [], '2026-09-20');
@@ -568,9 +545,9 @@ test('mensile: niente calendario, solo le volte fatte nel loro giorno', t => {
   assert.deepEqual([m.ps, m.due], ['2026-09-15', '2026-10-14']);
   M.applyComplete(xp({}), m, r, 1, at('2026-09-20'));
   const marks = M.calendarMarks(list);
-  assert.deepEqual([marks.done['2026-09-20'], marks.todo['2026-10-14']], [1, undefined]);
-  assert.deepEqual(M.dayLists(list, '2026-10-14').todo, [], 'non compare nel giorno di scadenza');
-  assert.deepEqual(M.plannedRoutines([r], '2026-10-15', new Set()), [], 'niente routine previste');
+  assert.deepEqual([marks.done['2026-09-20'], marks.todo['2026-10-14'], marks.todo['2026-09-20']], [1, 1, undefined]);
+  assert.deepEqual(M.dayLists(list, '2026-10-14').todo.map(x => x.id), [m.id], 'da fare nel giorno della scadenza');
+  assert.deepEqual(M.plannedRoutines([r], '2026-10-15', new Set()), [], 'i periodi futuri non si mostrano');
   assert.equal(M.gcalRoutineUrl(r), null, 'niente Google Calendar');
   M.applyComplete(xp({}), m, r, 2, at('2026-09-20'));
   assert.equal(M.calendarMarks(list).done['2026-09-20'], 2, 'completata: ogni volta nel suo giorno, non una in più');
@@ -725,6 +702,21 @@ test('serie di gruppo: giorni "tutti insieme" di fila', t => {
   assert.equal(M.groupStreakNow(r), 2);
   t.mock.timers.setTime(at('2026-03-10', '12:00'));
   assert.equal(M.groupStreakNow(r), 0, 'lunedì 9 è passato senza');
+});
+
+test('fusi orari: chi è indietro rispetto al gruppo può fare la sua volta appena inizia il giorno del gruppo', t => {
+  // il gruppo è in Giappone (7 ore avanti in ottobre): il suo 2 ottobre inizia alle 17:00 del 1° ottobre in Italia
+  now(t, '2026-10-01', '18:00');
+  const r = rou({ sr: 'qabc1234', tz: 'Asia/Tokyo', start: '2026-10-02', streakDate: '2026-10-01' });
+  const list = M.routineDay([r], [], M.todayStr(), Date.now()).missions;
+  assert.equal(list.length, 1, 'la volta del 2 ottobre del gruppo c\'è già');
+  const m = list[0];
+  assert.deepEqual([m.gd, m.due, m.dueTime], ['2026-10-02', '2026-10-02', '16:59'], 'scade entro le 16:59 del 2 ottobre, ora italiana (la mezzanotte in Giappone)');
+  assert.equal(M.notYet(m), false, 'si può completare subito, non solo da mezzanotte');
+  assert.deepEqual(M.missionLists(list).groups.routine.map(x => x.id), [m.id], 'e sta tra le routine di oggi, non tra i prossimi giorni');
+  const w = rouP({ sr: 'qabc1234', tz: 'Asia/Tokyo', start: '2026-10-02', streakDate: '2026-10-01' });
+  const wm = M.routineDay([w], [], M.todayStr(), Date.now()).missions[0];
+  assert.deepEqual([wm.ps, wm.gd, wm.due, M.notYet(wm)], ['2026-10-02', '2026-10-08', '2026-10-08', false], 'anche una settimanale');
 });
 
 /* ---------- primo giorno della settimana ---------- */

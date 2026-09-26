@@ -246,11 +246,12 @@ service cloud.firestore {
     // l'app: qui si accetta da 14 ore prima della mezzanotte UTC del primo giorno a 38 ore dopo quella dell'ultimo, che
     // copre tutti i fusi; per settimane e mesi l'ultimo giorno è al massimo 6 o 30 giorni dopo il primo).
     // Se la parte è arrivata dopo la scadenza vera, la serie di gruppo non la conta: lo controlla l'app con l'ora del server.
+    // (pause: non si usa più; resta permessa perché c'è nei documenti di prima e la scrivono le versioni precedenti dell'app)
     function srBaseKeys() {
       return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time',
-              'start', 'pause', 'bonus', 'tz', 'ver', 'k', 'lk', 'created', 'updated'];
+              'start', 'bonus', 'tz', 'ver', 'k', 'lk', 'created', 'updated'];
     }
-    function srKeys() { return srBaseKeys().concat(['freq', 'n', 'at', 'pk', 'nx']); }
+    function srKeys() { return srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx']); }
     function srTplKeys() {
       return ['title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time', 'start', 'pause', 'bonus', 'tz', 'ver', 'ownerName', 'updated',
               'freq', 'n', 'at', 'pk', 'nx'];
@@ -276,7 +277,7 @@ service cloud.firestore {
         && srShape(n.get('freq', 'd'), n.get('n', 1), n.days, n.time)
         && (n.get('at', null) == null || okDay10(n.at)) && (n.get('pk', null) == null || okDay10(n.pk)) && srNx(n.get('nx', null))
         && n.start is string && n.start.size() == 10 && shortStr(n.tz, 64)
-        && (n.pause == null || (n.pause is map && n.pause.keys().hasOnly(['from', 'until'])
+        && (n.get('pause', null) == null || (n.pause is map && n.pause.keys().hasOnly(['from', 'until'])
             && n.pause.from is string && n.pause.from.size() == 10 && n.pause.until is string && n.pause.until.size() == 10))
         && (n.bonus == null || (n.bonus is map && n.bonus.keys().hasOnly(['every', 'xp'])
             && n.bonus.every is int && n.bonus.every >= 2 && n.bonus.every <= 365

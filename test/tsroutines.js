@@ -60,7 +60,7 @@ const baseDoc = extra => ({
   g: { uG: { n: 'Io', j: true, a: 1, since: '2026-09-25' } },
   // (ricompense e penalità come le scrive l'app: con tutte le statistiche)
   title: 'Palestra', desc: '', rewards: M.normalizeRewards({ Vigore: 10 }), penalty: M.normalizeRewards({ Vigore: 2 }), stars: null,
-  days: [], time: null, start: '2026-09-25', pause: null, bonus: { every: 2, xp: 5 }, tz: 'Europe/Rome',
+  days: [], time: null, start: '2026-09-25', bonus: { every: 2, xp: 5 }, tz: 'Europe/Rome',
   ver: 1, k: {}, lk: '', created: 1, updated: 1, freq: 'w', n: 3, ...extra,
 });
 const now = (t, ds, time = '12:00') => t.mock.timers.enable({ apis: ['Date'], now: at(ds, time) });
@@ -180,7 +180,7 @@ test('chi l\'ha creata: cambiare il titolo non fa riaccettare niente, cambiare l
   assert.deepEqual([w2.freq, w2.at, w2.nx.freq, w2.nx.at, w2.ver], ['m', '2026-10-02', 'w', '2026-11-02', 3]);
 });
 
-test('chi l\'ha creata: un gruppo nuovo di una routine come quelle di prima scrive il documento di prima', async t => {
+test('chi l\'ha creata: un gruppo nuovo di una routine di ogni giorno, una volta, non scrive i campi nuovi', async t => {
   now(t, '2026-10-05');
   const r = M.normalizeRoutines([{ id: 'r2', title: 'Corsa', rewards: { Vigore: 4 }, days: [1, 3], start: '2026-10-05' }])[0];
   // sendInvite non è esportato: si passa da openInvite, con una scelta degli amici finta che invia subito
@@ -190,8 +190,7 @@ test('chi l\'ha creata: un gruppo nuovo di una routine come quelle di prima scri
   await W.SR.openInvite(r.id);
   const created = W.writes.find(x => x.set);
   assert.ok(created, 'documento creato');
-  assert.deepEqual(['freq', 'n', 'at', 'pk', 'nx'].filter(k => k in created.set), [], 'senza i campi nuovi');
-  assert.equal(Object.keys(created.set).length, 21, 'le stesse chiavi di prima (le regole vecchie lo accettano)');
+  assert.deepEqual(['freq', 'n', 'at', 'pk', 'nx', 'pause'].filter(k => k in created.set), [], 'senza i campi nuovi e senza la pausa');
   const r3 = M.normalizeRoutines([{ id: 'r3', title: 'Bollette', rewards: { Vigore: 4 }, freq: 'm', start: '2026-10-05' }])[0];
   W.S.routines.push(r3);
   await W.SR.openInvite(r3.id);
