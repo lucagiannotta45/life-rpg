@@ -225,7 +225,7 @@
       if (TPL_KEYS.every(k => same(r[k] === undefined ? null : r[k], t[k])) && r.start === start) return false;
       const daysChanged = !same(r.days, t.days) || r.start !== start;
       TPL_KEYS.forEach(k => { r[k] = t[k]; });
-      if (r.start !== start) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); }
+      if (r.start !== start) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); r.brks = []; }
       if (daysChanged && r.made && r.made >= todayStr()) r.made = addDaysStr(todayStr(), -1);
       refreshOpen(r);
       return true;

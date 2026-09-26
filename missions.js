@@ -31,7 +31,8 @@
     const MAX_PER_MONTH = 200;   // missioni create in un mese
     const MAX_MISSIONS = 2000;   // missioni in tutto
     const MAX_ROUTINES = 30;
-    const KEEP_DAYS = 60;        // le routine completate o fallite più vecchie si tolgono dalla cronologia
+    const KEEP_DAYS = 60;
+    const MAX_BRKS = 30;         // giorni mancati ricordati per routine (per ridare la serie se li recuperi)        // le routine completate o fallite più vecchie si tolgono dalla cronologia
 
     /* ---------- date ---------- */
     const pad2 = n => String(n).padStart(2, '0');
@@ -150,6 +151,10 @@
         // volta di una routine di gruppo: gd = il giorno del gruppo (nel fuso di chi l'ha creata), che può essere
         // diverso da "due" (la scadenza nell'ora di questo dispositivo) se siete in fusi orari diversi
         if (it.rid && validDate(m.gd)) it.gd = m.gd;
+        // volta di una routine recuperata (penalità annullata o riprogrammata): re = il giorno entro cui completarla;
+        // rj = la serie che è tornata con il recupero (si toglie di nuovo se la volta fallisce ancora)
+        if (it.rid && validDate(m.re)) it.re = m.re;
+        if (it.re && Number.isInteger(m.rj) && m.rj >= 0 && m.rj <= 100000) it.rj = m.rj;
         // missione condivisa con un amico (vedi shared.js): sid = il documento condiviso, sh = il tuo ruolo
         // ('o' = l'hai creata tu, 'g' = sei stato invitato)
         if (!it.rid && typeof m.sid === 'string' && /^[\w-]{1,40}$/.test(m.sid)) { it.sid = m.sid; it.sh = m.sh === 'g' ? 'g' : 'o'; }
@@ -186,12 +191,20 @@
           }
           // routine di gruppo: gb = la serie di gruppo con cui è arrivato il bonus di gruppo (già dentro applied)
           if (it.rid && Number.isInteger(m.done.gb) && m.done.gb > 0) it.done.gb = m.done.gb;
+          // volta recuperata completata: ha allungato la serie di 1 (si toglie annullando)
+          if (it.rj !== undefined && m.done.rj) it.done.rj = 1;
         }
         seen.add(id);
         out.push(it);
         if (out.length >= MAX_MISSIONS) break;
       }
       return out;
+    }
+    function normBrks(a) {
+      if (!Array.isArray(a)) return [];
+      const seen = new Set();
+      return a.filter(b => b && validDate(b.d) && Number.isInteger(b.n) && b.n >= 0 && b.n <= 100000 && !seen.has(b.d) && seen.add(b.d))
+        .map(b => ({ d: b.d, n: b.n })).sort((x, y) => x.d.localeCompare(y.d)).slice(-MAX_BRKS);
     }
     function normalizeRoutines(arr) {
       if (!Array.isArray(arr)) return [];
@@ -221,6 +234,8 @@
           streak: nn(r.streak, 100000), streakDate: validDate(r.streakDate) ? r.streakDate : '', best: nn(r.best, 100000),
           bonus, stars: normalizeStars(rewards, r.stars),
           made: validDate(r.made) ? r.made : '',   // fin qui le missioni della routine sono già state create
+          // i giorni mancati che hanno interrotto la serie: d = il giorno, n = la serie che c'era prima (serve per ridarla se lo recuperi)
+          brks: normBrks(r.brks),
         });
         const ru = Number(r.u);
         if (Number.isFinite(ru) && ru > 0) out[out.length - 1].u = Math.floor(ru);   // istante dell'ultima modifica
@@ -253,6 +268,7 @@
     // istante dopo il quale la missione è scaduta, con l'orologio del dispositivo:
     // alla fine dell'ora scelta (minuto compreso) oppure, senza ora, alla fine del giorno
     function dueEndMs(m) {
+      if (m.rid && m.re) { const e = parseDate(m.re); e.setDate(e.getDate() + 1); return e.getTime(); }   // recuperata: fino alla fine di quel giorno
       if (!m.due) return Infinity;
       const d = parseDate(m.due);
       if (m.dueTime) { const [hh, mm] = m.dueTime.split(':').map(Number); d.setHours(hh, mm, 0, 0); return d.getTime() + 60000; }
@@ -260,7 +276,7 @@
       return d.getTime();
     }
     const isLate = m => !m.done && Date.now() >= dueEndMs(m);
-    const dueKey = m => (m.due || m.from || '9999-99-99') + ' ' + (m.dueTime || '99:99');
+    const dueKey = m => (m.rid && m.re && !m.done && !m.failed ? m.re + ' 99:99' : (m.due || m.from || '9999-99-99') + ' ' + (m.dueTime || '99:99'));
     // non ancora completabile: una missione prima della sua disponibilità (giorno e ora), una routine prima del suo giorno
     const notYet = m => !m.done && !m.failed && (m.rid ? !!m.due && m.due > todayStr() : !!m.from && Date.now() < startMs(m));
     // il prossimo istante in cui una missione cambia stato (diventa disponibile o scade); Infinity se nessuna
@@ -290,7 +306,7 @@
       const soonEnd = isoDate(soon);
       const groups = { late: [], routine: [], today: [], soon: [], later: [], nodate: [] };
       todo.forEach(m => {
-        const key = m.due || m.from;
+        const key = (m.rid && m.re) || m.due || m.from;   // recuperata: conta il giorno entro cui completarla
         if (!key) groups.nodate.push(m);
         else if (isLate(m)) groups.late.push(m);
         else if (key === today) (m.rid ? groups.routine : groups.today).push(m);
@@ -362,11 +378,18 @@
     const routineOf = (routines, m) => (m && m.rid ? routines.find(r => r.id === m.rid) || null : null);
     // completando una volta di una routine: la serie cresce solo se la completi entro il giorno previsto;
     // ogni "every" volte di fila arriva il bonus. Non cambia niente: restituisce la serie nuova (rs) e il bonus.
+    // Volta recuperata con la serie ridata (rj): la serie si allunga di 1 dove si trovava quel giorno (join = true).
     function streakStep(rt, m, today) {
       let rs = null;
       const bonus = {};
       const day = m.gd || m.due;
-      if (rt && day && today <= day && day > (rt.streakDate || '')) {
+      if (rt && day && m.re && m.rj !== undefined) {
+        const cur = !(rt.brks || []).some(b => b.d > day);   // nessun altro giorno mancato dopo: si allunga la serie di adesso
+        const n = cur ? (rt.streak || 0) + 1 : 0;
+        if (cur && rt.bonus && !rt.sr && n % rt.bonus.every === 0) STATS.forEach(s => { if (m.rewards[s.key] > 0) bonus[s.key] = rt.bonus.xp; });
+        return { rs, bonus, join: true, n };
+      }
+      if (rt && day && today <= (m.re && m.re > day ? m.re : day) && day > (rt.streakDate || '')) {
         const n = (rt.streak || 0) + 1;
         rs = { prev: rt.streak || 0, prevDate: rt.streakDate || '', n };
         if (rt.bonus && !rt.sr && n % rt.bonus.every === 0) STATS.forEach(s => { if (m.rewards[s.key] > 0) bonus[s.key] = rt.bonus.xp; });
@@ -379,6 +402,39 @@
       rt.streak = rs.prev;
       rt.streakDate = rs.prevDate || addDaysStr(due, -1);
       return true;
+    }
+    // La serie è fatta di pezzi separati dai giorni mancati (rt.brks). Aggiunge delta al pezzo che viene dopo il giorno
+    // "day": il prossimo giorno mancato (la sua n) oppure, se non ce ne sono, la serie di adesso. Cambia la routine;
+    // restituisce true se è cambiata la serie di adesso.
+    function streakShift(rt, day, delta) {
+      if (!rt || !delta) return false;
+      const next = (rt.brks || []).find(b => b.d > day);
+      if (next) { next.n = Math.max(0, next.n + delta); return false; }
+      rt.streak = Math.max(0, (rt.streak || 0) + delta);
+      rt.best = Math.max(rt.best || 0, rt.streak);
+      return true;
+    }
+    // recuperando il giorno mancato "day": la serie di prima si riattacca (cambia la routine). Restituisce la serie
+    // ridata (anche 0), oppure null se quel giorno non ha interrotto niente (per esempio: recuperato lo stesso giorno)
+    function streakRecover(rt, day) {
+      if (!rt || !rt.brks) return null;
+      const i = rt.brks.findIndex(b => b.d === day);
+      if (i < 0) return null;
+      const n = rt.brks[i].n;
+      rt.brks.splice(i, 1);
+      streakShift(rt, day, n);
+      return n;
+    }
+    // la volta recuperata è fallita di nuovo: la serie ridata si toglie e il giorno torna tra quelli mancati (cambia la routine)
+    function streakLose(rt, day, n) {
+      if (!rt || !Number.isInteger(n)) return;
+      streakShift(rt, day, -n);
+      if (!rt.brks) rt.brks = [];
+      if (!rt.brks.some(b => b.d === day)) {
+        rt.brks.push({ d: day, n });
+        rt.brks.sort((x, y) => x.d.localeCompare(y.d));
+        if (rt.brks.length > MAX_BRKS) rt.brks.splice(0, rt.brks.length - MAX_BRKS);
+      }
     }
     // Il "giro di oggi" delle routine: crea le volte di oggi (e quelle saltate dall'ultima apertura), interrompe le serie
     // non rispettate, toglie le pause finite e pulisce le volte che non servono più.
@@ -397,9 +453,15 @@
         // la serie si interrompe se un giorno previsto (già passato) non è stato completato in tempo
         if ((r.streakDate || '') < yesterday) {
           let d = r.streakDate ? addDaysStr(r.streakDate, 1) : r.start;
+          if (!r.brks) r.brks = [];
+          const keep = addDaysStr(today, -KEEP_DAYS);
           for (let guard = 0; d <= yesterday && guard < 800; guard++, d = addDaysStr(d, 1)) {
-            if (r.streak && dayCounts(r, d)) r.streak = 0;
+            if (!dayCounts(r, d)) continue;
+            // ogni giorno mancato si ricorda con la serie che c'era prima: se lo recuperi, la serie torna
+            if (d >= keep && !r.brks.some(b => b.d === d)) r.brks.push({ d, n: r.streak || 0 });
+            r.streak = 0;
           }
+          r.brks = r.brks.filter(b => b.d >= keep).sort((x, y) => x.d.localeCompare(y.d)).slice(-MAX_BRKS);
           r.streakDate = yesterday;
           routinesChanged = true;
         }
@@ -515,7 +577,7 @@
       startMs, dueEndMs, isLate, dueKey, notYet, nextChange,
       missionLists, dayLists, calendarMarks, lateMissions,
       gainXp, undoXp, penaltyXp,
-      WD_ALL, inPause, dayCounts, occId, routineOf, streakStep, streakUndo, routineDay, plannedRoutines,
+      WD_ALL, inPause, dayCounts, occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay, plannedRoutines,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
       gcalUrl, gcalRoutineUrl,
     };
