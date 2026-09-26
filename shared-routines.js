@@ -328,6 +328,9 @@
     // "Invita" su una routine: la tua (o creata da te), con meno di 3 amici
     function canInvite(r) {
       if (!S.fbUser || !r || r.sh === 'g') return false;
+      // per ora le routine di gruppo sono solo da una volta al giorno (anche un cambio in arrivo deve esserlo)
+      const one = x => (!x.freq || x.freq === 'd') && (x.n || 1) === 1;
+      if (!one(r) || (r.nx && !one(r.nx))) return false;
       if (!r.sr) return true;
       const d = docOfR(r);
       return !!(d && isDoc(d) && roleOf(d) === 'o' && guests(d).length < MAX_GUESTS);

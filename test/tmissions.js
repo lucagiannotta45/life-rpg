@@ -425,7 +425,7 @@ test('routine salvate: frequenza, volte, giorni e ora', () => {
   const [c] = M.normalizeRoutines([{ id: 'f', title: 'F', rewards: { Vigore: 1 }, days: [1], start: '2026-09-01', at: '2026-09-10',
     nx: { at: '2026-09-30', freq: 'm', n: 2, days: [1] } }]);
   assert.equal(c.at, '2026-09-10');
-  assert.deepEqual(c.nx, { at: '2026-09-30', freq: 'm', n: 2, days: [] }, 'cambio in arrivo');
+  assert.deepEqual(c.nx, { at: '2026-09-30', freq: 'm', n: 2, days: [], time: null }, 'cambio in arrivo');
   const [c2] = M.normalizeRoutines([{ id: 'g', title: 'G', rewards: { Vigore: 1 }, days: [1], start: '2026-09-01', at: '2026-09-10',
     nx: { at: '2026-09-05', freq: 'w', n: 2 } }]);
   assert.equal(c2.nx, undefined, 'un cambio che arriverebbe prima delle regole di adesso non vale');
@@ -614,6 +614,20 @@ test('cambio di frequenza: vale dal periodo successivo, la serie resta', () => {
   assert.equal(r.nx, undefined);
   openApp([r], list, '2026-03-10');
   assert.equal(r.streak, 3, 'la settimana era completa: la serie continua');
+});
+
+test('cambio di frequenza: l\'ora va con il cambio', () => {
+  const r = rou({ n: 3 });   // 3 volte al giorno: senza ora
+  assert.equal(M.changeAt(r, '2026-03-05'), '2026-03-06');
+  M.planChange(r, { freq: 'd', n: 1, days: r.days, time: '07:00' }, '2026-03-05');
+  assert.deepEqual([r.time, r.nx.time], [null, '07:00'], 'oggi ancora 3 volte, senza ora');
+  let list = openApp([r], [], '2026-03-05');
+  assert.equal(occ(list, r, '2026-03-05').n, 3);
+  list = openApp([r], list, '2026-03-06');
+  assert.deepEqual([r.n, r.time, occ(list, r, '2026-03-06').dueTime], [1, '07:00', '07:00'], 'da domani: una volta, alle 7');
+  const w = rouP();
+  assert.equal(M.changeAt(w, '2026-09-28'), '2026-10-02', 'settimanale: dal giorno dopo la fine della settimana');
+  assert.equal(M.changeAt(w, '2026-09-20'), '2026-09-25', 'non ancora iniziata: dal primo giorno');
 });
 
 test('cambio di frequenza: una routine non ancora iniziata cambia subito', () => {

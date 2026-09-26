@@ -436,6 +436,7 @@
     background: var(--track); border: 3px solid var(--ctl-border); border-radius: 8px; box-shadow: var(--ctl-ring);
   }
   .seg button[aria-checked="true"] { background: var(--btn); border-color: var(--gold); }
+  .seg button:disabled { opacity: .5; cursor: default; }
   .cs-item { margin: 0 0 10px; }
   .cs-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .cs-icon {
@@ -722,6 +723,14 @@
   .chip.all { --c: var(--gold); }
   /* schede di missioni e routine: spazi uguali tra le righe, anche dentro le finestre */
   .mission .m-desc, .mission .m-pen, .mission .m-routine { margin: 8px 0 0; }
+  /* routine da fare più volte: un quadratino per volta, pieno quando è segnata (come i pixel del resto dell'app) */
+  .m-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+  .m-pips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+  .m-pips i { width: 12px; height: 12px; border: 3px solid var(--gold); background: transparent; }
+  .m-pips i.on { background: var(--gold); }
+  /* modulo della routine: da quando valgono le modifiche */
+  #mf-change-note { color: var(--gold); }
+  .xp-in:disabled, .text-in:disabled { opacity: .55; }
   /* finestre: sfondo dietro più scuro; le Impostazioni restano ancorate in alto tra una scheda e l'altra */
   .modal { background: rgba(0, 0, 0, .72); }
   #settings[data-tab="look"] { background: rgba(0, 0, 0, .28); }

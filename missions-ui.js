@@ -2,8 +2,8 @@
  * Life RPG — missioni e calendario: la parte che si vede
  * ---------------------------------------------------------------
  * Tutto quello che mostra e fa le missioni sullo schermo:
- * - le schede delle missioni (con stelle, ricompense, penalità, pulsanti) e l'elenco a gruppi;
- * - completare, annullare, togliere una penalità, la finestra delle penalità, i messaggi;
+ * - le schede delle missioni (con stelle, ricompense, penalità, contatore delle volte, pulsanti) e l'elenco a gruppi;
+ * - completare (o segnare una volta), annullare, togliere una penalità, la finestra delle penalità, i messaggi;
  * - il "giro di oggi" delle routine e il controllo delle scadenze (anche con l'app aperta);
  * - il calendario, la lista del giorno e i collegamenti a Google Calendar;
  * - la finestra per creare e modificare missioni e routine, l'elenco delle routine;
@@ -30,6 +30,7 @@
     const {
       MAX_PER_MONTH, MAX_MISSIONS, MAX_ROUTINES, pad2, isoDate, parseDate, todayStr, addDaysStr, monthOf, validDate, validTime,
       rewardTotal, rewardMatch, startMs, dueEndMs, isLate, notYet, WD_ALL, gcalUrl, gcalRoutineUrl,
+      MAX_TIMES, isDaily, changeAt, routineToday,
     } = MISSIONS;
     const nameSpan = key => D.nameSpan(key);   // in index.js è definito più avanti: si prende al momento dell'uso
     // missioni condivise (shared.js): nasce dopo questo file; finché non c'è, nessuna missione risulta condivisa
@@ -85,7 +86,7 @@
         checkPenalties();
         return;
       }
-      if (notYet(m)) { missionMsg(T('m.locked', { when: m.rid ? fmtDay(m.due) : fromLabel(m) }), 'bad', true); sfx('err'); return; }
+      if (notYet(m)) { missionMsg(T('m.locked', { when: m.rid ? fmtDay(m.ps || m.due) : fromLabel(m) }), 'bad', true); sfx('err'); return; }
       // missione condivisa: completi la tua parte; gli XP arrivano quando la completa anche l'amico
       if (m.sid && SH().joined(m)) { SH().completePart(id); return; }
       if (m.sid && SH().holds(m)) { missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); return; }   // non si sa ancora a che punto è
@@ -100,7 +101,17 @@
       // XP, serie e record: le regole sono in missions.js (applyComplete)
       const rt = routineOf(m);
       const lastT = S.missions.reduce((mx, x) => x.done ? Math.max(mx, x.done.t) : mx, 0);
-      const { applied, bonus, n, routineChanged } = MISSIONS.applyComplete(S.xp, m, rt, Math.max(Date.now(), lastT + 1));   // t cresce sempre: ordina le completate
+      const res = MISSIONS.applyComplete(S.xp, m, rt, Math.max(Date.now(), lastT + 1));   // t cresce sempre: ordina le completate
+      // da fare più volte e non ancora l'ultima: segnata, ma niente XP (arrivano con l'ultima)
+      if (res.partial) {
+        persist();
+        touchMonth(monthOf(m));
+        missionMsg(T('msg.marked', { title: m.title, k: res.count, n: res.need }), 'good');
+        renderMissionViews();
+        sfx('add');
+        return;
+      }
+      const { applied, bonus, n, routineChanged } = res;
       if (routineChanged) saveRoutinesLocal();
       if (rt && rt.sr) SR().markPart(rt, m, true);   // routine di gruppo: la tua parte di oggi, per la serie di gruppo
       persist();
@@ -161,6 +172,17 @@
       renderMissionViews();
       if (ups.length) { showLevelUp(ups, ovFrom, overallOf(after)); sfx('up'); } else sfx('bonus');
       return true;
+    }
+    // togliere l'ultima volta segnata di una routine da più volte non ancora completa: niente XP da togliere
+    function unmarkMission(id) {
+      const m = S.missions.find(x => x.id === id);
+      if (!m || m.done || m.failed || !m.p || !m.p.length) return;
+      const { count } = MISSIONS.applyUndo(S.xp, m, routineOf(m));
+      persist();
+      touchMonth(monthOf(m));
+      missionMsg(T('msg.unmarked', { title: m.title, k: count, n: m.n }), '');
+      renderMissionViews();
+      sfx('sub');
     }
     function undoMission(id) {
       const m = S.missions.find(x => x.id === id);
@@ -289,7 +311,7 @@
       return true;
     }
     /* ----- routine: creazione delle volte e serie ----- */
-    // (giorni previsti, pause, serie e il "giro di oggi" sono in missions.js)
+    // (periodi, volte, serie, cambi in attesa e il "giro di oggi" sono in missions.js)
     const routineOf = m => MISSIONS.routineOf(S.routines, m);
     // crea le volte di oggi, aggiorna la serie e pulisce le volte saltate; true se qualcosa è cambiato
     let routinesDay = '';
@@ -412,6 +434,19 @@
       wrap.setAttribute('aria-label', T('m.stars.aria', { d: stars.d, f: stars.f }));
       return wrap;
     }
+    // a che punto è una volta da fare più volte: "Fatte 2 su 3", con un quadratino per volta (fino a 20)
+    function progressLine(m) {
+      const k = m.p ? m.p.length : 0;
+      const line = mk('p', 'm-routine m-progress');
+      if (m.n <= 20) {
+        const pips = mk('span', 'm-pips');
+        pips.setAttribute('aria-hidden', 'true');
+        for (let i = 0; i < m.n; i++) pips.appendChild(mk('i', i < k ? 'on' : null));
+        line.appendChild(pips);
+      }
+      line.appendChild(mk('span', null, T('m.progress', { k, n: m.n })));
+      return line;
+    }
     // inCal: scheda del pannello "Giorno" del calendario, in sola lettura
     function missionCard(m, inCal) {
       const failedNow = !!m.failed && !m.done;
@@ -469,6 +504,8 @@
       const msl = starsLine(m.stars);
       if (msl) card.appendChild(msl);
       if (failedNow) card.appendChild(mk('p', 'm-still', T('m.still')));
+      // da fare più volte: a che punto sei (con un quadratino per ogni volta, se non sono troppe)
+      if (m.n > 1 && !m.done) card.appendChild(progressLine(m));
       const chipBox = chips(m.done ? m.done.applied : m.rewards);
       if (failedNow) chipBox.classList.add('missed');   // ricompensa che non arriverà più
       card.appendChild(chipBox);
@@ -480,7 +517,7 @@
         const sameDate = m.failed.date === m.due;   // la data qui sopra ("Scaduta il...") è già quella giusta: non ripeterla
         card.appendChild(mk('p', 'm-pen', T(sameDate ? 'm.pen.lost.same' : 'm.pen.lost', { when: fmtDay(m.failed.date), loss: lossText(m.failed.applied) })));
       } else if (!m.done && m.due && hasAny(m.penalty)) {
-        card.appendChild(mk('p', 'm-pen', T('m.pen.warn', { loss: lossText(m.penalty) })));
+        card.appendChild(mk('p', 'm-pen', T(m.n > 1 ? 'm.pen.warn.n' : 'm.pen.warn', { loss: lossText(m.penalty) })));
       }
       const act = mk('div', 'm-actions');
       const btn = (cls, text, label, fn) => {
@@ -492,7 +529,7 @@
       };
       if (inCal) {
         // calendario: niente azioni sulla missione, solo Google Calendar (se serve) e il collegamento alla scheda Missioni
-        if (!m.done && !failedNow && (m.rid ? !!rtn : !!m.due)) act.appendChild(gcalLink(m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m), m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title, m.rid ? { r: rtn } : { m }));
+        if (!m.done && !failedNow && (m.rid ? !!rtn && isDaily(rtn) : !!m.due)) act.appendChild(gcalLink(m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m), m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title, m.rid ? { r: rtn } : { m }));
         act.appendChild(btn('', T('btn.goto'), T('aria.goto'), () => goToMission(m.id)));
       } else if (m.done) {
         // condivisa: non si annulla; routine di gruppo: non dopo che l'avete fatta tutti (la serie di gruppo l'ha contata)
@@ -530,13 +567,17 @@
         // sei l'invitato, ma le informazioni sulla missione non sono ancora arrivate: niente pulsanti per ora
       } else {
         // con un invito in attesa, completarla da solo annulla l'invito: si chiede conferma (secondo tocco)
+        // da fare più volte: "Segna una" finché non manca solo l'ultima, che è "Completa" (e dà le ricompense)
+        const multi = m.n > 1 && (m.p ? m.p.length : 0) < m.n - 1;
         const cb = shi && shi.invited
           ? armedBtn(' add', T('btn.complete'), T('aria.complete') + ' ' + m.title, T('sh.solo.aria'),
             () => missionMsg(T('sh.solo.warn', { name: shi.invitedNames }), '', true), () => completeMission(m.id))
+          : multi ? btn(' add', T('btn.mark'), T('aria.mark'), () => completeMission(m.id))
           : btn(' add', T('btn.complete'), T('aria.complete'), () => completeMission(m.id));
         if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }   // data nel futuro: si completa dal giorno stesso; scaduta: mai più
         // routine di gruppo in sospeso (chi l'ha creata l'ha cambiata): prima si sceglie Accetta o Esci, niente Completa
         if (!(sri && sri.pending)) act.append(cb);
+        if (m.p && m.p.length && !isLate(m)) act.appendChild(btn('', T('btn.unmark'), T('aria.unmark'), () => unmarkMission(m.id)));
         // una routine di gruppo la modifica solo chi l'ha creata; chi è in sospeso sceglie qui (o nell'elenco delle routine)
         if (!(rtn && rtn.sh === 'g')) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
         // routine: "Invita" anche qui (come "Modifica"), per tutta la routine; solo chi l'ha creata, finché c'è posto
@@ -579,7 +620,7 @@
       card.appendChild(routineTag(T('sr.tag.from', { name: x.from })));
       const head = mk('div', 'm-head');
       head.appendChild(mk('h3', 'm-title', r.title));
-      head.appendChild(mk('span', 'm-date', daysText(r) + (r.time ? ' ' + T('r.at', { time: r.time }) : '')));
+      head.appendChild(mk('span', 'm-date', freqText(r)));
       card.appendChild(head);
       if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
       const sl = starsLine(r.stars);
@@ -669,6 +710,7 @@
       if (!todo.length && !inv.length) tl.appendChild(mk('p', 'empty', T('mis.empty.todo')));
       groupBlock(tl, 'late', T('grp.late'), groups.late);
       groupBlock(tl, 'routine', T('grp.routine'), groups.routine);
+      groupBlock(tl, 'period', T('grp.period'), groups.period);
       groupBlock(tl, 'today', T('grp.today'), groups.today);
       groupBlock(tl, 'soon', T('grp.soon'), groups.soon);
       groupBlock(tl, 'later', T('grp.later'), groups.later);
@@ -791,7 +833,7 @@
       let card = find();
       if (!card) {
         doneShown = 1e9;
-        ['late', 'routine', 'today', 'soon', 'later', 'nodate', 'failed'].forEach(k => { shownBy[k] = 1e9; });
+        ['late', 'routine', 'period', 'today', 'soon', 'later', 'nodate', 'failed'].forEach(k => { shownBy[k] = 1e9; });
         renderMissions();
         card = find();
       }
@@ -951,11 +993,59 @@
     WD_ALL.forEach(d => {
       const b = mk('button');
       b.type = 'button'; b.setAttribute('role', 'checkbox'); b.setAttribute('aria-checked', 'true'); b.dataset.d = String(d);
-      b.addEventListener('click', () => b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true')));
+      b.addEventListener('click', () => { b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true')); paintChangeNote(); });
       $('mf-days').appendChild(b);
       dayBtns.push(b);
     });
     const setDays = list => dayBtns.forEach(b => b.setAttribute('aria-checked', String(list.includes(Number(b.dataset.d)))));
+    const pickedDays = () => WD_ALL.filter(d => dayBtns.find(b => Number(b.dataset.d) === d).getAttribute('aria-checked') === 'true');
+    // ogni quanto (giorno, settimana, mese) e quante volte: nel modulo delle routine
+    let formFreq = 'd';
+    const freqBtns = [...$('mf-freq').querySelectorAll('button')];
+    freqBtns.forEach(b => b.addEventListener('click', () => { formFreq = b.dataset.f; paintFreq(); }));
+    // le volte scritte (vuoto = 1; un valore non valido vale 1 finché non salvi, e lì si dice cosa non va)
+    const timesNow = () => {
+      const v = $('mf-times').value.trim(), n = Number(v);
+      return v !== '' && Number.isInteger(n) && n >= 1 && n <= MAX_TIMES ? n : 1;
+    };
+    const editingRoutine = () => (editingRid ? S.routines.find(x => x.id === editingRid) || null : null);
+    // l'ora di scadenza vale solo per una volta al giorno
+    const routineTimeOk = () => formFreq === 'd' && timesNow() === 1;
+    function paintFreq() {
+      const r = editingRoutine();
+      const locked = !!(r && r.sr);   // routine di gruppo: per ora solo una volta al giorno
+      if (locked) { formFreq = 'd'; $('mf-times').value = ''; }
+      const f = formFreq, n = timesNow();
+      freqBtns.forEach(b => { b.setAttribute('aria-checked', String(b.dataset.f === f)); b.disabled = locked; });
+      $('mf-times').disabled = locked;
+      $('mf-times-lbl').textContent = T('mf.times.' + f);
+      $('mf-days-box').hidden = f !== 'd';
+      $('mf-bonus-every-lbl').textContent = T(f === 'd' ? 'mf.bonus.every' : 'mf.bonus.every.' + f);
+      $('mf-start-tip').textContent = T(r && r.start <= todayStr() ? 'mf.start.locked' : 'mf.start.tip');
+      const tips = [];
+      if (locked) tips.push(T('mf.change.group'));
+      else {
+        if (f === 'd' && n > 1) tips.push(T('mf.freq.tip.dn'));
+        if (f !== 'd') tips.push(T('mf.freq.tip.' + f));
+        if (n > 1) tips.push(T('mf.freq.tip.all'));
+      }
+      $('mf-freq-tip').textContent = tips.join(' ');
+      $('mf-freq-tip').hidden = !tips.length;
+      syncTime();
+      paintChangeNote();
+    }
+    // modificando una routine già iniziata: frequenza, volte e giorni nuovi valgono dal periodo successivo
+    function paintChangeNote() {
+      const note = $('mf-change-note');
+      const r = editingRoutine();
+      const today = r ? routineToday(r) : '';
+      const days = formFreq === 'd' ? pickedDays() : [];
+      const same = r && formFreq === (r.freq || 'd') && timesNow() === (r.n || 1) && days.join() === r.days.join();
+      note.hidden = !r || !!r.sr || r.start > today || !!same;
+      // la data a metà frase: senza la maiuscola che fmtDay mette all'inizio ("dal sabato 3 ottobre")
+      if (!note.hidden) note.textContent = T('mf.change.at', { when: parseDate(changeAt(r, today)).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' }) });
+    }
+    $('mf-times').addEventListener('input', paintFreq);
     function paintDayChips() {
       const box = $('mf-days');
       MISSIONS.weekOrder(firstDay()).forEach(d => {
@@ -975,14 +1065,17 @@
       $('mf-pen-tip').textContent = formRepeat ? T('mf.pen.tip.r') : T('mf.pen.tip');
       $('mf-pen-on').textContent = penOn ? T('mf.pen.on') : T('mf.pen.off');   // (anche quando cambi lingua)
       paintDayChips();
+      paintFreq();
     }
     function setFormRepeat(on) { formRepeat = on; paintFormRepeat(); syncTime(); }
     // l'ora ha senso solo con una data (o in una routine): senza, il campo e la spiegazione non si vedono
     // l'ora compare solo dopo il giorno (nelle routine c'è solo l'ora); i "Togli" solo se c'è qualcosa da togliere
     function syncTime() {
-      const hasDue = !!$('mf-date').value, dueTimeOk = formRepeat || hasDue;
+      const hasDue = !!$('mf-date').value, dueTimeOk = formRepeat ? routineTimeOk() : hasDue;
+      // routine settimanale, mensile o da più volte al giorno: niente ora di scadenza (si scade a fine periodo)
+      $('mf-due-block').hidden = formRepeat && !routineTimeOk();
       const hasFrom = !formRepeat && !!$('mf-from').value;
-      if (!dueTimeOk) $('mf-time').value = '';
+      if (!dueTimeOk && !formRepeat) $('mf-time').value = '';   // (in una routine l'ora resta scritta, se torni a una volta al giorno)
       if (!hasFrom) $('mf-from-time').value = '';
       $('mf-time').hidden = !dueTimeOk;
       $('mf-from-time').hidden = !hasFrom;
@@ -1019,6 +1112,10 @@
       editingFromTime = m0 ? m0.fromTime : null;
       $('mf-rep-field').hidden = !!m0;          // una missione già creata non diventa routine
       $('mf-rep-toggle').hidden = false;
+      // se la fai diventare una routine: parte da oggi, ogni giorno, una volta
+      formFreq = 'd'; $('mf-times').value = ''; setDays(WD_ALL);
+      $('mf-bonus-every').value = ''; $('mf-bonus-xp').value = '';
+      $('mf-start').disabled = false; $('mf-start-tip').textContent = T('mf.start.tip'); $('mf-start').min = todayStr(); $('mf-start').max = addDaysStr(todayStr(), 365); $('mf-start').value = todayStr();
       setFormRepeat(false);
       const m = id ? S.missions.find(x => x.id === id) : null;
       $('t-mform').textContent = m ? T('mf.edit') : T('mf.new');
@@ -1060,18 +1157,22 @@
       });
       initRewardStars(r ? r.rewards : null, r ? r.stars : null);
       $('mf-date').value = '';
-      $('mf-time').value = r && r.time ? r.time : '';
-      setDays(r ? r.days : WD_ALL);
+      // con un cambio già programmato, il modulo mostra le regole che arriveranno (sono quelle da modificare)
+      const sh = r ? r.nx || r : null;
+      formFreq = sh ? sh.freq || 'd' : 'd';
+      $('mf-times').value = sh && (sh.n || 1) > 1 ? String(sh.n) : '';
+      $('mf-time').value = sh && sh.time ? sh.time : '';
+      setDays(sh && formFreq === 'd' ? sh.days : WD_ALL);
       $('mf-bonus-every').value = r && r.bonus ? String(r.bonus.every) : '';
       $('mf-bonus-xp').value = r && r.bonus ? String(r.bonus.xp) : '';
-      $('mf-start').min = todayStr();
+      // la data di inizio si cambia solo finché la routine non è iniziata (poi sarebbe una pausa con un altro nome)
+      const started = !!r && r.start <= todayStr();
+      $('mf-start').disabled = started;
+      $('mf-start-tip').textContent = T(started ? 'mf.start.locked' : 'mf.start.tip');
+      $('mf-start').min = started ? r.start : todayStr();
       $('mf-start').max = addDaysStr(todayStr(), 365);
       $('mf-start').value = r ? r.start : todayStr();
-      // anche una routine già iniziata può cambiare data di inizio, ma solo da oggi in poi (la serie riparte da zero)
-      $('mf-pause-from').min = todayStr();
-      $('mf-pause-from').value = r && r.pause ? r.pause.from : '';
-      $('mf-pause-until').value = r && r.pause ? r.pause.until : '';
-      syncTime();
+      paintFreq();
       setPenOn(!!(r && r.penalty && STATS.some(s => r.penalty[s.key] > 0)));
       setDescOpen(!!(r && r.desc));
       $('mf-del').hidden = !r;
@@ -1088,9 +1189,15 @@
     }
     function submitRoutine(title, rewards, penalty, stars) {
       const fail = (t, el) => { mfMsg(t); sfx('err'); if (el) el.focus(); };
-      const days = WD_ALL.filter(d => dayBtns.find(b => Number(b.dataset.d) === d).getAttribute('aria-checked') === 'true');
-      if (!days.length) return fail(T('mf.err.days'), dayBtns[0]);
-      const timeRaw = $('mf-time').value;
+      let r = editingRoutine();
+      // routine di gruppo: per ora solo una volta al giorno (vedi paintFreq)
+      const freq = r && r.sr ? 'd' : formFreq;
+      const tRaw = r && r.sr ? '' : $('mf-times').value.trim();
+      const times = tRaw === '' ? 1 : Number(tRaw);
+      if (!Number.isInteger(times) || times < 1 || times > MAX_TIMES) return fail(T('mf.err.times', { max: MAX_TIMES }), $('mf-times'));
+      const days = freq === 'd' ? pickedDays() : [];
+      if (freq === 'd' && !days.length) return fail(T('mf.err.days'), dayBtns[0]);
+      const timeRaw = freq === 'd' && times === 1 ? $('mf-time').value : '';
       if (timeRaw && !validTime(timeRaw)) return fail(T('mf.err.time'), $('mf-time'));
       const ev = $('mf-bonus-every').value.trim(), bx = $('mf-bonus-xp').value.trim();
       let bonus = null;
@@ -1101,42 +1208,42 @@
         }
         bonus = { every: e, xp: x };
       }
-      const today = todayStr();
-      const pu = $('mf-pause-until').value, pf = $('mf-pause-from').value;
-      if ((pu && !validDate(pu)) || (pf && !validDate(pf))) return fail(T('mf.err.date'), $('mf-pause-until'));
-      if (pf && !pu) return fail(T('mf.err.pause'), $('mf-pause-until'));
-      const cur = editingRid ? S.routines.find(x => x.id === editingRid) : null;
-      if (pf && pf < todayStr() && !(cur && cur.pause && cur.pause.from === pf)) return fail(T('mf.err.past'), $('mf-pause-from'));
-      if (pu && pf && pu < pf) return fail(T('mf.err.pause'), $('mf-pause-until'));
-      let r = editingRid ? S.routines.find(x => x.id === editingRid) : null;
       const blk = SR().editBlock(r);   // routine di gruppo: serve il documento, e la connessione, per avvisare gli amici
       if (blk) return fail(blk, null);
-      // data di inizio: se non la tocchi resta quella di prima (anche se è già passata); una data nuova va da oggi a un anno
-      const start = $('mf-start').value || (r ? r.start : today);
+      // data di inizio: si sceglie (da oggi a un anno) finché la routine non è iniziata; dopo resta quella
+      const today = todayStr();
+      const started = !!r && r.start <= today;
+      const start = started ? r.start : $('mf-start').value || today;
       const newStart = !r || start !== r.start;
       if (!validDate(start)) return fail(T('mf.err.date'), $('mf-start'));
       if (newStart && start < today) return fail(T('mf.err.past'), $('mf-start'));
       if (newStart && start > addDaysStr(today, 365)) return fail(T('mf.err.far'), $('mf-start'));
-      const pause = pu && pu >= today ? { from: pf || today, until: pu } : null;
       const desc = $('mf-desc').value.trim().slice(0, 500);
       const time = timeRaw || null;
       if (r) {
-        Object.assign(r, { title, desc, rewards, penalty, days, time, pause, bonus, stars });
+        Object.assign(r, { title, desc, rewards, penalty, bonus, stars });
+        // non ancora iniziata: la nuova data di inizio vale subito (la serie non c'è ancora)
+        if (newStart) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); r.brks = []; delete r.at; }
+        if (r.sr) Object.assign(r, { days, time });   // routine di gruppo: come prima, giorni e ora valgono subito
+        else {
+          // frequenza, volte e giorni: dal periodo successivo (se non è ancora iniziata, subito); le regole sono in missions.js
+          MISSIONS.planChange(r, { freq, n: times, days, time }, routineToday(r));
+          if (!r.nx && isDaily(r) && (r.n || 1) === 1) r.time = time;   // stesse regole: l'ora nuova vale subito
+        }
         if (r.made && r.made >= today) r.made = addDaysStr(today, -1);   // se oggi ora è un giorno previsto, compare subito
-        // nuova data di inizio: la serie riparte da zero; le volte ancora da fare prima di quella data spariscono
-        // (le toglie il "giro di oggi", come per la pausa), quelle già completate o fallite restano nella cronologia
-        if (newStart) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); r.brks = []; }
+        delete r.pause;
       } else {
         if (S.routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
-        r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty, days, time,
-          start, pause, streak: 0, streakDate: addDaysStr(start, -1), best: 0, bonus, stars };
+        r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty,
+          freq, n: times, days, time, start, streak: 0, streakDate: addDaysStr(start, -1), best: 0, bonus, stars };
         S.routines.push(r);
       }
-      // le volte ancora da fare prendono i valori nuovi
+      // le volte ancora da fare prendono i valori nuovi (l'ora solo quelle da una volta al giorno)
       const months = new Set();
       S.missions.forEach(m => {
         if (m.rid === r.id && !m.done && !m.failed) {
-          Object.assign(m, { title, desc, rewards: { ...rewards }, penalty: { ...penalty }, dueTime: time, stars });
+          Object.assign(m, { title, desc, rewards: { ...rewards }, penalty: { ...penalty }, stars });
+          if (!m.n && !m.ps) m.dueTime = r.sr ? time : r.time;
           months.add(monthOf(m));
         }
       });
@@ -1329,7 +1436,6 @@
     $('mf-save').addEventListener('click', submitMission);
     $('mf-cancel').addEventListener('click', finishForm);
     $('mf-rep').addEventListener('click', () => setFormRepeat(!formRepeat));
-    $('mf-pause-clear').addEventListener('click', () => { $('mf-pause-from').value = ''; $('mf-pause-until').value = ''; });
 
     // Google Calendar per una routine: un evento che si ripete negli stessi giorni (l'avviso lo decide il calendario)
     // elenco delle routine
@@ -1338,6 +1444,15 @@
       if (r.days.length === 7) return T('r.everyday');
       return MISSIONS.weekOrder(firstDay()).filter(d => r.days.includes(d)).map(wdName).join(', ');
     }
+    // "Lun, Mer, Ven alle 07:00", "Ogni giorno, 3 volte al giorno", "3 volte a settimana", "Una volta al mese"
+    // (anche per un cambio in arrivo, r.nx: ha gli stessi campi)
+    function freqText(r) {
+      const f = r.freq || 'd', n = r.n || 1;
+      if (f === 'w') return TN('r.perweek', n);
+      if (f === 'm') return TN('r.permonth', n);
+      if (n > 1) return r.days.length === 7 ? T('r.perday', { n }) : daysText(r) + ', ' + T('r.perday', { n }).toLowerCase();
+      return daysText(r) + (r.time ? ' ' + T('r.at', { time: r.time }) : '');
+    }
     function routineCard(r) {
       const card = mk('article', 'mission');
       const sri = r.sr ? SR().info(r) : null;
@@ -1345,8 +1460,9 @@
       else if (r.sr) card.appendChild(routineTag(T('sr.tag.plain')));
       const head = mk('div', 'm-head');
       head.appendChild(mk('h3', 'm-title', r.title));
-      head.appendChild(mk('span', 'm-date', daysText(r) + (r.time ? ' ' + T('r.at', { time: r.time }) : '')));
+      head.appendChild(mk('span', 'm-date', freqText(r)));
       card.appendChild(head);
+      if (r.nx) card.appendChild(mk('p', 'm-routine', T('r.next', { when: fmtDay(r.nx.at), what: freqText(r.nx) })));
       if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
       const rsl = starsLine(r.stars);
       if (rsl) card.appendChild(rsl);
@@ -1354,16 +1470,11 @@
       card.appendChild(mk('p', 'm-desc', T('r.streak', { n: r.streak || 0 }) + ', ' + T('r.best', { n: r.best || 0 })));
       // serie di gruppo: anche dopo che il gruppo non c'è più si vede il record
       if (r.sr || r.gbest) card.appendChild(mk('p', 'm-desc', T('sr.streak', { n: SR().streakNow(r) }) + ', ' + T('r.best', { n: r.gbest || 0 })));
-      if (r.bonus) card.appendChild(mk('p', 'm-desc', T(r.sr ? 'sr.bonus' : 'r.bonus', { xp: fmt(r.bonus.xp), n: r.bonus.every })));
+      if (r.bonus) card.appendChild(mk('p', 'm-desc', T(r.sr ? 'sr.bonus' : isDaily(r) ? 'r.bonus' : 'r.bonus.' + r.freq, { xp: fmt(r.bonus.xp), n: r.bonus.every })));
       if (sri && sri.pending) card.appendChild(mk('p', 'm-shared warn', T('sr.changed', { name: sri.ownerName })));
       if (sri && !sri.pending && sri.pendNames) card.appendChild(mk('p', 'm-shared', T('sh.pend.others', { name: sri.pendNames })));
       if (sri && sri.role === 'o' && sri.invitedCount && !sri.invited) card.appendChild(mk('p', 'm-shared', T('sh.invited.wait', { name: sri.invitedNames })));
       if (r.start > todayStr()) card.appendChild(mk('p', 'm-routine', T('r.starts', { when: fmtDay(r.start) })));
-      if (r.pause && r.pause.until >= todayStr()) {
-        card.appendChild(mk('p', 'm-pen', r.pause.from > todayStr()
-          ? T('r.pause.plan', { from: fmtDay(r.pause.from), to: fmtDay(r.pause.until) })
-          : T('r.paused', { when: fmtDay(r.pause.until) })));
-      }
       const act = mk('div', 'm-actions');
       const rbtn = (cls, text, label, fn) => {
         const b = mk('button', 'btn small' + cls, text);

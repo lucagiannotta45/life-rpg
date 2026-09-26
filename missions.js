@@ -284,7 +284,8 @@
         const nx = r.nx;
         if (nx && validDate(nx.at) && nx.at > (it.at || r.start) && FREQS.includes(nx.freq)) {
           const nd = nx.freq === 'd' ? normDays(nx.days) : [];
-          if (nx.freq !== 'd' || nd.length) it.nx = { at: nx.at, freq: nx.freq, n: normTimes(nx.n), days: nd };
+          const nn = normTimes(nx.n);
+          if (nx.freq !== 'd' || nd.length) it.nx = { at: nx.at, freq: nx.freq, n: nn, days: nd, time: nx.freq === 'd' && nn === 1 && validTime(nx.time) ? nx.time : null };
         }
         if (typeof r.sr === 'string' && /^q[a-z0-9]{6,11}$/.test(r.sr)) {
           it.sr = r.sr; it.sh = r.sh === 'g' ? 'g' : 'o';
@@ -478,29 +479,35 @@
     const routineOf = (routines, m) => (m && m.rid ? routines.find(r => r.id === m.rid) || null : null);
     // quante volte mancano per completarla (0 = fatta)
     const missingOf = m => (m.done ? 0 : Math.max(1, (m.n || 1) - (m.p ? m.p.length : 0)));
+    // il giorno da cui varrebbe un cambio fatto oggi: il giorno dopo la fine del periodo in corso (ogni giorno: domani);
+    // per una routine non ancora iniziata, il suo primo giorno (il cambio vale subito)
+    function changeAt(r, today) {
+      if (anchorOf(r) > today) return anchorOf(r);
+      return addDaysStr(isDaily(r) ? today : periodAt(r, today).e, 1);
+    }
+    const sameShape = (a, b) => (a.freq || 'd') === (b.freq || 'd') && (a.n || 1) === (b.n || 1) && a.days.join() === b.days.join();
     // Cambiare frequenza, volte o giorni: vale dal giorno dopo la fine del periodo in corso (per una routine di ogni giorno:
     // da domani), così nessuna volta cambia regole a metà. La serie resta. Una routine non ancora iniziata cambia subito.
-    // c = { freq, n, days }; today = il giorno di oggi della routine (routineToday). Cambia la routine; restituisce il giorno
-    // da cui vale il cambio.
+    // c = { freq, n, days, time }; today = il giorno di oggi della routine (routineToday). L'ora va con il cambio (vale
+    // solo per una volta al giorno). Se frequenza, volte e giorni restano gli stessi non c'è nessun cambio in attesa: l'ora,
+    // se è cambiata, la mette chi chiama. Cambia la routine; restituisce il giorno da cui vale il cambio.
     function planChange(r, c, today) {
       const next = { freq: FREQS.includes(c.freq) ? c.freq : 'd', n: normTimes(c.n) };
       next.days = next.freq === 'd' ? normDays(c.days) : [];
+      next.time = next.freq === 'd' && next.n === 1 && validTime(c.time) ? c.time : null;
       delete r.nx;
       if (anchorOf(r) > today) {
         Object.assign(r, next);
-        if (r.freq !== 'd' || r.n > 1) r.time = null;
         return anchorOf(r);
       }
-      if (next.freq === (r.freq || 'd') && next.n === (r.n || 1) && next.days.join() === r.days.join()) return today;
-      const cur = isDaily(r) ? { e: today } : periodAt(r, today);
-      r.nx = { at: addDaysStr(cur.e, 1), ...next };
+      if (sameShape(next, r)) return today;
+      r.nx = { at: changeAt(r, today), ...next };
       return r.nx.at;
     }
     // il cambio arriva al suo primo giorno: da lì si contano i periodi nuovi
     function foldChange(r) {
-      const { at, freq, n, days } = r.nx;
-      Object.assign(r, { at, freq, n, days });
-      if (freq !== 'd' || n > 1) r.time = null;
+      const { at, freq, n, days, time } = r.nx;
+      Object.assign(r, { at, freq, n, days, time: freq === 'd' && n === 1 ? time || null : null });
       delete r.nx;
     }
     // completando una volta di una routine: la serie cresce solo se la completi entro la fine del suo periodo;
@@ -858,7 +865,7 @@
       startMs, dueEndMs, isLate, dueKey, notYet, nextChange,
       missionLists, dayLists, calendarMarks, lateMissions,
       gainXp, undoXp, penaltyXp,
-      WD_ALL, inPause, isDaily, anchorOf, dayCounts, periodAt, nextPeriod, occKey, occEnd, missingOf, planChange,
+      WD_ALL, inPause, isDaily, anchorOf, dayCounts, periodAt, nextPeriod, occKey, occEnd, missingOf, changeAt, planChange,
       occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay,
       applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,

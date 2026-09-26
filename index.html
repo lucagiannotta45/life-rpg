@@ -370,12 +370,26 @@
           <label for="mf-start" data-i18n="mf.start">Inizia dal</label>
           <input class="text-in date" id="mf-start" type="date">
         </div>
-        <p class="tip" data-i18n="mf.start.tip">Con la data di oggi la routine parte subito. Scegli un giorno più avanti per farla iniziare dopo.</p>
-        <p class="label" data-i18n="mf.days">Giorni in cui compare</p>
-        <div class="seg" id="mf-days" role="group"></div>
+        <p class="tip" id="mf-start-tip">Con la data di oggi la routine parte subito. Scegli un giorno più avanti per farla iniziare dopo. Dopo l'inizio la data non si cambia più.</p>
+        <p class="label" id="mf-freq-lbl" data-i18n="mf.freq">Ogni quanto</p>
+        <div class="seg" id="mf-freq" role="radiogroup" aria-labelledby="mf-freq-lbl">
+          <button type="button" role="radio" aria-checked="true" data-f="d" data-i18n="mf.freq.d">Ogni giorno</button>
+          <button type="button" role="radio" aria-checked="false" data-f="w" data-i18n="mf.freq.w">Ogni settimana</button>
+          <button type="button" role="radio" aria-checked="false" data-f="m" data-i18n="mf.freq.m">Ogni mese</button>
+        </div>
+        <div class="inline">
+          <label for="mf-times" id="mf-times-lbl">Quante volte al giorno</label>
+          <input class="xp-in" id="mf-times" type="number" min="1" max="999" step="1" inputmode="numeric" placeholder="1" autocomplete="off">
+        </div>
+        <p class="tip" id="mf-freq-tip"></p>
+        <div id="mf-days-box">
+          <p class="label" data-i18n="mf.days">Giorni in cui compare</p>
+          <div class="seg" id="mf-days" role="group"></div>
+        </div>
+        <p class="tip warn" id="mf-change-note" role="status" aria-live="polite" hidden></p>
         <p class="label" data-i18n="mf.bonus.h">Bonus per la serie (facoltativo)</p>
         <div class="inline">
-          <label for="mf-bonus-every" data-i18n="mf.bonus.every">Ogni quanti giorni di fila</label>
+          <label for="mf-bonus-every" id="mf-bonus-every-lbl">Ogni quanti giorni di fila</label>
           <input class="xp-in" id="mf-bonus-every" type="number" min="2" max="365" step="1" inputmode="numeric" placeholder="7" autocomplete="off">
         </div>
         <div class="inline">
@@ -383,19 +397,6 @@
           <input class="xp-in" id="mf-bonus-xp" type="number" min="1" step="1" inputmode="numeric" placeholder="50" autocomplete="off">
         </div>
         <p class="tip" data-i18n="mf.bonus.tip">Se completi la routine in tempo per quel numero di giorni di fila, ricevi il bonus. Lascia vuoto se non lo vuoi.</p>
-        <p class="label" data-i18n="mf.pause.h">Pausa (per esempio le vacanze)</p>
-        <div class="inline">
-          <label for="mf-pause-from" data-i18n="mf.pause.from">Dal (se vuoto, da oggi)</label>
-          <input class="text-in date" id="mf-pause-from" type="date">
-        </div>
-        <div class="inline">
-          <label for="mf-pause-until" data-i18n="mf.pause.until">Fino al (compreso)</label>
-          <input class="text-in date" id="mf-pause-until" type="date">
-        </div>
-        <div class="inline">
-          <button type="button" class="btn small" id="mf-pause-clear" data-i18n="mf.pause.clear">Togli pausa</button>
-        </div>
-        <p class="tip" data-i18n="mf.pause.tip">Nei giorni di pausa la routine non compare e la serie non si interrompe.</p>
       </div>
     </div>
 
