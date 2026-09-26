@@ -30,7 +30,7 @@
     const {
       MAX_PER_MONTH, MAX_MISSIONS, MAX_ROUTINES, pad2, isoDate, parseDate, todayStr, addDaysStr, monthOf, validDate, validTime,
       rewardTotal, rewardMatch, startMs, dueEndMs, isLate, notYet, WD_ALL, gcalUrl, gcalRoutineUrl,
-      MAX_TIMES, isDaily, changeAt, routineToday,
+      MAX_TIMES, MAX_EVERY, isDaily, changeAt, routineToday,
     } = MISSIONS;
     const nameSpan = key => D.nameSpan(key);   // in index.js è definito più avanti: si prende al momento dell'uso
     // missioni condivise (shared.js): nasce dopo questo file; finché non c'è, nessuna missione risulta condivisa
@@ -1196,9 +1196,9 @@
       let bonus = null;
       if (ev || bx) {
         const e = Number(ev), x = Number(bx);
-        if (!(Number.isInteger(e) && e >= 2 && e <= 365 && Number.isInteger(x) && x >= 1 && x <= MAX_XP)) {
-          return fail(T('mf.err.bonus', { max: fmt(MAX_XP) }), $('mf-bonus-every'));
-        }
+        const okE = Number.isInteger(e) && e >= 2 && e <= MAX_EVERY, okX = Number.isInteger(x) && x >= 1 && x <= MAX_XP;
+        // il messaggio parla di giorni, settimane o mesi; il cursore va sul campo da correggere
+        if (!okE || !okX) return fail(T(freq === 'd' ? 'mf.err.bonus' : 'mf.err.bonus.' + freq, { max: fmt(MAX_XP) }), $(okE ? 'mf-bonus-xp' : 'mf-bonus-every'));
         bonus = { every: e, xp: x };
       }
       const blk = SR().editBlock(r);   // routine di gruppo: serve il documento, e la connessione, per avvisare gli amici

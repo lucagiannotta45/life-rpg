@@ -126,6 +126,8 @@ test('routine salvate: giorni, bonus, giorni mancati', () => {
     brks: [{ d: '2026-03-09', n: 2 }, { d: '2026-03-03', n: 5 }, { d: '2026-03-03', n: 1 }, { d: 'boh', n: 1 }, { d: '2026-03-04', n: -1 }] }]);
   assert.deepEqual(r.days, [1, 3]);
   assert.equal(r.bonus, null, 'un bonus ogni 1 volta non vale');
+  assert.deepEqual(rou({ bonus: { every: 1000, xp: 5 } }).bonus, { every: 1000, xp: 5 }, 'nessun limite pratico verso l\'alto');
+  assert.equal(rou({ bonus: { every: 100001, xp: 5 } }).bonus, null, 'solo il tetto contro i dati rovinati');
   assert.equal(r.pause, undefined, 'le pause non ci sono più: una salvata prima si ignora');
   assert.equal(r.gc, 1);
   assert.deepEqual(r.brks, [{ d: '2026-03-03', n: 5 }, { d: '2026-03-09', n: 2 }], 'validi, senza doppioni, in ordine');

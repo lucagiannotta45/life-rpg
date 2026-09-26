@@ -36,6 +36,7 @@
     const KEEP_DAYS = 60;
     const MAX_BRKS = 30;         // periodi mancati ricordati per routine (per ridare la serie se li recuperi)
     const MAX_TIMES = 999;       // volte per periodo: non è un limite per chi gioca, serve solo a scartare i dati rovinati
+    const MAX_EVERY = 100000;    // bonus "ogni N di fila": come la serie (oltre non scatterebbe mai); solo contro i dati rovinati
     const FREQS = ['d', 'w', 'm'];   // frequenza di una routine: ogni giorno, ogni settimana, ogni mese
 
     /* ---------- date ---------- */
@@ -254,7 +255,7 @@
         const days = freq === 'd' ? normDays(r.days) : [];
         if (freq === 'd' && !days.length) continue;
         const b = r.bonus;
-        const bonus = b && Number.isInteger(b.every) && b.every >= 2 && b.every <= 365 && Number.isInteger(b.xp) && b.xp >= 1 && b.xp <= MAX_XP
+        const bonus = b && Number.isInteger(b.every) && b.every >= 2 && b.every <= MAX_EVERY && Number.isInteger(b.xp) && b.xp >= 1 && b.xp <= MAX_XP
           ? { every: b.every, xp: b.xp } : null;
         seen.add(id);
         out.push({
@@ -901,7 +902,7 @@
     }
 
     return {
-      MAX_PER_MONTH, MAX_MISSIONS, MAX_ROUTINES, KEEP_DAYS, MAX_TIMES, FREQS,
+      MAX_PER_MONTH, MAX_MISSIONS, MAX_ROUTINES, KEEP_DAYS, MAX_TIMES, MAX_EVERY, FREQS,
       pad2, isoDate, parseDate, todayStr, addDaysStr, daysBetween, addMonthsStr, monthOf, validDate, validTime,
       normalizeRewards, REWARD_WEIGHT, REWARD_BASE, rewardTotal, rewardMatch, normalizeStars,
       normalizeMissions, normalizeRoutines,

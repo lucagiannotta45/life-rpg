@@ -280,7 +280,7 @@ service cloud.firestore {
         && (n.get('pause', null) == null || (n.pause is map && n.pause.keys().hasOnly(['from', 'until'])
             && n.pause.from is string && n.pause.from.size() == 10 && n.pause.until is string && n.pause.until.size() == 10))
         && (n.bonus == null || (n.bonus is map && n.bonus.keys().hasOnly(['every', 'xp'])
-            && n.bonus.every is int && n.bonus.every >= 2 && n.bonus.every <= 365
+            && n.bonus.every is int && n.bonus.every >= 2 && n.bonus.every <= 100000
             && n.bonus.xp is int && n.bonus.xp >= 1 && n.bonus.xp <= 100000));
     }
     function okNewSrGuest(e) {
