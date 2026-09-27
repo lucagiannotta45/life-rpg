@@ -330,12 +330,13 @@ test('chi l\'ha creata: se l\'amico rifiuta (e non resta nessuno) il gruppo si s
   now(t, '2026-10-05');
   const { SR, S } = fakeWorld('uO', baseDoc({ members: ['uO'], g: {} }));
   const r = M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { Vigore: 10 }, freq: 'w', n: 3, start: '2026-09-25',
-    sr: ID, sh: 'o', tz: 'Europe/Rome', shn: ['Io'], gs: 2, gsd: '2026-09-25' }])[0];
+    sr: ID, sh: 'o', tz: 'Europe/Rome', shn: ['Io'], gs: 2, gsd: '2026-09-25', gbest: 5, streak: 4, best: 6 }])[0];
   S.routines.push(r);
   SR.evaluate();
   for (let i = 0; i < 5; i++) await new Promise(res => setImmediate(res));
   assert.deepEqual([r.sr, r.sh, r.shn], [undefined, undefined, undefined], 'non è più di gruppo (niente etichetta)');
-  assert.equal(r.gs, 2, 'la serie di gruppo raggiunta resta');
+  assert.deepEqual([r.gs, r.gsd, r.gbest], [undefined, undefined, undefined], 'serie e record di gruppo si tolgono');
+  assert.deepEqual([r.streak, r.best], [4, 6], 'quelli personali restano');
 });
 
 test('chi l\'ha creata: con un invito ancora senza risposta il gruppo resta', async t => {
@@ -386,4 +387,13 @@ test('annulla penalità in una routine di gruppo: vale solo per me, nel document
   assert.equal(writes.length, before, 'per il gruppo non conta: niente parte nel documento');
   assert.equal(r.streak, 4, 'la serie personale cresce');
   assert.equal(r.gs, undefined, 'la serie di gruppo no');
+});
+
+test('una routine non più di gruppo (dati di prima) perde serie e record di gruppo quando si legge', () => {
+  const r = M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { Vigore: 10 }, freq: 'w', start: '2026-09-25',
+    gs: 3, gsd: '2026-10-02', gbest: 7, gx: ['2026-09-25'], streak: 2, best: 5 }])[0];
+  assert.deepEqual([r.gs, r.gsd, r.gbest, r.gx, r.streak, r.best], [undefined, undefined, undefined, undefined, 2, 5]);
+  const g = M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { Vigore: 10 }, freq: 'w', start: '2026-09-25',
+    sr: ID, sh: 'o', gs: 3, gsd: '2026-10-02', gbest: 7 }])[0];
+  assert.deepEqual([g.gs, g.gsd, g.gbest], [3, '2026-10-02', 7], 'di gruppo: restano');
 });

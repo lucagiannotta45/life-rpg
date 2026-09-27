@@ -1593,7 +1593,7 @@
       card.appendChild(chips(r.rewards));
       card.appendChild(mk('p', 'm-desc', T('r.streak', { n: r.streak || 0 }) + ', ' + T('r.best', { n: r.best || 0 })));
       // serie di gruppo: anche dopo che il gruppo non c'è più si vede il record
-      if (r.sr || r.gbest) card.appendChild(mk('p', 'm-desc', T('sr.streak', { n: SR().streakNow(r) }) + ', ' + T('r.best', { n: r.gbest || 0 })));
+      if (r.sr) card.appendChild(mk('p', 'm-desc', T('sr.streak', { n: SR().streakNow(r) }) + ', ' + T('r.best', { n: r.gbest || 0 })));
       if (r.bonus) card.appendChild(mk('p', 'm-desc', T(r.sr ? 'sr.bonus' : isDaily(r) ? 'r.bonus' : 'r.bonus.' + r.freq, { xp: fmt(r.bonus.xp), n: r.bonus.every })));
       if (sri && sri.pending) card.appendChild(mk('p', 'm-shared warn', T('sr.changed', { name: sri.ownerName })));
       if (sri && !sri.pending && sri.pendNames) card.appendChild(mk('p', 'm-shared', T('sh.pend.others', { name: sri.pendNames })));

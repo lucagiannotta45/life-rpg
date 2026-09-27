@@ -32,7 +32,7 @@
  *   c'è: la serie di gruppo non cresce e non si interrompe (gx, nella tua routine). Chi salta non prende il bonus.
  *   La tua routine tiene una copia dei tuoi salti (skip), presa dal documento;
  * - la serie di gruppo non la scrive nessuno: ogni app la ricava dal documento, un giorno alla volta, e la salva
- *   nella sua routine (gs = serie, gsd = ultimo giorno "tutti insieme", gbest = record).
+ *   nella sua routine (gs = serie, gsd = ultimo giorno "tutti insieme", gbest = record), finché il gruppo c'è.
  *
  * Uso (in index.js):  const SR = window.LIFE_RPG_SHARED_ROUTINES.create(D, S);
  */
@@ -180,8 +180,11 @@
       if (rm && !rm.hidden) MUI().renderRoutines();
     }
     // la routine non è più collegata al gruppo: resta tua, come routine normale
+    // il gruppo non c'è più: la routine torna normale, senza serie, record e periodi saltati del gruppo
+    // (serie e record personali restano: sono tuoi)
     function unlink(r) {
       delete r.sr; delete r.sh; delete r.shn; delete r.tz;
+      delete r.gs; delete r.gsd; delete r.gbest; delete r.gx;
       saveRoutinesLocal();
     }
     // il documento non c'è più (gruppo sciolto, oppure non ne fai più parte): la routine resta tua

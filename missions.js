@@ -312,15 +312,16 @@
           if (names.length) it.shn = names;
           if (typeof r.tz === 'string' && r.tz && r.tz.length <= 64) it.tz = r.tz;
         }
-        // la serie di gruppo resta anche quando il gruppo non c'è più (si vede il record)
-        if (validDate(r.gsd)) { it.gs = nn(r.gs, 100000); it.gsd = r.gsd; }
-        if (nn(r.gbest, 100000)) it.gbest = nn(r.gbest, 100000);
+        // serie e record di gruppo: solo finché la routine è di gruppo. Finito il gruppo si tolgono (la routine torna
+        // normale; un gruppo nuovo riparte da zero, senza ereditare la serie di quello di prima)
+        if (it.sr && validDate(r.gsd)) { it.gs = nn(r.gs, 100000); it.gsd = r.gsd; }
+        if (it.sr && nn(r.gbest, 100000)) it.gbest = nn(r.gbest, 100000);
         if (r.gc) it.gc = 1;   // aggiunta a Google Calendar (vedi le missioni)
         // volte saltate (routine di gruppo: sono una copia di quelle segnate nel documento del gruppo)
         const sk = normSkips(r.skip);
         if (sk.length) it.skip = sk;
         // routine di gruppo: i periodi saltati da tutti (non contano per la serie di gruppo, come se non ci fossero)
-        const gx = Array.isArray(r.gx) ? [...new Set(r.gx.filter(validDate))].sort().slice(-MAX_SKIPS) : [];
+        const gx = it.sr && Array.isArray(r.gx) ? [...new Set(r.gx.filter(validDate))].sort().slice(-MAX_SKIPS) : [];
         if (gx.length) it.gx = gx;
         if (out.length >= MAX_ROUTINES) break;
       }
