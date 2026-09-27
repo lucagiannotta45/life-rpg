@@ -1,5 +1,5 @@
 # Life RPG — test automatici
-# A ogni modifica caricata su GitHub (e a ogni pull request) lancia "node --test"
+# A ogni modifica caricata su GitHub (e a ogni pull request) lancia "node --test" (in tre fusi orari)
 # e mostra il risultato nella scheda "Actions" del repository.
 name: Test
 
@@ -11,9 +11,17 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # gli stessi test con il "dispositivo" in fusi diversi: Italia, Brasile (indietro) e Giappone (avanti)
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [Europe/Rome, America/Sao_Paulo, Asia/Tokyo]
+    name: test (${{ matrix.tz }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: node --test
+        env:
+          TEST_TZ: ${{ matrix.tz }}
