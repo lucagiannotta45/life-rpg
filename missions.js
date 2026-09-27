@@ -16,6 +16,8 @@
  * - routine: ogni giorno (in certi giorni della settimana), ogni settimana o ogni mese, N volte per periodo;
  *   creazione delle "volte" di ogni periodo, contatore, serie e bonus, saltare una volta;
  *   cambi delle regole (tutto tranne titolo e descrizione) che valgono dal periodo successivo;
+ * - impegni: nelle missioni le modifiche (tranne titolo e descrizione) valgono dal giorno dopo, e una missione con
+ *   penalità (o una routine con una volta in corso) si elimina dal giorno dopo (vedi "impegni", più sotto);
  * - calendario: pallini dei giorni e routine previste; primo giorno della settimana (secondo la lingua dell'app);
  * - collegamenti "Aggiungi a Google Calendar".
  *
@@ -40,6 +42,7 @@
     const MAX_TIMES = 999;       // volte per periodo: non è un limite per chi gioca, serve solo a scartare i dati rovinati
     const MAX_EVERY = 100000;    // bonus "ogni N di fila": come la serie (oltre non scatterebbe mai); solo contro i dati rovinati
     const FREQS = ['d', 'w', 'm'];   // frequenza di una routine: ogni giorno, ogni settimana, ogni mese
+    const GRACE_MS = 15 * 60000;     // appena creata (15 minuti), una missione o una routine si corregge subito
 
     /* ---------- date ---------- */
     const pad2 = n => String(n).padStart(2, '0');
@@ -202,6 +205,20 @@
         if (led) it.c = led;
         const mz = Number(m.z);
         if (Number.isFinite(mz) && mz > 0) it.z = Math.floor(mz);
+        // ct = l'istante in cui l'hai creata (per i 15 minuti in cui si corregge subito)
+        const mct = Number(m.ct);
+        if (!it.rid && Number.isFinite(mct) && mct > 0) it.ct = Math.floor(mct);
+        // nx = le modifiche che valgono dal giorno at (XP, stelle, penalità, date); del = il giorno da cui sparisce
+        // (eliminata quando c'era un impegno in corso). Solo le missioni tue, non le volte delle routine né le condivise
+        if (!it.rid && !it.sid && m.nx && typeof m.nx === 'object' && validDate(m.nx.at)) {
+          const x = m.nx, rw = normalizeRewards(x.rewards);
+          if (Object.values(rw).some(v => v > 0)) {
+            const due = validDate(x.due) ? x.due : null, from = validDate(x.from) ? x.from : null;
+            it.nx = { at: x.at, rewards: rw, penalty: normalizeRewards(x.penalty), stars: normalizeStars(rw, x.stars),
+              due, dueTime: due && validTime(x.dueTime) ? x.dueTime : null, from, fromTime: from && validTime(x.fromTime) ? x.fromTime : null };
+          }
+        }
+        if (!it.rid && !it.sid && validDate(m.del)) it.del = m.del;
         if (m.failed && typeof m.failed === 'object' && validDate(m.failed.date)) {
           it.failed = {
             date: m.failed.date,
@@ -301,6 +318,11 @@
         });
         const ru = Number(r.u);
         if (Number.isFinite(ru) && ru > 0) out[out.length - 1].u = Math.floor(ru);   // istante dell'ultima modifica
+        // ct = quando l'hai creata (15 minuti per correggerla subito); del = il giorno da cui sparisce (eliminata con una
+        // volta in corso: quella resta, le prossime non arrivano più)
+        const rct = Number(r.ct);
+        if (Number.isFinite(rct) && rct > 0) out[out.length - 1].ct = Math.floor(rct);
+        if (validDate(r.del)) out[out.length - 1].del = r.del;
         // routine di gruppo (vedi shared-routines.js): sr = il documento condiviso, sh = il tuo ruolo ('o' = l'hai creata,
         // 'g' = sei stato invitato), shn = i nomi degli altri, tz = il fuso del gruppo (quello di chi l'ha creata),
         // gs / gsd / gbest = serie di gruppo, giorno dell'ultima volta "tutti insieme" e record
@@ -721,6 +743,7 @@
       const { rs, bonus, join, n } = streakStep(rt, m, routineToday(rt, now));
       const applied = gainXp(xp, m.rewards, bonus);
       m.done = { date: isoDate(new Date(now)), t, applied };
+      delete m.nx;   // completata con le regole di adesso: le modifiche in attesa non servono più
       let routineChanged = false;
       if (join) {
         // volta recuperata: la serie ridata si allunga di 1, come se l'avessi completata in tempo
@@ -758,6 +781,7 @@
       STATS.forEach(s => { pen[s.key] = (m.penalty[s.key] || 0) * missing; });
       const removed = pay ? penaltyXp(xp, pen) : normalizeRewards(null);
       m.failed = { date, t, applied: removed };
+      delete m.nx;   // fallita con le regole di adesso (le modifiche in attesa arrivavano troppo tardi)
       let routineChanged = false;
       if (m.re) {
         if (m.rj !== undefined && rt) { streakLose(rt, occKey(m), m.rj); routineChanged = true; }
@@ -802,6 +826,7 @@
     // il periodo (non saltato) che nel Calendario sta nel giorno ds: ogni giorno, quel giorno; settimanali e mensili,
     // l'ultimo giorno del periodo (il giorno della scadenza, come le volte già create). null se non c'è
     function plannedPeriod(r, ds) {
+      if (r.del && ds >= r.del) return null;   // eliminata: da quel giorno niente più volte (il giorno è dopo un periodo intero)
       const y = rulesOn(r, ds);
       if (isDaily(y)) return dayCounts(y, ds) ? { s: ds, e: ds } : null;
       if (ds < anchorOf(y)) return null;
@@ -909,6 +934,7 @@
           for (let guard = 0; p && guard < 3660; guard++, p = nextPeriod(r, addDaysStr(p.e, 1), createUntil)) {
             const id = occId(r, p.s);
             if (existing.has(id) || (gone && gone.has(id)) || missions.length >= MAX_MISSIONS) continue;
+            if (r.del && p.s >= r.del) continue;   // eliminata: dal giorno "del" non arrivano altre volte
             const occ = makeOcc(r, p, here);
             missions.push(occ);
             existing.add(id);
@@ -1027,6 +1053,75 @@
       return routines.filter(r => { const p = plannedPeriod(r, ds); return !!p && !ids.has(occId(r, p.s)); });
     }
 
+    /* ---------- impegni: modifiche ed eliminazioni dal giorno dopo ---------- */
+    // Una missione con una scadenza (e magari una penalità) è un impegno preso a mente lucida: il gioco non lo lascia
+    // sciogliere con un tocco all'ultimo momento. Quindi, come per le routine (dal periodo successivo):
+    // - le modifiche a XP, stelle, penalità e date valgono dal giorno dopo; titolo e descrizione subito. Così la
+    //   scadenza si può ancora rimandare, ma almeno un giorno prima; il giorno della scadenza resta com'è;
+    // - una missione con penalità (o una routine con una volta in corso che ha una penalità) si elimina dal giorno dopo:
+    //   fino ad allora si può ancora completare, e se scade la penalità si paga;
+    // - nessun impegno ancora da sciogliere: una missione non ancora disponibile, o creata da meno di 15 minuti (per
+    //   correggere un errore), cambia e si elimina subito. Anche una senza penalità si elimina subito.
+    // Le missioni condivise hanno le loro regole (shared.js): le modifiche le accettano gli amici, e c'è "Salta".
+    const inGrace = (x, now = Date.now()) => !!x && Number.isFinite(x.ct) && now - x.ct >= 0 && now - x.ct < GRACE_MS;
+    const hasPenalty = x => !!x && !!x.penalty && Object.values(x.penalty).some(v => v > 0);
+    // le modifiche a questa missione aspettano il giorno dopo?
+    const missionLocked = (m, now = Date.now()) => !!m && !m.rid && !m.sid && !m.done && !m.failed && !notYet(m) && !inGrace(m, now);
+    // le regole di una missione che cambiano solo dal giorno dopo, per confrontarle
+    const MISSION_RULES = ['rewards', 'penalty', 'stars', 'due', 'dueTime', 'from', 'fromTime'];
+    const missionRulesKey = x => JSON.stringify(MISSION_RULES.map(k => x[k] === undefined ? null : x[k]));
+    // Modificare XP, stelle, penalità o date (c = { rewards, penalty, stars, due, dueTime, from, fromTime }): subito
+    // se la missione non è bloccata (missionLocked), altrimenti dal giorno dopo (nx). Tornare alle regole di adesso
+    // toglie la modifica in attesa. Cambia la missione; restituisce il giorno da cui vale.
+    function missionNext(c) {
+      const rewards = normalizeRewards(c.rewards);
+      return { rewards, penalty: normalizeRewards(c.penalty), stars: normalizeStars(rewards, c.stars),
+        due: c.due || null, dueTime: c.due ? c.dueTime || null : null, from: c.from || null, fromTime: c.from ? c.fromTime || null : null };
+    }
+    // c cambia XP, stelle, penalità o date rispetto a come la missione è adesso?
+    const missionSameRules = (m, c) => missionRulesKey(missionNext(c)) === missionRulesKey(m);
+    function planMissionChange(m, c, today = todayStr(), now = Date.now()) {
+      const next = missionNext(c);
+      delete m.nx;
+      if (!missionLocked(m, now)) { Object.assign(m, next); return today; }
+      if (missionRulesKey(next) === missionRulesKey(m)) return today;
+      m.nx = { at: addDaysStr(today, 1), ...next };
+      return m.nx.at;
+    }
+    // le missioni con una modifica arrivata al suo giorno la prendono (se non sono già scadute: una missione scaduta
+    // fallisce con le regole di prima). Una finita la perde. Cambia le missioni; restituisce le missioni cambiate.
+    function applyMissionChanges(missions, today = todayStr()) {
+      const changed = [];
+      missions.forEach(m => {
+        if (!m.nx) return;
+        if (m.done || m.failed) { delete m.nx; changed.push(m); return; }
+        if (m.nx.at > today || isLate(m)) return;
+        const { at, ...next } = m.nx;
+        Object.assign(m, next);
+        delete m.nx;
+        changed.push(m);
+      });
+      return changed;
+    }
+    // eliminarla adesso non scioglie nessun impegno (altrimenti sparisce dal giorno dopo)
+    const missionDelNow = (m, now = Date.now()) => !missionLocked(m, now) || !hasPenalty(m);
+    // le missioni eliminate il cui giorno è arrivato (se non sono scadute: prima si paga la penalità)
+    const deletedDue = (missions, today = todayStr()) => missions.filter(m => m.del && m.del <= today && (m.done || m.failed || !isLate(m)));
+    // una routine si elimina subito se non ha una volta in corso con una penalità (o se l'hai appena creata)
+    function routineDelNow(r, missions, now = Date.now()) {
+      if (!r || !hasPenalty(r) || inGrace(r, now)) return true;
+      return !missions.some(m => m.rid === r.id && !m.done && !m.failed && !notYet(m));
+    }
+    // eliminarla dal giorno dopo la fine del periodo in corso: le volte già create restano, altre non ne arrivano
+    function scheduleRoutineDelete(r, today = routineToday(r)) {
+      delete r.nx;
+      r.del = changeAt(r, today);
+      return r.del;
+    }
+    // le routine eliminate il cui giorno è arrivato, senza più volte da fare (quelle rimaste finiscono prima)
+    const routinesGone = (routines, missions, today = todayStr()) => routines.filter(r => r.del && r.del <= today
+      && !missions.some(m => m.rid === r.id && !m.done && !m.failed));
+
     /* ---------- primo giorno della settimana ---------- */
     // Non è uguale ovunque: lunedì in Italia e quasi tutta l'Europa, domenica in Brasile, Stati Uniti, Giappone...,
     // sabato in parte del Medio Oriente. I numeri sono quelli di Date.getDay (0 = domenica, 1 = lunedì, 6 = sabato).
@@ -1118,6 +1213,8 @@
       foldedCopy, shapeOf, groupPeriods, nxParts,
       gcalUrl, gcalRoutineUrl,
       regionFirstDay, localeFirstDay, WEEK_PREFS, firstDayOf, weekOrder, weekStart, calOffset,
+      GRACE_MS, inGrace, hasPenalty, missionLocked, missionSameRules, planMissionChange, applyMissionChanges, missionDelNow, deletedDue,
+      routineDelNow, scheduleRoutineDelete, routinesGone,
     };
   }
   window.LIFE_RPG_MISSIONS = { create };

@@ -1192,6 +1192,7 @@
     p(b, T('info.mis.p5'));
     p(b, T('info.mis.p6'));
     p(b, T('info.mis.p8'));
+    p(b, T('info.mis.p9'));   // impegni: modifiche ed eliminazioni dal giorno dopo
 
     // amici
     b = section('friends', T('info.fr.h'));

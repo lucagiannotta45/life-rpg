@@ -827,3 +827,104 @@ test('regole a confronto (routine di gruppo): anche ricompense e penalità, camb
   assert.equal(r.rewards.Vigore, 12);
   assert.equal(M.shapeOf(r, '2026-10-02'), M.shapeOf(copy, '2026-10-02'), 'uguali: niente da riassegnare');
 });
+
+/* ---------- impegni: modifiche ed eliminazioni dal giorno dopo ---------- */
+const pen = o => ({ penalty: { Vigore: 5 }, due: '2026-03-10', ...o });
+const change = (m, o) => ({ rewards: m.rewards, penalty: m.penalty, stars: m.stars, due: m.due, dueTime: m.dueTime,
+  from: m.from, fromTime: m.fromTime, ...o });
+
+test('impegni: le modifiche a penalità e date valgono da domani, titolo e descrizione subito', t => {
+  now(t, '2026-03-05', '10:00');
+  const m = mis(pen());
+  assert.equal(M.missionLocked(m), true);
+  assert.equal(M.planMissionChange(m, change(m, { penalty: {}, due: '2026-03-20' }), '2026-03-05'), '2026-03-06');
+  assert.deepEqual([m.penalty.Vigore, m.due, m.nx.due, m.nx.penalty.Vigore], [5, '2026-03-10', '2026-03-20', 0], 'oggi resta com\'è');
+  // salvata e riletta, la modifica in attesa resta
+  const [again] = M.normalizeMissions([JSON.parse(JSON.stringify(m))]);
+  assert.deepEqual(again.nx, m.nx);
+  // tornare alle regole di adesso: nessuna modifica in attesa
+  M.planMissionChange(m, change(m, {}), '2026-03-05');
+  assert.equal(m.nx, undefined);
+  M.planMissionChange(m, change(m, { penalty: {} }), '2026-03-05');
+  t.mock.timers.setTime(at('2026-03-06', '00:05'));
+  assert.equal(M.applyMissionChanges([m], '2026-03-06').length, 1);
+  assert.deepEqual([m.penalty.Vigore, m.nx], [0, undefined], 'da domani: senza penalità');
+});
+
+test('impegni: il giorno della scadenza una modifica arriva troppo tardi (si paga la penalità di prima)', t => {
+  now(t, '2026-03-10', '20:00');
+  const m = mis(pen());
+  M.planMissionChange(m, change(m, { penalty: {}, due: '2026-03-15' }), '2026-03-10');
+  t.mock.timers.setTime(at('2026-03-11', '00:05'));
+  assert.equal(M.isLate(m), true);
+  assert.equal(M.applyMissionChanges([m], '2026-03-11').length, 0, 'scaduta: la modifica non arriva');
+  const x = xp({ Vigore: 50 });
+  M.applyFail(x, m, null, '2026-03-11', 1);
+  assert.deepEqual([x.Vigore, m.nx], [45, undefined], 'penalità di prima; la modifica sparisce');
+});
+
+test('impegni: completandola prima, gli XP sono quelli di adesso', t => {
+  now(t, '2026-03-05', '10:00');
+  const m = mis(pen());
+  M.planMissionChange(m, change(m, { rewards: { Vigore: 40 }, stars: null }), '2026-03-05');
+  const x = xp({});
+  M.applyComplete(x, m, null, 1);
+  assert.deepEqual([x.Vigore, m.nx], [10, undefined]);
+});
+
+test('impegni: non ancora disponibile o appena creata (15 minuti), tutto cambia subito', t => {
+  now(t, '2026-03-05', '10:00');
+  const later = mis(pen({ from: '2026-03-07' }));
+  assert.equal(M.missionLocked(later), false, 'non ancora disponibile');
+  M.planMissionChange(later, change(later, { penalty: {} }), '2026-03-05');
+  assert.deepEqual([later.penalty.Vigore, later.nx], [0, undefined]);
+  const fresh = mis(pen({ ct: at('2026-03-05', '09:50') }));
+  assert.equal(M.missionLocked(fresh), false, 'creata 10 minuti fa');
+  assert.equal(M.missionDelNow(fresh), true);
+  const old = mis(pen({ ct: at('2026-03-05', '09:40') }));
+  assert.equal(M.missionLocked(old), true, 'creata 20 minuti fa');
+  const [kept] = M.normalizeMissions([fresh]);
+  assert.equal(kept.ct, at('2026-03-05', '09:50'), 'l\'istante di creazione si salva');
+});
+
+test('impegni: una missione con penalità si elimina dal giorno dopo, senza penalità subito', t => {
+  now(t, '2026-03-05', '10:00');
+  assert.equal(M.missionDelNow(mis({})), true, 'senza penalità: subito');
+  assert.equal(M.missionDelNow(mis(pen({ sid: 'sabc1234', sh: 'o' }))), true, 'condivisa: ha le sue regole');
+  const m = mis(pen());
+  assert.equal(M.missionDelNow(m), false);
+  m.del = '2026-03-06';
+  const [again] = M.normalizeMissions([m]);
+  assert.equal(again.del, '2026-03-06');
+  assert.deepEqual(M.deletedDue([m], '2026-03-05'), [], 'oggi resta');
+  assert.deepEqual(M.deletedDue([m], '2026-03-06'), [m], 'domani sparisce');
+  // scaduta prima di sparire: prima fallisce (e paga), poi sparisce
+  const d = mis(pen({ due: '2026-03-05', del: '2026-03-06' }));
+  t.mock.timers.setTime(at('2026-03-06', '00:05'));
+  assert.deepEqual(M.deletedDue([d], '2026-03-06'), [], 'scaduta: prima la penalità');
+  M.applyFail(xp({ Vigore: 50 }), d, null, '2026-03-06', 1);
+  assert.deepEqual(M.deletedDue([d], '2026-03-06'), [d]);
+});
+
+test('impegni: una routine con una volta in corso si elimina alla fine del periodo; la volta resta', t => {
+  now(t, '2026-03-05', '10:00');
+  const r = rou();
+  let list = openApp([r], [], '2026-03-05');
+  assert.equal(M.routineDelNow(r, list), false, 'volta di oggi con penalità');
+  assert.equal(M.routineDelNow(rou({ penalty: {} }), list), true, 'senza penalità: subito');
+  assert.equal(M.routineDelNow({ ...r, ct: at('2026-03-05', '09:55') }, list), true, 'appena creata: subito');
+  assert.equal(M.scheduleRoutineDelete(r, '2026-03-05'), '2026-03-06');
+  const [again] = M.normalizeRoutines([r]);
+  assert.equal(again.del, '2026-03-06');
+  assert.deepEqual(M.plannedRoutines([r], '2026-03-07', new Set()), [], 'nel calendario non ci sono più volte future');
+  assert.deepEqual(M.routinesGone([r], list, '2026-03-06'), [], 'la volta di ieri è ancora da chiudere');
+  t.mock.timers.setTime(at('2026-03-06', '00:05'));
+  list = openApp([r], list, '2026-03-06');
+  assert.equal(occ(list, r, '2026-03-06'), undefined, 'non arrivano altre volte');
+  // (le volte scadute, come fa l'app all'apertura: quella di ieri e le altre ancora aperte)
+  list.filter(m => !m.done && !m.failed).forEach(m => M.applyFail(xp({ Vigore: 50 }), m, r, '2026-03-06', 1));
+  assert.deepEqual(M.routinesGone([r], list, '2026-03-06'), [r], 'chiusa l\'ultima volta, sparisce');
+  // settimanale: sparisce dopo la fine della settimana in corso
+  const w = rouP();
+  assert.equal(M.scheduleRoutineDelete(w, '2026-09-28'), '2026-10-02');
+});

@@ -48,6 +48,8 @@
     const SR = () => D.SR || NOSR;
 
     const cap1 = s => s.charAt(0).toUpperCase() + s.slice(1);
+    // la data a metà frase: senza la maiuscola che fmtDay mette all'inizio ("dal sabato 3 ottobre")
+    const midDay = ds => parseDate(ds).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
     // primo giorno della settimana (0 = domenica, 1 = lunedì, 6 = sabato): scelto nelle impostazioni, oppure, in
     // automatico, secondo la lingua dell'app (italiano: lunedì; inglese e portoghese del Brasile: domenica).
     // Le regole sono in missions.js.
@@ -301,14 +303,44 @@
       return out;
     }
     function syncRoutines() {
-      routinesDay = todayStr();
+      const today = todayStr();
+      routinesDay = today;
+      // impegni (missions.js): le modifiche delle missioni arrivate al loro giorno; le missioni e le routine eliminate
+      // il cui giorno è arrivato (una missione scaduta prima paga la penalità, una routine prima finisce le sue volte)
+      const touched = MISSIONS.applyMissionChanges(S.missions, today);
+      const gone = MISSIONS.deletedDue(S.missions, today);
+      if (gone.length) { tombMissions(gone); S.missions = S.missions.filter(m => !gone.includes(m)); }
+      new Set(touched.concat(gone).map(monthOf)).forEach(touchMonth);
+      const goneR = MISSIONS.routinesGone(S.routines, S.missions, today);
+      if (goneR.length) { goneR.forEach(r => tombRoutine(r.id)); S.routines = S.routines.filter(r => !goneR.includes(r)); saveRoutinesLocal(); }
       // settimanali e mensili di prima: passano ai periodi del calendario alla fine del periodo in corso (missions.js)
       if (S.routines.map(r => MISSIONS.calMigrate(r, firstDay())).some(Boolean)) saveRoutinesLocal();
-      const res = MISSIONS.routineDay(S.routines, S.missions, todayStr(), Date.now(), goneIds());
+      const res = MISSIONS.routineDay(S.routines, S.missions, today, Date.now(), goneIds());
       S.missions = res.missions;
       if (res.routinesChanged) saveRoutinesLocal();
       if (res.changed) res.months.forEach(touchMonth);
-      return res.changed;
+      return res.changed || touched.length > 0 || gone.length > 0 || goneR.length > 0;
+    }
+    // "Ripristina": una missione o una routine eliminata, prima che sparisca, torna com'era
+    function restoreMission(id) {
+      const m = S.missions.find(x => x.id === id);
+      if (!m || !m.del) return;
+      delete m.del;
+      touchMonth(monthOf(m));
+      sfx('save');
+      renderMissionViews();
+      missionMsg(T('msg.restored', { title: m.title }), 'good');
+    }
+    function restoreRoutine(id) {
+      const r = S.routines.find(x => x.id === id);
+      if (!r || !r.del || r.del <= todayStr()) return;   // (dal suo giorno le volte nuove non ci sono più: troppo tardi)
+      delete r.del;
+      saveRoutinesLocal();
+      syncRoutines();
+      sfx('save');
+      renderMissionViews();
+      if (!rmodal.hidden) renderRoutines();
+      missionMsg(T('msg.restored', { title: r.title }), 'good');
     }
 
     // le penalità scattano appena la missione scade: all'apertura, al ritorno sulla pagina e, con l'app aperta, entro pochi secondi
@@ -474,6 +506,10 @@
         head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), txt + (shi && shi.ownerWhen && !m.done && !failedNow ? ' ' + shi.ownerWhen : '')));
       } else if (notYet(m)) head.appendChild(mk('span', 'm-date', T('m.from', { when: fromLabel(m) })));
       card.appendChild(head);
+      // impegni: eliminata (sparisce domani) o con modifiche che valgono da domani
+      if (m.del && !m.done && !m.failed) card.appendChild(mk('p', 'm-shared warn', T('m.deleting')));
+      else if (m.del) card.appendChild(mk('p', 'm-shared', T('m.deleting.over')));
+      else if (m.nx && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared', T('m.next')));
       // calendario, settimanale o mensile ancora da fare: quale periodo (il giorno mostrato è solo la scadenza)
       if (inCal && m.ps && rtn && !m.done && !failedNow) {
         const kind = perKind(rtn, m.ps);
@@ -544,6 +580,7 @@
       } else if (m.done) {
         // condivisa: non si annulla; routine di gruppo: non dopo che l'avete fatta tutti (la serie di gruppo l'ha contata)
         if (!m.sid && SR().canUndo(m)) act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
+        if (m.del) act.appendChild(btn('', T('btn.restore'), T('aria.restore'), () => restoreMission(m.id)));
       } else if (failedNow) {
         // fallita: l'esito resta (niente "Annulla penalità" né "Riprogramma": prima della scadenza si completa o si salta)
       } else if (open) {
@@ -586,11 +623,13 @@
         // "Modifica": non su una missione scaduta (come "Completa": la scadenza non si sposta più), non su una volta di una
         // routine che non c'è più; una routine di gruppo la modifica solo chi l'ha creata (chi è in sospeso sceglie qui,
         // o nell'elenco delle routine)
-        if (!isLate(m) && !(m.rid && !rtn) && !(rtn && rtn.sh === 'g')) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+        // (eliminata, o di una routine eliminata: non si modifica più, si può solo ripristinare)
+        if (!isLate(m) && !m.del && !(m.rid && !rtn) && !(rtn && (rtn.sh === 'g' || rtn.del))) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+        if (m.del) act.appendChild(btn('', T('btn.restore'), T('aria.restore'), () => restoreMission(m.id)));
         // routine: "Invita" anche qui (come "Modifica"), per tutta la routine; solo chi l'ha creata, finché c'è posto
-        if (rtn && SR().canInvite(rtn)) act.appendChild(btn('', T('sh.invite'), T('sr.invite.aria'), () => SR().openInvite(rtn.id)));
+        if (rtn && !rtn.del && SR().canInvite(rtn)) act.appendChild(btn('', T('sh.invite'), T('sr.invite.aria'), () => SR().openInvite(rtn.id)));
         if (sri && sri.pending) act.append(btn(' add', T('sh.accept.change'), T('sh.accept.change'), () => SR().acceptChange(rtn.id)), exitBtn(rtn));
-        if (SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
+        if (!m.del && SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
         if (shi && shi.invited) act.appendChild(btn('', T('sh.cancel'), T('sh.cancel'), () => SH().cancelInvite(m.id)));
       }
       if (act.childElementCount) card.appendChild(act);   // una routine fallita non ha pulsanti
@@ -1165,8 +1204,6 @@
       syncTime();
       paintChangeNote();
     }
-    // la data a metà frase: senza la maiuscola che fmtDay mette all'inizio ("dal sabato 3 ottobre")
-    const midDay = ds => parseDate(ds).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
     // le regole della routine che stai modificando come si vedono nel modulo aprendolo: quelle del cambio in attesa, se
     // ne ha uno con le ricompense, altrimenti quelle di adesso
     const formSource = r => (r ? (r.nx && r.nx.rewards ? r.nx : r) : null);
@@ -1190,7 +1227,8 @@
       const t = routineTimeOk() && validTime($('mf-time').value) ? $('mf-time').value : null;
       const same = r && formFreq === (r.freq || 'd') && timesNow() === (r.n || 1) && days.join() === r.days.join()
         && t === (r.time || null) && formValsKey(r) === routineValsKey(r);
-      note.hidden = !r || r.start > today || !!same;
+      // (appena creata: per 15 minuti le modifiche valgono subito)
+      note.hidden = !r || r.start > today || MISSIONS.inGrace(r) || !!same;
       if (note.hidden) return;
       let when = changeAt(r, today);
       // settimane e mesi del calendario: dal primo periodo intero dopo quel giorno
@@ -1267,12 +1305,14 @@
       // (ha i campi di una routine: con il modulo delle missioni verrebbe fuori una missione a metà)
       if (m0 && m0.rid) { if (routineOf(m0)) openRoutineForm(m0.rid); return; }
       if (m0 && m0.sid && m0.sh === 'g') return;   // una missione condivisa la modifica solo chi l'ha creata
+      if (m0 && m0.del) return;   // eliminata: si può solo ripristinare
       // condivisa: la modifica deve arrivare agli amici (documento, connessione, prima della scadenza). Lo si dice subito,
       // non dopo aver compilato il modulo
       const blk = m0 && m0.sid ? SH().editBlock(m0) : '';
       if (blk) { missionMsg(blk, 'bad', true); sfx('err'); return; }
       editingId = id; editingRid = null; routinesBack = false;
-      editingFrom = m0 ? m0.from : null;
+      // con modifiche in attesa, il modulo mostra quelle (sono quelle da cambiare)
+      editingFrom = m0 ? (m0.nx || m0).from : null;
       $('mf-rep-field').hidden = !!m0;          // una missione già creata non diventa routine
       $('mf-rep-toggle').hidden = false;
       // se la fai diventare una routine: parte da oggi, ogni giorno, una volta
@@ -1281,22 +1321,27 @@
       $('mf-start').disabled = false; $('mf-start-tip').textContent = T('mf.start.tip'); $('mf-start').min = todayStr(); $('mf-start').max = addDaysStr(todayStr(), 365); $('mf-start').value = todayStr();
       setFormRepeat(false);
       const m = id ? S.missions.find(x => x.id === id) : null;
+      const v = m ? m.nx || m : null;   // XP, penalità e date: quelli in attesa, se ci sono
       $('t-mform').textContent = m ? T('mf.edit') : T('mf.new');
       $('mf-title').value = m ? m.title : '';
       $('mf-desc').value = m ? m.desc : '';
       STATS.forEach(s => {
-        xpInputs[s.key].value = m && m.rewards[s.key] ? String(m.rewards[s.key]) : '';
-        penInputs[s.key].value = m && m.penalty && m.penalty[s.key] ? String(m.penalty[s.key]) : '';
+        xpInputs[s.key].value = v && v.rewards[s.key] ? String(v.rewards[s.key]) : '';
+        penInputs[s.key].value = v && v.penalty && v.penalty[s.key] ? String(v.penalty[s.key]) : '';
       });
-      initRewardStars(m ? m.rewards : null, m ? m.stars : null);
+      initRewardStars(v ? v.rewards : null, v ? v.stars : null);
       $('mf-date').min = todayStr();
       $('mf-from').min = todayStr();
-      $('mf-date').value = m ? (m.due || '') : (dateStr || '');
-      $('mf-from').value = m && !m.rid ? (m.from || '') : '';
-      $('mf-from-time').value = m && !m.rid && m.fromTime ? m.fromTime : '';
-      $('mf-time').value = m && m.dueTime ? m.dueTime : '';
+      $('mf-date').value = v ? (v.due || '') : (dateStr || '');
+      $('mf-from').value = v && !m.rid ? (v.from || '') : '';
+      $('mf-from-time').value = v && !m.rid && v.fromTime ? v.fromTime : '';
+      $('mf-time').value = v && v.dueTime ? v.dueTime : '';
       syncTime();
-      setPenOn(!!(m && m.penalty && STATS.some(s => m.penalty[s.key] > 0)));
+      setPenOn(!!(v && v.penalty && STATS.some(s => v.penalty[s.key] > 0)));
+      // impegni: le modifiche valgono da domani (se scade oggi, ormai solo titolo e descrizione)
+      const mnote = $('mf-mchange-note'), locked = !!m && MISSIONS.missionLocked(m);
+      mnote.hidden = !locked;
+      if (locked) mnote.textContent = T(m.due && m.due <= todayStr() ? 'mf.mchange.today' : 'mf.mchange');
       setDescOpen(!!(m && m.desc));
       $('mf-del').hidden = !m || (!!m.sid && SH().joined(m));   // condivisa e accettata: si può solo abbandonare
       mfDelArm(false);
@@ -1307,6 +1352,8 @@
     function openRoutineForm(rid) {
       const r = rid ? S.routines.find(x => x.id === rid) : null;
       if (r && r.sh === 'g') { missionMsg(T('sr.err.guest'), 'bad', true); sfx('err'); return; }   // la modifica solo chi l'ha creata
+      if (r && r.del) return;   // eliminata: si può solo ripristinare
+      $('mf-mchange-note').hidden = true;
       // routine di gruppo: la modifica deve arrivare agli amici, quindi servono il documento e la connessione. Lo si dice
       // subito, non dopo aver compilato il modulo
       const blk = r ? SR().editBlock(r) : '';
@@ -1396,6 +1443,7 @@
       if (!started && start === today && freq === 'd' && times === 1 && time
         && MISSIONS.timePassedToday({ freq, n: 1, days, start, streakDate: '' }, time, today)) { start = addDaysStr(today, 1); movedStart = true; }
       const newStart = !r || start !== r.start;
+      let redo = [];   // volte rifatte con le regole nuove (routine appena creata)
       if (r) {
         // titolo e descrizione cambiano subito (anche nelle volte ancora da fare, qui sotto)
         Object.assign(r, { title, desc });
@@ -1409,12 +1457,20 @@
         // Settimane e mesi del calendario; una routine di gruppo di prima ci passa solo cambiando frequenza (altrimenti
         // gli amici dovrebbero riaccettare le regole per una modifica al titolo)
         const cal = freq !== 'd' && (!r.sr || r.cal || freq !== (r.freq || 'd'));
+        // appena creata (15 minuti): è una correzione, vale subito, anche per le volte già create che non hai ancora
+        // toccato (si ricreano con le regole giuste)
+        const fresh = started && MISSIONS.inGrace(r);
         MISSIONS.planChange(r, { freq, n: times, days, time, ...(cal ? { cal: 1, wk: wkFor(r, freq) } : {}), rewards, penalty, stars: formStars(r), bonus },
-          routineToday(r), !started);
+          routineToday(r), !started || fresh);
+        if (fresh) {
+          redo = S.missions.filter(m => m.rid === r.id && !m.done && !m.failed && !(m.p && m.p.length));
+          S.missions = S.missions.filter(m => !redo.includes(m));
+          r.made = '';
+        }
       } else {
         if (S.routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
         r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty,
-          freq, n: times, days, time, start, streak: 0, streakDate: addDaysStr(start, -1), best: 0, bonus, stars,
+          freq, n: times, days, time, start, streak: 0, streakDate: addDaysStr(start, -1), best: 0, bonus, stars, ct: Date.now(),
           ...MISSIONS.calOf(freq, { cal: 1, wk: firstDay() }) };   // settimane e mesi del calendario
         S.routines.push(r);
       }
@@ -1432,6 +1488,13 @@
       if (r.sr) SR().afterEdit(r);   // gli amici della routine di gruppo ricevono le modifiche
       const wasEdit = !!editingRid;
       syncRoutines();
+      // le volte rifatte che con le regole nuove non ci sono più (per esempio un giorno tolto): eliminate davvero
+      if (redo.length) {
+        const back = new Set(S.missions.map(m => m.id));
+        const lost = redo.filter(m => !back.has(m.id));
+        if (lost.length) tombMissions(lost);
+        redo.forEach(m => touchMonth(monthOf(m)));
+      }
       sfx('save');
       finishForm();
       renderMissionViews();
@@ -1446,6 +1509,17 @@
       // routine di gruppo: prima si scioglie il gruppo sul server (agli amici la routine resta, come routine normale)
       if (r.sr && !(await SR().beforeDelete(r))) { mfDelArm(false); return; }
       if (!S.routines.includes(r)) return;
+      // impegni: con una volta in corso che ha una penalità, la routine sparisce alla fine del periodo in corso. Quella
+      // volta resta da fare (e la sua penalità vale); le prossime non arrivano più (missions.js)
+      if (!MISSIONS.routineDelNow(r, S.missions)) {
+        const when = MISSIONS.scheduleRoutineDelete(r);
+        saveRoutinesLocal();
+        sfx('del');
+        finishForm();
+        renderMissionViews();
+        missionMsg(T('msg.routine.del.later', { title: r.title, when: midDay(when) }) + (r.gc ? ' ' + T('msg.gcal.also') : ''), '', true);
+        return;
+      }
       const drop = S.missions.filter(m => m.rid === r.id && !m.done && !m.failed);
       const months = new Set(drop.map(monthOf));
       tombMissions(drop);
@@ -1515,27 +1589,43 @@
       // la disponibilità deve iniziare prima della scadenza (giorno e ora)
       if (from && due && startMs({ from, fromTime }) >= dueEndMs({ due, dueTime })) return fail(T('mf.err.from'), $('mf-from'));
       let m = editingId ? S.missions.find(x => x.id === editingId) : null;
+      let later = false;   // le modifiche valgono da domani
       if (m) {
         if (m.done) return fail(T('mf.err.done'), null);
         // fallita (o scaduta) mentre il modulo era aperto: l'esito resta, la scadenza non si sposta più
         if (m.failed || isLate(m)) return fail(T('mf.err.late'), null);
-        if (m.sid) { const blk = SH().editBlock(m); if (blk) return fail(blk, null); }
-        Object.assign(m, { title, desc, rewards, penalty, due, dueTime, from, fromTime, stars });
-        if (m.sid) SH().afterEdit(m);   // anche l'amico vede la missione cambiata
+        // stelle: se non le hai toccate restano quelle che c'erano (una missione di prima può non averle)
+        const c = { rewards, penalty, stars: mfStarsTouched ? stars : (m.nx || m).stars || null, due, dueTime, from, fromTime };
+        if (m.sid) {
+          // condivisa: cambia subito, e gli amici accettano le regole nuove (shared.js)
+          const blk = SH().editBlock(m);
+          if (blk) return fail(blk, null);
+          Object.assign(m, { title, desc, ...c });
+          SH().afterEdit(m);   // anche l'amico vede la missione cambiata
+        } else {
+          // impegni (missions.js): XP, stelle, penalità e date valgono da domani; titolo e descrizione subito. Il giorno
+          // della scadenza ormai non cambiano più, e una scadenza nuova deve arrivare dopo che la modifica vale
+          if (MISSIONS.missionLocked(m) && !MISSIONS.missionSameRules(m, c)) {
+            if (m.due && m.due <= todayStr()) return fail(T('mf.mchange.today'), null);
+            if (due && due <= todayStr()) return fail(T('mf.err.duelater'), $('mf-date'));
+          }
+          Object.assign(m, { title, desc });
+          later = MISSIONS.planMissionChange(m, c) > todayStr();
+        }
       } else {
         const created = todayStr();
         if (S.missions.filter(x => monthOf(x) === created.slice(0, 7)).length >= MAX_PER_MONTH) {
           return fail(T('mf.err.month', { max: MAX_PER_MONTH }), null);
         }
         if (S.missions.length >= MAX_MISSIONS) return fail(T('mf.err.total'), null);
-        m = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title, desc, rewards, penalty, due, dueTime, from, fromTime, created, done: null, failed: null, stars };
+        m = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title, desc, rewards, penalty, due, dueTime, from, fromTime, created, done: null, failed: null, stars, ct: Date.now() };
         S.missions.push(m);
       }
       touchMonth(monthOf(m));
       sfx('save');
       closeModal();
       renderMissionViews();
-      missionMsg(T(editingId ? 'msg.edited' : 'msg.created', { title }), 'good');
+      missionMsg(T(editingId ? 'msg.edited' : 'msg.created', { title }) + (later ? ' ' + T('msg.mission.later') : ''), 'good', later);
       if (m.due) { const d = parseDate(m.due); calY = d.getFullYear(); calM = d.getMonth(); selDate = m.due; renderCalendar(); }
     }
     // selezione di missioni completate o fallite, per eliminarle (gli XP guadagnati o persi restano)
@@ -1606,6 +1696,18 @@
       const blk = m.sid ? SH().beforeDelete(m) : '';
       if (blk) { mfMsg(blk); sfx('err'); return; }
       if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
+      // impegni: una missione con penalità già disponibile sparisce domani; fino ad allora si può completare, e se scade
+      // la penalità si paga (missions.js)
+      if (!m.sid && !MISSIONS.missionDelNow(m)) {
+        m.del = addDaysStr(todayStr(), 1);
+        delete m.nx;
+        touchMonth(monthOf(m));
+        sfx('del');
+        closeModal();
+        renderMissionViews();
+        missionMsg(T('msg.del.later', { title: m.title }) + (m.gc ? ' ' + T('msg.gcal.also') : ''), '', true);
+        return;
+      }
       // inviti ancora in attesa: prima si annullano sul server; se nel frattempo un amico ha accettato, la missione resta
       if (m.sid && !(await SH().release(m))) { mfDelArm(false); closeModal(); renderMissionViews(); return; }
       if (!S.missions.includes(m)) return;
@@ -1654,6 +1756,7 @@
         card.appendChild(mk('p', 'm-routine', T('r.next.vals', { when: fmtDay(r.nx.at) })));
         card.appendChild(chips(r.nx.rewards));
       }
+      if (r.del) card.appendChild(mk('p', 'm-shared warn', T('r.deleting', { when: midDay(r.del) })));
       if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
       const rsl = starsLine(r.stars);
       if (rsl) card.appendChild(rsl);
@@ -1674,7 +1777,10 @@
         b.addEventListener('click', fn);
         return b;
       };
-      if (r.sh === 'g') {
+      if (r.del) {
+        // eliminata: si può solo ripristinare (finché non è arrivato il suo giorno)
+        if (r.del > todayStr()) act.appendChild(rbtn(' add', T('btn.restore'), T('aria.restore'), () => restoreRoutine(r.id)));
+      } else if (r.sh === 'g') {
         // routine di un amico: la modifica solo lui; tu puoi accettare le sue modifiche, oppure uscire (la routine resta tua)
         if (sri && sri.pending) act.appendChild(rbtn(' add', T('sh.accept.change'), T('sh.accept.change'), () => SR().acceptChange(r.id)));
         if (sri) act.appendChild(exitBtn(r));
