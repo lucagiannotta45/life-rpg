@@ -98,6 +98,7 @@ test('chi l\'ha creata: si ritira, resta nel documento con ow; chi è dentro e g
   await W.SH.withdraw(SID);
   const w = W.writes.at(-1).data;
   assert.deepEqual(Object.keys(w).sort(), ['ow', 'updated'], 'solo ow: nessuno viene tolto');
+  assert.equal(w.ow, 'ORA_DEL_SERVER', 'con l\'ora del server (da lì si contano le 24 ore degli inviti)');
   assert.equal(W.S.missions.length, 0);
 });
 
@@ -176,4 +177,40 @@ test('fallita: chi si è ritirato non compare tra chi non ha fatto la sua parte'
   const W = fakeWorld('uG', doc, [myCopy('g')]);
   assert.equal(W.SH.outcome(doc), 'failed');
   assert.deepEqual(W.SH.failInfo(doc), { kind: 'mine', name: 'Luca' }, 'manca solo la mia parte; Anna non c\'entra');
+});
+
+/* ---------- inviti di una missione da cui chi l'ha creata si è ritirato: scadono dopo 24 ore ---------- */
+const HOUR = 3600000;
+test('inviti dopo il ritiro di chi l\'ha creata: validi per 24 ore, poi scadono', () => {
+  const recent = baseDoc({ uG: guest('Marco'), uL: guest('Io', { j: false, a: 0 }) }, { ow: Date.now() - 23 * HOUR });
+  const W1 = fakeWorld('uL', recent, []);
+  assert.equal(W1.SH.invites().length, 1, 'dopo 23 ore l\'invito c\'è ancora');
+  const old = baseDoc({ uG: guest('Marco'), uL: guest('Io', { j: false, a: 0 }) }, { ow: Date.now() - 25 * HOUR });
+  const W2 = fakeWorld('uL', old, []);
+  assert.equal(W2.SH.invites().length, 0, 'dopo 25 ore è scaduto');
+  assert.equal(W2.SH.invitesExpired(old), true);
+});
+
+test('resta un solo amico e l\'invito in attesa è scaduto: la missione diventa sua', async () => {
+  const doc = baseDoc({ uG: guest('Io'), uL: guest('Luca', { j: false, a: 0 }) }, { ow: Date.now() - 25 * HOUR });
+  const W = fakeWorld('uG', doc, [myCopy('g')]);
+  W.SH.evaluate();
+  await flush();
+  assert.equal(W.S.missions[0].sid, undefined, 'non si aspetta più Luca');
+  assert.deepEqual(W.deleted, [SID]);
+});
+
+test('resta un solo amico e l\'invito in attesa è di meno di 24 ore fa: si aspetta ancora', async () => {
+  const doc = baseDoc({ uG: guest('Io'), uL: guest('Luca', { j: false, a: 0 }) }, { ow: Date.now() - 2 * HOUR });
+  const W = fakeWorld('uG', doc, [myCopy('g')]);
+  W.SH.evaluate();
+  await flush();
+  assert.equal(W.S.missions[0].sid, SID);
+  assert.deepEqual(W.deleted, []);
+});
+
+test('ritiro appena fatto (ora del server come arriva da Firebase): l\'invito vale', () => {
+  const doc = baseDoc({ uG: guest('Marco'), uL: guest('Io', { j: false, a: 0 }) }, { ow: { toMillis: () => Date.now() } });
+  const W = fakeWorld('uL', doc, []);
+  assert.equal(W.SH.invites().length, 1);
 });

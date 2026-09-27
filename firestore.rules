@@ -100,7 +100,8 @@ service cloud.firestore {
     // Un documento per missione. Lo leggono e scrivono solo chi l'ha creata (owner) e gli amici invitati.
     //   members: [owner, amico1, amico2, amico3] (serve per la ricerca e per la lettura)
     //   g: { uid: { n: nome, j: ha accettato, a: versione delle regole accettata, d: quando ha fatto la sua parte, s: ha visto l'esito } }
-    //   ow: chi l'ha creata si è ritirato ("Ritirati"): non conta più e la missione non la modifica più nessuno
+    //   ow: l'ora del server in cui chi l'ha creata si è ritirato ("Ritirati"): non conta più e la missione non la
+    //   modifica più nessuno; gli inviti senza risposta scadono 24 ore dopo
     //   wd: { uid: nome } degli amici che si sono ritirati (per mostrarlo agli altri)
     //   (left: nei documenti di prima, chi aveva "abbandonato": la missione era fallita per tutti)
     // Ognuno può cambiare solo la sua parte; nessuno può completare dopo la scadenza (conta l'ora del server).
@@ -122,7 +123,11 @@ service cloud.firestore {
     function anyJoined(o) { return gIn(o, 1) || gIn(o, 2) || gIn(o, 3); }
     // superata: c'è almeno un amico dentro, e tutti (chi l'ha creata e ogni amico dentro) hanno fatto la loro parte, senza modifiche in sospeso
     function gDoneOk(o, i) { return !gIn(o, i) || (gAt(o, i).a == o.ver && gAt(o, i).d != null); }
-    function ownerOut(o) { return o.get('ow', false) == true; }
+    function ownerOut(o) { return o.get('ow', null) != null; }
+    // gli inviti senza risposta di una missione da cui chi l'ha creata si è ritirato: scaduti dopo 24 ore
+    function invitesExpired(o) { return ownerOut(o) && request.time > o.ow + duration.value(24, 'h'); }
+    // l'unico amico dentro sei tu (gli altri posti di members sono vuoti o inviti senza risposta)
+    function onlyMeIn(o, i) { return !gIn(o, i) || o.members[i] == me(); }
     function allDone(o) { return anyJoined(o) && (o.oDone != null || ownerOut(o)) && gDoneOk(o, 1) && gDoneOk(o, 2) && gDoneOk(o, 3); }
     // ancora aperta: nessuno ha abbandonato e non è già superata
     function shOpen(o) { return o.left == '' && !allDone(o); }
@@ -177,7 +182,7 @@ service cloud.firestore {
         (k.hasOnly(['oDone', 'updated']) && shOpen(o) && shInTime(o) && okTimeOrNull(n.oDone))
         // ritirarsi (solo se almeno un amico è dentro, prima della scadenza, senza aver fatto la propria parte):
         // resta nel documento con ow; chi è dentro e gli inviti senza risposta restano
-        || (k.hasOnly(['ow', 'updated']) && anyJoined(o) && shOpen(o) && shInTime(o) && o.oDone == null && n.ow == true)
+        || (k.hasOnly(['ow', 'updated']) && anyJoined(o) && shOpen(o) && shInTime(o) && o.oDone == null && n.ow == request.time)
         // segnare di aver visto l'esito
         || (k.hasOnly(['seenO', 'updated']) && n.seenO == true && shFinal(o))
         // modificare la missione; se cambiano XP, penalità o scadenza la versione sale di uno (gli amici dovranno riaccettare)
@@ -219,7 +224,7 @@ service cloud.firestore {
     }
     function shGuestEntry(o, e, ne, ek) {
       // accettare l'invito (solo se siete ancora amici e prima della scadenza)
-      return (ek.hasOnly(['n', 'j', 'a']) && !e.j && shOpen(o) && shInTime(o)
+      return (ek.hasOnly(['n', 'j', 'a']) && !e.j && shOpen(o) && shInTime(o) && !invitesExpired(o)
           && ne.j == true && ne.a == o.ver && shortStr(ne.n, 30) && areFriends(o.owner))
         // accettare le regole nuove dopo una modifica
         || (ek.hasOnly(['a']) && e.j && shOpen(o) && shInTime(o) && ne.a == o.ver)
@@ -241,8 +246,10 @@ service cloud.firestore {
       return (me() == o.owner && !anyJoined(o))
         // finita, e l'esito l'hanno visto tutti quelli che dovevano vederlo (chi l'ha creata e si è ritirato non serve)
         || (me() in o.members && shFinal(o) && (me() == o.owner || o.seenO || ownerOut(o)) && allSeen(o))
-        // chi l'ha creata si è ritirato ed è rimasto un solo amico (senza inviti in attesa): la missione è diventata sua
-        || (ownerOut(o) && o.members.size() == 2 && o.members[1] == me());
+        // chi l'ha creata si è ritirato ed è rimasto un solo amico dentro, senza inviti in attesa (o scaduti):
+        // la missione è diventata sua
+        || (ownerOut(o) && me() in o.g && o.g[me()].j && onlyMeIn(o, 1) && onlyMeIn(o, 2) && onlyMeIn(o, 3)
+            && (o.members.size() == 2 || invitesExpired(o)));
     }
 
     // ---------- routine di gruppo con fino a 3 amici (shared-routines.js) ----------
