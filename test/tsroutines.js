@@ -210,3 +210,118 @@ function fakeWorldWithSH(uid, SH) {
   SR.start();
   return { SR, S: w.S, writes: w.writes };
 }
+
+/* ---------- "Salta" nelle routine di gruppo ---------- */
+// regola: il periodo è "insieme" se nessuno l'ha mancato e almeno uno l'ha completato; saltato da tutti = non c'è
+test('salta: chi salta non conta, la serie di gruppo cresce se gli altri l\'hanno fatta (anche uno solo)', t => {
+  now(t, '2026-10-12');
+  const k = { 20260925: { uO: at('2026-09-26') }, 20261002: { uG: at('2026-10-03') } };
+  const x = { 20260925: { uG: at('2026-09-25', '09:00') }, 20261002: { uO: at('2026-10-02', '09:00') } };
+  const { SR, S, bonuses } = fakeWorld('uG', baseDoc({ k, x }));
+  SR.evaluate();
+  const r = S.routines[0];
+  assert.deepEqual([r.gs, r.gsd], [2, '2026-10-02'], 'una settimana ho saltato io, l\'altra Anna');
+  assert.equal(bonuses.length, 0, 'nessun bonus: la mia volta completata qui non c\'è');
+  assert.equal(M.groupStreakNow(r), 2);
+});
+
+test('salta: se saltano tutti il periodo non c\'è (la serie non cresce e non si interrompe)', t => {
+  now(t, '2026-10-12');
+  const k = { 20260925: { uO: at('2026-09-26'), uG: at('2026-09-27') }, 20261009: { uO: at('2026-10-10'), uG: at('2026-10-11') } };
+  const x = { 20261002: { uO: at('2026-10-01', '20:00'), uG: at('2026-10-02', '09:00') } };
+  const { SR, S } = fakeWorld('uG', baseDoc({ k, x }));
+  SR.evaluate();
+  const r = S.routines[0];
+  assert.deepEqual([r.gs, r.gsd, r.gx], [2, '2026-10-09', ['2026-10-02']], 'la settimana del 2 ottobre non c\'è');
+  // a metà della settimana dopo quella saltata: la serie che si vede è ancora quella di prima
+  t.mock.timers.setTime(at('2026-10-09', '12:00'));
+  const r2 = { ...r, gs: 1, gsd: '2026-09-25' };
+  assert.equal(M.groupStreakNow(r2), 1, 'l\'ultimo periodo chiuso è saltato da tutti: si guarda quello prima');
+});
+
+test('salta: se uno salta e un altro manca, la serie di gruppo si interrompe', t => {
+  now(t, '2026-10-12');
+  const k = { 20260925: { uO: at('2026-09-26'), uG: at('2026-09-27') } };
+  const x = { 20261002: { uO: at('2026-10-02', '09:00') } };
+  const { SR, S } = fakeWorld('uG', baseDoc({ k, x }));
+  SR.evaluate();
+  const r = S.routines[0];
+  assert.deepEqual([r.gs, r.gsd, r.gx], [1, '2026-09-25', undefined]);
+  assert.equal(M.groupStreakNow(r), 0);
+});
+
+test('salta: un salto arrivato dopo la fine del periodo non conta', t => {
+  now(t, '2026-10-12');
+  const k = { 20260925: { uO: at('2026-09-26') } };
+  const x = { 20260925: { uG: at('2026-10-02', '00:30') } };
+  const { SR, S } = fakeWorld('uG', baseDoc({ k, x }));
+  SR.evaluate();
+  assert.equal(S.routines[0].gs, undefined);
+});
+
+test('salta: nella scheda si vede chi ha saltato', t => {
+  now(t, '2026-10-10');
+  const k = { 20261009: { uG: at('2026-10-10') } };
+  const x = { 20261009: { uO: at('2026-10-09', '09:00') } };
+  const { SR } = fakeWorld('uG', baseDoc({ k, x }));
+  SR.evaluate();
+  const info = SR.occInfo({ id: ID + '-20261009', rid: ID, ps: '2026-10-09', gd: '2026-10-15', due: '2026-10-15' });
+  assert.deepEqual([info.together, info.skipCount, info.skipNames, info.missingNames, info.doneCount], [true, 1, 'Anna', '', 0]);
+});
+
+test('salta: il mio salto va nel documento, e la mia routine ne tiene la copia (anche da un altro dispositivo)', async t => {
+  now(t, '2026-10-03');
+  const { SR, S, writes } = fakeWorld('uG', baseDoc());
+  SR.evaluate();
+  D_sync(S);
+  const r = S.routines[0];
+  const m = S.missions.find(y => y.id === ID + '-20261002');
+  assert.ok(m && SR.canSkip(r));
+  // come fa il pulsante: salto nella routine, volta tolta, poi il documento
+  M.applySkip(r, '2026-10-02', m);
+  S.missions = S.missions.filter(y => y !== m);
+  assert.equal(await SR.writeSkip(r, '2026-10-02', true), true);
+  assert.deepEqual([writes.at(-1).data['x.20261002.uG'], writes.at(-1).data.lk], ['ORA_DEL_SERVER', '20261002']);
+  SR.evaluate();
+  assert.deepEqual(r.skip, [{ d: '2026-10-02' }], 'la copia resta (il documento ha già il salto, in attesa del server)');
+  D_sync(S);
+  assert.ok(!S.missions.some(y => y.id === m.id), 'la volta non torna');
+  // tolto (per esempio da un altro dispositivo): la volta della settimana in corso torna
+  assert.equal(await SR.writeSkip(r, '2026-10-02', false), true);
+  assert.equal(writes.at(-1).data['x.20261002.uG'], 'TOGLI');
+  SR.evaluate();
+  assert.equal(r.skip, undefined);
+  assert.ok(S.missions.some(y => y.id === m.id && !y.done), 'la volta è tornata');
+});
+
+test('salta: saltata su un altro dispositivo, la volta ancora da fare esce anche qui', t => {
+  now(t, '2026-10-03');
+  const x = { 20261002: { uG: at('2026-10-02', '09:00') } };
+  const { SR, S } = fakeWorld('uG', baseDoc({ x }));
+  SR.evaluate();
+  D_sync(S);
+  const r = S.routines[0];
+  assert.deepEqual(r.skip, [{ d: '2026-10-02' }]);
+  assert.ok(!S.missions.some(y => y.id === ID + '-20261002'), 'nessuna volta da far fallire');
+});
+
+test('salta: in sospeso (regole nuove da accettare) non si salta', t => {
+  now(t, '2026-10-03');
+  const { SR, S } = fakeWorld('uG', baseDoc({ ver: 2 }));
+  SR.evaluate();
+  assert.equal(SR.canSkip(S.routines[0]), false);
+});
+
+test('salta: diventando di gruppo, i salti della volta in corso e futuri passano al documento', async t => {
+  now(t, '2026-10-05');
+  const r = M.normalizeRoutines([{ id: 'r2', title: 'Corsa', rewards: { Vigore: 4 }, days: [1, 3], start: '2026-09-28',
+    skip: [{ d: '2026-09-30' }, { d: '2026-10-05' }, { d: '2026-10-07' }] }])[0];
+  const SHfake = { pickFriends: o => o.send([{ uid: 'uF', name: 'Marco' }]), joinNames: l => l.join(', '), myName: () => 'Anna' };
+  const W = fakeWorldWithSH('uO', SHfake);
+  W.S.routines.push(r);
+  await W.SR.openInvite(r.id);
+  for (let i = 0; i < 10; i++) await new Promise(res => setImmediate(res));
+  const keys = W.writes.filter(w => w.data && Object.keys(w.data).some(k => k.startsWith('x.'))).map(w => w.data.lk);
+  assert.deepEqual(keys, ['20261005', '20261007'], 'oggi e mercoledì; quello già passato no');
+  assert.deepEqual(r.skip.map(x => x.d), ['2026-10-05', '2026-10-07']);
+});

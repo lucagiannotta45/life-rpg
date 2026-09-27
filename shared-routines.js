@@ -26,6 +26,11 @@
  * - ognuno ha la routine nel suo elenco, con sr (il documento) e sh (il ruolo: 'o' = l'hai creata, 'g' = invitato).
  *   Per gli invitati l'id della routine è l'id del documento: così due dispositivi dello stesso giocatore creano
  *   la stessa routine (e le stesse volte), non due copie;
+ * - "Salta" (dal Calendario, per malattia, lutto, lezione annullata…): i salti sono in x: { AAAAMMGG: { uid: ora del
+ *   server } }, come le parti fatte. Chi salta non conta per il gruppo in quel periodo: il periodo è "insieme" se nessuno
+ *   l'ha mancato e almeno uno l'ha completato (anche se tutti gli altri hanno saltato). Se saltano tutti, il periodo non
+ *   c'è: la serie di gruppo non cresce e non si interrompe (gx, nella tua routine). Chi salta non prende il bonus.
+ *   La tua routine tiene una copia dei tuoi salti (skip), presa dal documento;
  * - la serie di gruppo non la scrive nessuno: ogni app la ricava dal documento, un giorno alla volta, e la salva
  *   nella sua routine (gs = serie, gsd = ultimo giorno "tutti insieme", gbest = record).
  *
@@ -35,7 +40,7 @@
   'use strict';
   const MAX_GUESTS = 3;
   function create(D, S) {
-    const { T, MISSIONS, sfx, touchMonth, lsSet, saveRoutinesLocal } = D;
+    const { T, MISSIONS, sfx, touchMonth, lsSet, saveRoutinesLocal } = D;   // (e D.tombMissions, per le volte saltate altrove)
     const {
       todayStr, addDaysStr, monthOf, normalizeRoutines, zoneDay, groupDueMs, localDue, hereTz, occId,
       groupStep, MAX_ROUTINES, KEEP_DAYS, nextPeriod, occKey, occEnd, shapeOf, groupPeriods, foldedCopy,
@@ -106,13 +111,34 @@
     }
     // c'è una parte, anche non ancora confermata dal server (per le schede)
     const partSeen = (d, day, uid) => { const row = d.k && d.k[keyOf(day)]; return !!row && uid in row; };
-    // il periodo che inizia il giorno "day" (e finisce il giorno "last") l'avete completato tutti, in tempo
-    // (servono almeno due partecipanti)
+    // quando (ora del server) uid ha saltato il periodo: null se non l'ha saltato o non è ancora confermato
+    function skipAt(d, day, uid) {
+      const row = d.x && d.x[keyOf(day)];
+      const v = row ? row[uid] : null;
+      return typeof v === 'number' ? v : v && typeof v.toMillis === 'function' ? v.toMillis() : null;
+    }
+    const skipSeen = (d, day, uid) => { const row = d.x && d.x[keyOf(day)]; return !!row && uid in row; };
+    // come è andato il periodo per uid: 'done' (completato in tempo), 'skip' (saltato in tempo) o null (mancato, o non ancora)
+    function stateOf(d, day, uid, end) {
+      const at = partAt(d, day, uid);
+      if (at != null && at <= end) return 'done';
+      const sk = skipAt(d, day, uid);
+      return sk != null && sk <= end ? 'skip' : null;
+    }
+    // il periodo che inizia il giorno "day" (e finisce il giorno "last") l'avete fatto "insieme": nessuno l'ha mancato
+    // (chi ha saltato non conta) e almeno uno l'ha completato in tempo (servono almeno due partecipanti)
     function together(d, t, day, last = day) {
       const parts = partsOf(d, day);
       if (parts.length < 2) return false;
       const end = groupDueMs(t, last);
-      return parts.every(u => { const at = partAt(d, day, u); return at != null && at <= end; });
+      const st = parts.map(u => stateOf(d, day, u, end));
+      return st.every(x => x) && st.includes('done');
+    }
+    // l'hanno saltato tutti (in tempo): per la serie di gruppo quel periodo non c'è
+    function allSkipped(d, t, day, last = day) {
+      const parts = partsOf(d, day);
+      const end = groupDueMs(t, last);
+      return parts.length > 0 && parts.every(u => stateOf(d, day, u, end) === 'skip');
     }
     const routineBySr = id => S.routines.find(r => r.sr === id) || null;
     const docOfR = r => (r && r.sr && uidOf === me() ? docs[r.sr] || null : null);
@@ -205,10 +231,12 @@
         }
         const names = [d.owner].concat(joinedOf(d).map(x => x.uid)).filter(u => u !== me()).map(u => nameOf(d, u).slice(0, 30)).slice(0, MAX_GUESTS);
         if (!same(r.shn || [], names)) { if (names.length) r.shn = names; else delete r.shn; changed = true; }
+        if (mirrorSkips(r, d)) changed = true;
         if (groupEval(r, d)) changed = true;
         if (role === 'o') prune(id, d);
       });
-      if (changed) { saveRoutinesLocal(); if (MUI().syncRoutines()) MUI().renderMissionViews(); }
+      // (le volte saltate o riprese su un altro dispositivo cambiano l'elenco: si ridisegna comunque)
+      if (changed) { saveRoutinesLocal(); MUI().syncRoutines(); MUI().renderMissionViews(); }
     }
     // l'invitato riceve la routine nel suo elenco (id = id del documento)
     function addLocal(id, d) {
@@ -289,29 +317,39 @@
       const oldest = addDaysStr(today, -KEEP_DAYS);
       const from = r.gsd && r.gsd >= oldest ? r.gsd : (t.start > oldest ? t.start : oldest);
       let changed = false;
+      // i periodi già finiti che avete saltato tutti (negli ultimi giorni che il documento ricorda)
+      const gx = groupPeriods(t, t.start > oldest ? t.start : oldest, today)
+        .filter(p => groupDueMs(p.t, p.e) <= now && allSkipped(d, p.t, p.s, p.e)).map(p => p.s);
+      if (!same(r.gx || [], gx)) { if (gx.length) r.gx = gx; else delete r.gx; changed = true; }
       for (const p of groupPeriods(t, from, today)) {
         if (r.gsd && p.s <= r.gsd) continue;
         if (!partsOf(d, p.s).includes(me()) || !together(d, p.t, p.s, p.e)) continue;
-        const { n, bonus } = groupStep({ ...p.t, gs: r.gs, gsd: r.gsd }, p.s);
+        const { n, bonus } = groupStep({ ...p.t, gs: r.gs, gsd: r.gsd, gx: r.gx }, p.s);
         const m = S.missions.find(x => x.id === occId(r, p.s));
         const hasBonus = Object.keys(bonus).length > 0 && m && m.done && !m.done.gb;
         // il bonus si dà solo quando non c'è una finestra aperta: si riprova più tardi (la serie aspetta con lui)
         if (hasBonus && !MUI().groupBonus(m, bonus, n)) break;
         r.gs = n; r.gsd = p.s; r.gbest = Math.max(r.gbest || 0, n);
         changed = true;
-        if (!hasBonus && p.s <= today && today <= p.e) { msg('sr.msg.together', { title: r.title, n }, 'good'); sfx('ok'); }
+        if (!hasBonus && p.s <= today && today <= p.e) {
+          const skips = partsOf(d, p.s).some(u => skipSeen(d, p.s, u));   // qualcuno ha saltato: "fatta da chi c'era"
+          msg(skips ? 'sr.msg.together.skip' : 'sr.msg.together', { title: r.title, n }, 'good'); sfx('ok');
+        }
       }
       return changed;
     }
     // i giorni vecchi si tolgono dal documento, uno per volta (lo fa solo chi l'ha creata)
     const pruning = new Set();
     function prune(id, d) {
-      if (!online() || pruning.has(id) || !d.k) return;
+      if (!online() || pruning.has(id) || (!d.k && !d.x)) return;
       const limit = keyOf(addDaysStr(todayStr(), -(KEEP_DAYS + 2)));
-      const old = Object.keys(d.k).filter(k => /^\d{8}$/.test(k) && k < limit).sort()[0];
-      if (!old) return;
+      const oldOf = m => Object.keys(m || {}).filter(k => /^\d{8}$/.test(k) && k < limit).sort()[0];
+      // prima le parti fatte (k), poi i salti (x)
+      const f = oldOf(d.k) ? 'k' : oldOf(d.x) ? 'x' : '';
+      if (!f) return;
+      const old = oldOf(d[f]);
       pruning.add(id);
-      ref(id).update({ ['k.' + old]: FV().delete(), lk: old, updated: Date.now() })
+      ref(id).update({ [f + '.' + old]: FV().delete(), lk: old, updated: Date.now() })
         .catch(e => console.warn('sroutines prune', e && e.code, e))
         .then(() => pruning.delete(id));
     }
@@ -351,13 +389,17 @@
       const parts = partsOf(d, day);
       const mine = roleOf(d) === 'g' ? d.g[me()] : null;
       const others = parts.filter(u => u !== me());
+      const skipped = others.filter(u => skipSeen(d, day, u) && !partSeen(d, day, u));
       return {
         pending: isPend(d, mine),
         inGroup: parts.includes(me()) && parts.length > 1,
         together: together(d, t.nx && day >= t.nx.at ? foldedCopy(t) : t, day, occEnd(m)),
         doneNames: joinNames(others.filter(u => partSeen(d, day, u)).map(u => nameOf(d, u))),
         doneCount: others.filter(u => partSeen(d, day, u)).length,
-        missingNames: joinNames(others.filter(u => !partSeen(d, day, u)).map(u => nameOf(d, u))),
+        missingNames: joinNames(others.filter(u => !partSeen(d, day, u) && !skipped.includes(u)).map(u => nameOf(d, u))),
+        // chi ha saltato quel periodo (non conta per il gruppo)
+        skipNames: joinNames(skipped.map(u => nameOf(d, u))),
+        skipCount: skipped.length,
       };
     }
     // la serie di gruppo di adesso (0 se un giorno previsto è passato senza "tutti insieme")
@@ -409,6 +451,60 @@
       : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sortKeys(v[k])])) : v;
     const sameK = (a, b) => JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
 
+    /* ---------- saltare una volta ---------- */
+    // I tuoi salti di una routine di gruppo stanno nel documento (x): la routine ne tiene una copia (skip), che serve
+    // a non creare le volte saltate e a tenere ferma la tua serie. Le volte già segnate (p) restano quelle della copia.
+    const skipSyncing = new Set();   // routine che stanno ancora mandando i loro salti al documento (appena diventate di gruppo)
+    function mirrorSkips(r, d) {
+      if (skipSyncing.has(r.id)) return false;
+      const days = Object.keys(d.x || {}).filter(k => /^\d{8}$/.test(k) && d.x[k] && me() in d.x[k]).map(dayOfKey).sort();
+      const old = r.skip || [];
+      const next = days.map(ds => { const o = old.find(x => x.d === ds); return o ? { ...o } : { d: ds }; });
+      if (same(old, next)) return false;
+      // saltata da un altro tuo dispositivo: la volta ancora da fare esce dall'elenco (se no fallirebbe qui)
+      next.filter(x => !old.some(o => o.d === x.d)).forEach(x => {
+        const m = S.missions.find(y => y.id === occId(r, x.d));
+        if (!m || m.done || m.failed) return;
+        if (m.p && m.p.length) x.p = m.p.slice();
+        if (D.tombMissions) D.tombMissions([m]);
+        S.missions = S.missions.filter(y => y !== m);
+        touchMonth(monthOf(m));
+      });
+      const gone = old.filter(o => !next.some(x => x.d === o.d));
+      if (next.length) r.skip = next; else delete r.skip;
+      // salto tolto da un altro dispositivo: la volta del periodo in corso torna (quelle future arriveranno da sole)
+      gone.forEach(o => {
+        if (S.missions.some(y => y.id === occId(r, o.d))) return;
+        const plan = MISSIONS.unskipPlan({ ...r, skip: [o] }, o.d);
+        if (plan && plan.occ) { S.missions.push(plan.occ); touchMonth(monthOf(plan.occ)); }
+      });
+      return true;
+    }
+    // si può saltare (o togliere un salto): con il documento arrivato, la connessione e le regole attuali accettate
+    function canSkip(r) {
+      if (!r || !r.sr) return true;
+      const d = docOfR(r);
+      if (!d || !isDoc(d) || !online() || !roleOf(d)) return false;
+      return roleOf(d) === 'o' || isActive(d, d.g[me()]);
+    }
+    // segna (on) o toglie il tuo salto del periodo che inizia il giorno s; true se il server l'ha accettato.
+    // La copia del documento cambia subito, così nel frattempo la routine non perde il salto.
+    function writeSkip(r, s, on) {
+      const d = docOfR(r);
+      if (!r || !r.sr || !d || !online()) return Promise.resolve(false);
+      const key = keyOf(s);
+      const row = { ...((d.x || {})[key] || {}) };
+      const before = me() in row ? row[me()] : undefined;
+      const put = v => {
+        const x = { ...(d.x || {}) }, rw = { ...(x[key] || {}) };
+        if (v === undefined) delete rw[me()]; else rw[me()] = v;
+        x[key] = rw; d.x = x; saveCache();
+      };
+      put(on ? null : undefined);
+      return update(r.sr, { ['x.' + key + '.' + me()]: on ? FV().serverTimestamp() : FV().delete(), lk: key })
+        .then(() => true)
+        .catch(e => { console.warn('sroutines skip', e && e.code, e); put(before); fail(errKey(e)); return false; });
+    }
     // la tua parte di oggi: la si segna (on) o la si toglie (annullando) nel documento; gli XP sono già tuoi
     // (con più volte per periodo si segna solo quando la completi, cioè con l'ultima volta: come le ricompense)
     function markPart(r, m, on) {
@@ -475,11 +571,16 @@
           ...f, ver: 1, k: {}, lk: '', created: now, updated: now,
         };
         r.sr = id; r.sh = 'o';
-        const skipBak = r.skip; delete r.skip;   // routine di gruppo: il giorno è di tutti, niente volte saltate
+        // i salti della volta in corso e di quelle future passano al documento del gruppo (dopo averlo creato)
+        const today = todayStr();
+        const sendSkips = (r.skip || []).filter(x => { const p = MISSIONS.periodStarting(r, x.d); return p && p.e >= today; }).map(x => x.d);
+        skipSyncing.add(r.id);
         docs[id] = { ...data, _pw: true };
         try { await ref(id).set(data); }
-        catch (e) { delete r.sr; delete r.sh; delete r.tz; delete docs[id]; if (skipBak) r.skip = skipBak; throw e; }
+        catch (e) { skipSyncing.delete(r.id); delete r.sr; delete r.sh; delete r.tz; delete docs[id]; throw e; }
         saveCache();
+        (async () => { for (const ds of sendSkips) await writeSkip(r, ds, true); })()
+          .finally(() => { skipSyncing.delete(r.id); evaluate(); });
         // le volte già create (di oggi, o del periodo in corso) appartengono ora al giorno del gruppo (gd = l'ultimo giorno)
         S.missions.forEach(m => { if (m.rid === r.id && !m.gd && m.due) { m.gd = m.due; touchMonth(monthOf(m)); } });
         saveRoutinesLocal();
@@ -608,8 +709,9 @@
     return {
       start, reset, evaluate, info, occInfo, streakNow, canInvite, editBlock, canUndo, markPart, afterEdit,
       openInvite, invites, acceptInvite, declineInvite, acceptChange, exit, dissolve, beforeDelete, cancelInvite,
+      canSkip, writeSkip,
       // per le prove
-      together, partsOf, tplOf,
+      together, allSkipped, partsOf, tplOf,
     };
   }
   window.LIFE_RPG_SHARED_ROUTINES = { create, MAX_GUESTS };

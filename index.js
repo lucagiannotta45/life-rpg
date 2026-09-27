@@ -1289,7 +1289,7 @@
   });
   /* ----- routine di gruppo (shared-routines.js): usano la finestra "Invita amici" di shared.js ----- */
   SR = window.LIFE_RPG_SHARED_ROUTINES.create({
-    T, GAME, MISSIONS, sfx, touchMonth, lsSet, saveRoutinesLocal, MUI,
+    T, GAME, MISSIONS, sfx, touchMonth, lsSet, saveRoutinesLocal, MUI, tombMissions,
     get SH() { return SH; },
   }, {
     get missions() { return missions; }, set missions(v) { missions = v; },

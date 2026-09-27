@@ -316,9 +316,12 @@
         if (validDate(r.gsd)) { it.gs = nn(r.gs, 100000); it.gsd = r.gsd; }
         if (nn(r.gbest, 100000)) it.gbest = nn(r.gbest, 100000);
         if (r.gc) it.gc = 1;   // aggiunta a Google Calendar (vedi le missioni)
-        // volte saltate (non per le routine di gruppo: lì il giorno è di tutti)
-        const sk = it.sr ? [] : normSkips(r.skip);
+        // volte saltate (routine di gruppo: sono una copia di quelle segnate nel documento del gruppo)
+        const sk = normSkips(r.skip);
         if (sk.length) it.skip = sk;
+        // routine di gruppo: i periodi saltati da tutti (non contano per la serie di gruppo, come se non ci fossero)
+        const gx = Array.isArray(r.gx) ? [...new Set(r.gx.filter(validDate))].sort().slice(-MAX_SKIPS) : [];
+        if (gx.length) it.gx = gx;
         if (out.length >= MAX_ROUTINES) break;
       }
       return out;
@@ -734,13 +737,14 @@
       const p = periodAt(y, ds);
       return p && p.e === ds && p.s >= y.start && !isSkipped(y, p.s) ? p : null;
     }
-    const canSkipRoutine = r => !!r && !r.sr;
+    // (routine di gruppo: in più serve il documento del gruppo, con la connessione: lo controlla shared-routines.js)
+    const canSkipRoutine = r => !!r;
     // la volta già creata si può saltare: da fare, non recuperata (dopo una penalità annullata) e non ancora scaduta
     const canSkipOcc = (r, m) => canSkipRoutine(r) && !!m && m.rid === r.id && !m.done && !m.failed && !m.re && !isLate(m);
     // Salta la volta del periodo che inizia il giorno s (m = la sua volta, se esiste già: chi chiama la toglie
     // dall'elenco). Le volte già segnate si ricordano, per ridartele se annulli. Cambia la routine; true se è cambiata.
     function applySkip(r, s, m) {
-      if (!canSkipRoutine(r) || !validDate(s) || isSkipped(r, s)) return false;
+      if (!canSkipRoutine(r) || !validDate(s) || isSkipped(r, s)) return false;   // (di gruppo: chi chiama lo scrive anche nel documento)
       const x = { d: s };
       if (m && m.p && m.p.length) x.p = m.p.slice();
       r.skip = (r.skip || []).concat(x).sort((a, b) => a.d.localeCompare(b.d)).slice(-MAX_SKIPS);
@@ -749,7 +753,7 @@
     // Annullare un salto: si può finché la volta non sarebbe già scaduta. Restituisce null se non si può; altrimenti
     // { occ }: la volta da rimettere nell'elenco (con le volte già segnate), oppure null se il periodo non è ancora iniziato
     // (arriverà da sola il suo giorno). Non cambia niente: per annullare davvero, applyUnskip.
-    function unskipPlan(r, s, today = todayStr(), here = hereTz()) {
+    function unskipPlan(r, s, today = routineToday(r), here = hereTz()) {
       const x = r && r.skip ? r.skip.find(y => y.d === s) : null;
       const p = x && periodStarting(r, s);
       if (!p) return null;
@@ -872,12 +876,15 @@
     // I periodi \"tutti insieme\" di fila. Il periodo prima di uno è quello che finisce il giorno prima; subito dopo un
     // cambio di frequenza (at) è l'ultimo con le regole di prima (pk).
     // il periodo previsto più vicino prima di ds (dopo l'inizio); '' se non c'è
+    // (i periodi saltati da tutti, gx, non ci sono; i tuoi salti personali sì: per il gruppo il periodo c'era)
+    const groupSkipped = (r, s) => !!r.gx && r.gx.includes(s);
     function prevDay(r, ds) {
       if (isDaily(r)) {
         let d = addDaysStr(ds, -1);
-        for (let i = 0; i < 400 && d >= r.start && d >= anchorOf(r); i++, d = addDaysStr(d, -1)) if (dayCounts(r, d)) return d;
+        for (let i = 0; i < 400 && d >= r.start && d >= anchorOf(r); i++, d = addDaysStr(d, -1)) if (dayPlanned(r, d) && !groupSkipped(r, d)) return d;
       } else {
-        const p = periodAt(r, addDaysStr(ds, -1));
+        let p = periodAt(r, addDaysStr(ds, -1));
+        for (let i = 0; i < 400 && p && p.s >= r.start && groupSkipped(r, p.s); i++) p = periodAt(r, addDaysStr(p.s, -1));
         if (p && p.s >= r.start) return p.s;
       }
       return r.at && r.pk && ds >= r.at && r.pk >= r.start ? r.pk : '';
@@ -888,10 +895,10 @@
       if (!isDaily(r)) {
         const p = periodAt(r, today);
         if (!p) return '';
-        return groupDueMs(r, p.e) <= now ? p.s : prevDay(r, p.s);
+        return groupDueMs(r, p.e) <= now && !groupSkipped(r, p.s) ? p.s : prevDay(r, p.s);
       }
       let d = today;
-      for (let i = 0; i < 400 && d >= r.start && d >= anchorOf(r); i++, d = addDaysStr(d, -1)) if (dayCounts(r, d) && groupDueMs(r, d) <= now) return d;
+      for (let i = 0; i < 400 && d >= r.start && d >= anchorOf(r); i++, d = addDaysStr(d, -1)) if (dayPlanned(r, d) && !groupSkipped(r, d) && groupDueMs(r, d) <= now) return d;
       return r.at && r.pk && today >= r.at && r.pk >= r.start ? r.pk : '';
     }
     // la serie di gruppo che si vede adesso: 0 se dopo l'ultimo periodo \"tutti insieme\" un periodo previsto è finito senza

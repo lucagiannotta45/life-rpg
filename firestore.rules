@@ -238,6 +238,8 @@ service cloud.firestore {
     //   members: [owner, amico1, amico2, amico3]
     //   g: { uid: { n: nome, j: ha accettato, a: versione delle regole accettata, since: giorno del gruppo da cui partecipa } }
     //   k: { AAAAMMGG: { uid: ora del server in cui ha completato la sua parte } }, con il primo giorno del periodo;
+    //   x: { AAAAMMGG: { uid: ora del server in cui ha saltato quel periodo } } ("Salta": malattia, imprevisti…), come k.
+    //   Chi salta non conta per il gruppo in quel periodo (la serie la ricava l'app). Non c'è nei documenti di prima.
     //   lk: il periodo toccato dall'ultima scrittura
     //   freq, n: ogni giorno / settimana / mese ('d', 'w', 'm'), quante volte per periodo (senza: ogni giorno, una volta);
     //   at: da dove si contano i periodi (dopo un cambio), pk: l'ultimo periodo prima di at, nx: il cambio in attesa
@@ -251,7 +253,7 @@ service cloud.firestore {
       return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time',
               'start', 'bonus', 'tz', 'ver', 'k', 'lk', 'created', 'updated'];
     }
-    function srKeys() { return srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx']); }
+    function srKeys() { return srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x']); }
     function srTplKeys() {
       return ['title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time', 'start', 'pause', 'bonus', 'tz', 'ver', 'ownerName', 'updated',
               'freq', 'n', 'at', 'pk', 'nx'];
@@ -296,7 +298,7 @@ service cloud.firestore {
         && n.v == 1 && n.owner == me() && n.members is list && n.members[0] == me()
         && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
         && newSrGuestAt(1, n, 1) && newSrGuestAt(1, n, 2) && newSrGuestAt(1, n, 3)
-        && srTpl(n) && n.ver == 1 && n.k == {} && n.lk == '' && n.created is int && n.updated is int;
+        && srTpl(n) && n.ver == 1 && n.k == {} && n.get('x', {}) == {} && n.lk == '' && n.created is int && n.updated is int;
     }
     // chi può segnare la sua parte: chi l'ha creata, o un amico dentro con le regole attuali
     function srIn(o) { return me() == o.owner || (me() in o.g && o.g[me()].j == true && o.g[me()].a == o.ver); }
@@ -316,14 +318,38 @@ service cloud.firestore {
         && n.lk is string && n.lk.matches('^[0-9]{8}$') && n.k is map && n.lk in n.k
         && n.k.diff(o.k).affectedKeys().hasOnly([n.lk])
         && n.k[n.lk] is map && n.k[n.lk].diff(o.k.get(n.lk, {})).affectedKeys().hasOnly([me()])
-        && (!(me() in n.k[n.lk]) || n.k[n.lk][me()] == request.time)
+        && (!(me() in n.k[n.lk]) || (n.k[n.lk][me()] == request.time && !(me() in o.get('x', {}).get(n.lk, {}))))
         && srDayOpen(n.lk, o);
+    }
+    // fino alla fine del periodo (con lo stesso margine per i fusi di srDayOpen); in anticipo, al massimo un anno prima
+    function srSkipOpen(s, o) {
+      return request.time > srDay(s) - duration.value(366, 'd')
+        && (request.time < srDay(s) + duration.value(38, 'h')
+          || (srHas(o, 'w') && request.time < srDay(s) + duration.value(182, 'h'))
+          || (srHas(o, 'm') && request.time < srDay(s) + duration.value(758, 'h')));
+    }
+    // saltare (con l'ora del server) o togliere il proprio salto di un periodo: cambia solo x[lk][me].
+    // Non su un periodo che hai già completato (e, in srPart, non si completa un periodo saltato)
+    function srSkip(o, n, k) {
+      return k.hasOnly(['x', 'lk', 'updated']) && srIn(o)
+        && n.lk is string && n.lk.matches('^[0-9]{8}$') && n.x is map && n.lk in n.x
+        && n.x.diff(o.get('x', {})).affectedKeys().hasOnly([n.lk])
+        && n.x[n.lk] is map && n.x[n.lk].diff(o.get('x', {}).get(n.lk, {})).affectedKeys().hasOnly([me()])
+        && (!(me() in n.x[n.lk]) || (n.x[n.lk][me()] == request.time && !(me() in o.k.get(n.lk, {}))))
+        && srSkipOpen(n.lk, o);
     }
     // togliere un giorno vecchio (più di 60 giorni fa), uno per volta: lo può fare chiunque partecipi
     function srPrune(o, n, k) {
       return k.hasOnly(['k', 'lk', 'updated']) && me() in o.members
         && n.lk is string && n.lk.matches('^[0-9]{8}$') && n.k is map
         && n.lk in o.k && !(n.lk in n.k) && n.k.diff(o.k).affectedKeys().hasOnly([n.lk])
+        && srDay(n.lk) < request.time - duration.value(60, 'd');
+    }
+    // lo stesso per i salti vecchi
+    function srPruneX(o, n, k) {
+      return k.hasOnly(['x', 'lk', 'updated']) && me() in o.members
+        && n.lk is string && n.lk.matches('^[0-9]{8}$') && n.x is map && o.get('x', null) is map
+        && n.lk in o.x && !(n.lk in n.x) && n.x.diff(o.x).affectedKeys().hasOnly([n.lk])
         && srDay(n.lk) < request.time - duration.value(60, 'd');
     }
     function srOwnerUpdate(o, n, k) {
@@ -366,7 +392,7 @@ service cloud.firestore {
       let n = request.resource.data;
       let k = n.diff(o).affectedKeys();
       return o.v == 1 && n.updated is int
-        && (srPart(o, n, k) || srPrune(o, n, k) || srOwnerUpdate(o, n, k) || srGuestUpdate(o, n, k));
+        && (srPart(o, n, k) || srPrune(o, n, k) || srSkip(o, n, k) || srPruneX(o, n, k) || srOwnerUpdate(o, n, k) || srGuestUpdate(o, n, k));
     }
 
     match /sroutines/{rid} {

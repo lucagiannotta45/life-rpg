@@ -1,7 +1,7 @@
 /*
  * Life RPG — test di "Salta" (missions.js: applySkip, unskipPlan, applyUnskip, skippedOn, skipMarks...)
  * Una volta saltata non conta: niente XP, niente penalità, la serie non cresce e non si interrompe.
- * Si salta la volta in corso (finché non è scaduta) o una futura, dal Calendario; non le routine di gruppo.
+ * Si salta la volta in corso (finché non è scaduta) o una futura, dal Calendario (le routine di gruppo: test/tsroutines.js).
  */
 'use strict';
 const test = require('node:test');
@@ -166,10 +166,10 @@ test('cosa non si può saltare', t => {
   assert.ok(!M.canSkipOcc(r, late), 'scaduta');
   M.applyFail(xp({}), late, r, '2026-03-03', 1);
   assert.ok(!M.canSkipOcc(r, late), 'fallita');
+  // routine di gruppo: i salti si tengono (sono la copia di quelli del documento del gruppo), con i periodi saltati da tutti
   const g = M.normalizeRoutines([{ id: 'r9', title: 'Studio', rewards: { Intelletto: 10 }, days: [1, 2, 3, 4, 5],
-    start: '2026-03-02', sr: 'qabcdefg', sh: 'o', skip: [{ d: '2026-03-04' }] }])[0];
-  assert.equal(g.skip, undefined, 'routine di gruppo: i salti non si tengono');
-  assert.ok(!M.canSkipRoutine(g) && !M.applySkip(g, '2026-03-05'), 'e non si saltano');
+    start: '2026-03-02', sr: 'qabcdefg', sh: 'o', skip: [{ d: '2026-03-04' }], gx: ['2026-03-03', 'rotto', '2026-03-03'] }])[0];
+  assert.deepEqual([g.skip, g.gx], [[{ d: '2026-03-04' }], ['2026-03-03']]);
   assert.ok(M.applySkip(r, '2026-03-05'));
   assert.ok(!M.applySkip(r, '2026-03-05'), 'già saltata');
 });

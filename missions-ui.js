@@ -43,6 +43,7 @@
     const NOSR = {
       info: () => null, occInfo: () => null, streakNow: () => 0, canInvite: () => false, editBlock: () => '', canUndo: () => true,
       markPart() {}, afterEdit() {}, invites: () => [], evaluate() {}, beforeDelete: async () => true,
+      canSkip: r => !r || !r.sr, writeSkip: () => Promise.resolve(false),
     };
     const SR = () => D.SR || NOSR;
 
@@ -494,7 +495,7 @@
       } else if (notYet(m)) head.appendChild(mk('span', 'm-date', T('m.from', { when: fromLabel(m) })));
       card.appendChild(head);
       // calendario, settimanale o mensile ancora da fare: quale periodo (il giorno mostrato è solo la scadenza)
-      if (inCal && m.ps && rtn && !rtn.sr && !m.done && !failedNow) {
+      if (inCal && m.ps && rtn && !m.done && !failedNow) {
         const kind = perKind(rtn, m.ps);
         if (kind !== 'd') card.appendChild(mk('p', 'm-routine', periodText('skip.per', kind, { s: m.ps, e: MISSIONS.occEnd(m) })));
       }
@@ -512,9 +513,11 @@
       if (sri && !failedNow) {
         if (sri.pending && !m.done) card.appendChild(mk('p', 'm-shared warn', T('sr.changed', { name: (SR().info(rtn) || {}).ownerName || '' })));
         else if (sri.inGroup) {
-          if (sri.together) card.appendChild(mk('p', 'm-shared', T('sr.together')));
+          if (sri.together) card.appendChild(mk('p', 'm-shared', T(sri.skipCount ? 'sr.together.skip' : 'sr.together')));
           else if (m.done && sri.missingNames && Date.now() < dueEndMs(m)) card.appendChild(mk('p', 'm-shared', T('sr.waiting', { name: sri.missingNames })));
           else if (!m.done && sri.doneCount) card.appendChild(mk('p', 'm-shared', TN('sr.partner.done', sri.doneCount, { name: sri.doneNames })));
+          // chi ha saltato (malattia, imprevisti…): per il gruppo quel periodo non conta
+          if (sri.skipCount) card.appendChild(mk('p', 'm-shared', TN('sr.skipped', sri.skipCount, { name: sri.skipNames })));
         }
       }
       if (m.desc) card.appendChild(mk('p', 'm-desc', m.desc));
@@ -549,7 +552,7 @@
         // e, per una volta di routine ancora da fare, "Salta"
         if (!m.done && !failedNow && (m.rid ? !!rtn && isDaily(rtn) : !!m.due)) act.appendChild(gcalLink(m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m), m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title, m.rid ? { r: rtn } : { m }));
         act.appendChild(btn('', T('btn.goto'), T('aria.goto'), () => goToMission(m.id)));
-        if (MISSIONS.canSkipOcc(rtn, m)) {
+        if (MISSIONS.canSkipOcc(rtn, m) && skippable(rtn) && !(sri && sri.pending)) {
           const p = { s: MISSIONS.occKey(m), e: MISSIONS.occEnd(m) };
           act.appendChild(skipBtn(rtn, perKind(rtn, p.s), p, () => skipOcc(m.id)));
         }
@@ -879,6 +882,8 @@
       b.addEventListener('click', fn);
       return b;
     }
+    // si può saltare: le regole in missions.js e, per una routine di gruppo, il documento del gruppo con la connessione
+    const skippable = r => MISSIONS.canSkipRoutine(r) && SR().canSkip(r);
     function skipDone(r) {
       missionMsg(T('msg.skip', { title: r.title }), 'good');
       renderMissionViews();
@@ -887,33 +892,54 @@
     // la volta già creata (quella in corso): si toglie dall'elenco, con la lapide così non torna da un altro dispositivo
     function skipOcc(id) {
       const m = S.missions.find(x => x.id === id), r = routineOf(m);
-      if (!m || !MISSIONS.canSkipOcc(r, m)) { sfx('err'); renderMissionViews(); return; }
-      if (!MISSIONS.applySkip(r, MISSIONS.occKey(m), m)) return;
+      if (!m || !MISSIONS.canSkipOcc(r, m) || !skippable(r)) { sfx('err'); renderMissionViews(); return; }
+      const s = MISSIONS.occKey(m);
+      if (!MISSIONS.applySkip(r, s, m)) return;
       tombMissions([m]);
       S.missions = S.missions.filter(x => x !== m);
       touchMonth(monthOf(m));
       saveRoutinesLocal();
       skipDone(r);
+      if (r.sr) SR().writeSkip(r, s, true).then(ok => { if (!ok) takeBackSkip(r, s); });
+    }
+    // routine di gruppo: il server ha rifiutato il salto (per esempio senza rete): torna tutto com'era
+    function takeBackSkip(r, s) {
+      const plan = MISSIONS.unskipPlan(r, s);
+      MISSIONS.applyUnskip(r, s);
+      if (plan && plan.occ && !S.missions.some(m => m.id === plan.occ.id)) { S.missions.push(plan.occ); touchMonth(monthOf(plan.occ)); }
+      saveRoutinesLocal();
+      renderMissionViews();
     }
     // una volta futura (non ancora creata): basta ricordarsela nella routine
     function skipPlanned(rid, s) {
       const r = S.routines.find(x => x.id === rid);
-      if (!r || !MISSIONS.canSkipRoutine(r) || !MISSIONS.periodStarting(r, s) || S.missions.some(m => m.id === MISSIONS.occId(r, s))) return;
+      if (!r || !skippable(r) || !MISSIONS.periodStarting(r, s) || S.missions.some(m => m.id === MISSIONS.occId(r, s))) return;
       if (!MISSIONS.applySkip(r, s)) return;
       saveRoutinesLocal();
       skipDone(r);
+      if (r.sr) SR().writeSkip(r, s, true).then(ok => { if (!ok) takeBackSkip(r, s); });
     }
     function unskip(rid, s) {
       const r = S.routines.find(x => x.id === rid);
-      const plan = r && MISSIONS.unskipPlan(r, s);
+      const plan = r && skippable(r) && MISSIONS.unskipPlan(r, s);
       if (!plan) { missionMsg(T('msg.unskip.late'), 'bad', true); sfx('err'); renderMissionViews(); return; }
+      const entry = r.skip.find(x => x.d === s);
       MISSIONS.applyUnskip(r, s);
       // periodo già iniziato: la volta torna subito (con le volte già segnate); futuro: arriverà da sola
-      if (plan.occ && !S.missions.some(m => m.id === plan.occ.id)) { S.missions.push(plan.occ); touchMonth(monthOf(plan.occ)); }
+      const back = plan.occ && !S.missions.some(m => m.id === plan.occ.id) ? plan.occ : null;
+      if (back) { S.missions.push(back); touchMonth(monthOf(back)); }
       saveRoutinesLocal();
       missionMsg(T('msg.unskip', { title: r.title }), 'good');
       renderMissionViews();
       sfx('add');
+      // routine di gruppo: se il server rifiuta, il salto resta
+      if (r.sr) SR().writeSkip(r, s, false).then(ok => {
+        if (ok) return;
+        r.skip = (r.skip || []).concat(entry).sort((a, b) => a.d.localeCompare(b.d));
+        if (back) { tombMissions([back]); S.missions = S.missions.filter(m => m !== back); touchMonth(monthOf(back)); }
+        saveRoutinesLocal();
+        renderMissionViews();
+      });
     }
     function renderDay() {
       $('day-title').textContent = fmtDay(selDate, true) + (selDate === todayStr() ? T('day.today') : '');
@@ -940,7 +966,7 @@
           const act = mk('div', 'm-actions');
           const gu = kind === 'd' ? gcalRoutineUrl(r) : null;
           if (gu) act.appendChild(gcalLink(gu, T('aria.gcal.routine') + ' ' + r.title, { r }));
-          if (MISSIONS.canSkipRoutine(r)) act.appendChild(skipBtn(r, kind, p, () => skipPlanned(r.id, p.s)));
+          if (skippable(r)) act.appendChild(skipBtn(r, kind, p, () => skipPlanned(r.id, p.s)));
           if (act.childElementCount) card.appendChild(act);
           box.appendChild(card);
         });
@@ -960,7 +986,7 @@
           card.appendChild(head);
           card.appendChild(mk('p', 'm-routine', kind === 'd' ? T('skip.done.d') : periodText('skip.done', kind, p)));
           card.appendChild(mk('p', 'm-desc', T('skip.note')));
-          if (MISSIONS.unskipPlan(r, p.s)) {
+          if (skippable(r) && MISSIONS.unskipPlan(r, p.s)) {
             const act = mk('div', 'm-actions');
             const b = mk('button', 'btn small', T('skip.undo'));
             b.type = 'button';
