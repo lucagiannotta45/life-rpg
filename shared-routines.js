@@ -504,6 +504,15 @@
       if (!d || !isDoc(d) || !online() || !roleOf(d)) return false;
       return roleOf(d) === 'o' || isActive(d, d.g[me()]);
     }
+    // si può togliere il salto: non se il gruppo quel periodo l'ha già contato "insieme" (gli altri l'hanno completato
+    // e il tuo salto è valso per la serie di gruppo): come per annullare un completamento (canUndo)
+    function canUnskip(r, s) {
+      if (!r || !r.sr) return true;
+      const d = docOfR(r), t = d && isDoc(d) ? tplOf(d) : null;
+      const p = MISSIONS.periodStarting(r, s);
+      if (!t || !p) return true;
+      return !together(d, t.nx && s >= t.nx.at ? foldedCopy(t) : t, s, p.e);
+    }
     // segna (on) o toglie il tuo salto del periodo che inizia il giorno s; true se il server l'ha accettato.
     // La copia del documento cambia subito, così nel frattempo la routine non perde il salto.
     function writeSkip(r, s, on) {
@@ -726,7 +735,7 @@
     return {
       start, reset, evaluate, info, occInfo, streakNow, canInvite, editBlock, canUndo, markPart, afterEdit,
       openInvite, invites, acceptInvite, declineInvite, acceptChange, exit, dissolve, beforeDelete, cancelInvite,
-      canSkip, writeSkip,
+      canSkip, canUnskip, writeSkip,
       // per le prove
       together, allSkipped, partsOf, tplOf,
     };

@@ -43,7 +43,7 @@
     const NOSR = {
       info: () => null, occInfo: () => null, streakNow: () => 0, canInvite: () => false, editBlock: () => '', canUndo: () => true,
       markPart() {}, afterEdit() {}, invites: () => [], evaluate() {}, beforeDelete: async () => true,
-      canSkip: r => !r || !r.sr, writeSkip: () => Promise.resolve(false),
+      canSkip: r => !r || !r.sr, canUnskip: () => true, writeSkip: () => Promise.resolve(false),
     };
     const SR = () => D.SR || NOSR;
 
@@ -924,6 +924,8 @@
     }
     function unskip(rid, s) {
       const r = S.routines.find(x => x.id === rid);
+      // routine di gruppo: se gli altri l'hanno già completata, il salto è già valso per la serie di gruppo
+      if (r && !SR().canUnskip(r, s)) { missionMsg(T('sr.err.unskip'), 'bad', true); sfx('err'); renderMissionViews(); return; }
       const plan = r && skippable(r) && MISSIONS.unskipPlan(r, s);
       if (!plan) { missionMsg(T('msg.unskip.late'), 'bad', true); sfx('err'); renderMissionViews(); return; }
       const entry = r.skip.find(x => x.d === s);
@@ -989,7 +991,7 @@
           card.appendChild(head);
           card.appendChild(mk('p', 'm-routine', kind === 'd' ? T('skip.done.d') : periodText('skip.done', kind, p)));
           card.appendChild(mk('p', 'm-desc', T('skip.note')));
-          if (skippable(r) && MISSIONS.unskipPlan(r, p.s)) {
+          if (skippable(r) && SR().canUnskip(r, p.s) && MISSIONS.unskipPlan(r, p.s)) {
             const act = mk('div', 'm-actions');
             const b = mk('button', 'btn small', T('skip.undo'));
             b.type = 'button';

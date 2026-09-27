@@ -348,3 +348,19 @@ test('chi l\'ha creata: con un invito ancora senza risposta il gruppo resta', as
   for (let i = 0; i < 5; i++) await new Promise(res => setImmediate(res));
   assert.equal(r.sr, ID);
 });
+
+test('salta: se gli altri l\'hanno già completata, il salto non si annulla più (la serie di gruppo l\'ha contato)', t => {
+  now(t, '2026-10-03');
+  const x = { 20261002: { uG: at('2026-10-02', '09:00') } };
+  const W1 = fakeWorld('uG', baseDoc({ x }));
+  W1.SR.evaluate();
+  const r1 = W1.S.routines[0];
+  assert.equal(W1.SR.canUnskip(r1, '2026-10-02'), true, 'Anna non l\'ha ancora fatta: si può ancora annullare');
+  t.mock.timers.reset();
+  now(t, '2026-10-03');
+  const W2 = fakeWorld('uG', baseDoc({ x, k: { 20261002: { uO: at('2026-10-03', '10:00') } } }));
+  W2.SR.evaluate();
+  const r2 = W2.S.routines[0];
+  assert.deepEqual([r2.gs, r2.gsd], [1, '2026-10-02'], 'la serie di gruppo l\'ha contato');
+  assert.equal(W2.SR.canUnskip(r2, '2026-10-02'), false);
+});
