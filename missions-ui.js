@@ -732,7 +732,10 @@
       if (!todo.length && !inv.length) tl.appendChild(mk('p', 'empty', T('mis.empty.todo')));
       groupBlock(tl, 'late', T('grp.late'), groups.late);
       groupBlock(tl, 'routine', T('grp.routine'), groups.routine);
-      groupBlock(tl, 'period', T('grp.period'), groups.period);
+      // settimanali e mensili in corso: il titolo dice cosa c'è dentro (solo settimanali, solo mensili, o entrambe).
+      // Una settimana dura 7 giorni, un mese almeno 28: basta la durata del periodo della volta
+      const kinds = new Set(groups.period.map(m => (MISSIONS.daysBetween(m.ps, MISSIONS.occEnd(m)) < 7 ? 'w' : 'm')));
+      groupBlock(tl, 'period', T(kinds.size === 1 ? 'grp.period.' + [...kinds][0] : 'grp.period'), groups.period);
       groupBlock(tl, 'today', T('grp.today'), groups.today);
       groupBlock(tl, 'soon', T('grp.soon'), groups.soon);
       groupBlock(tl, 'later', T('grp.later'), groups.later);
