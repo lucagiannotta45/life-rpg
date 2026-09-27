@@ -475,9 +475,10 @@
           ...f, ver: 1, k: {}, lk: '', created: now, updated: now,
         };
         r.sr = id; r.sh = 'o';
+        const skipBak = r.skip; delete r.skip;   // routine di gruppo: il giorno è di tutti, niente volte saltate
         docs[id] = { ...data, _pw: true };
         try { await ref(id).set(data); }
-        catch (e) { delete r.sr; delete r.sh; delete r.tz; delete docs[id]; throw e; }
+        catch (e) { delete r.sr; delete r.sh; delete r.tz; delete docs[id]; if (skipBak) r.skip = skipBak; throw e; }
         saveCache();
         // le volte già create (di oggi, o del periodo in corso) appartengono ora al giorno del gruppo (gd = l'ultimo giorno)
         S.missions.forEach(m => { if (m.rid === r.id && !m.gd && m.due) { m.gd = m.due; touchMonth(monthOf(m)); } });

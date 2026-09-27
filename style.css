@@ -607,6 +607,7 @@
   .dot.todo { background: var(--gold); }
   .dot.done { background: var(--good); }
   .dot.fail { background: var(--bad); }
+  .dot.skip { background: var(--ink-soft); }   /* volta saltata: neutra, né fatta né fallita */
   .cal-foot { display: flex; align-items: center; justify-content: center; gap: 10px 22px; flex-wrap: wrap; margin-top: 14px; font-size: var(--fs-s); color: var(--ink-soft); }
   .legend { display: inline-flex; align-items: center; gap: 6px; }
   .day-title { margin: 0 0 12px; font-size: 24px; font-weight: normal; line-height: 1.1; }
@@ -725,9 +726,15 @@
   .mission .m-desc, .mission .m-pen, .mission .m-routine { margin: 8px 0 0; }
   /* routine da fare più volte: "Fatte [2] su 3", con il numero da scrivere */
   .m-count { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .m-count .m-count-in { width: 5.5em; min-height: 40px; }
+  .m-count .m-count-in {
+    width: calc(var(--digits, 2) * 1ch + 0.5ch + 26px); min-height: 40px; padding: 4px 10px; text-align: center;
+    -moz-appearance: textfield; appearance: textfield;   /* niente frecce: il numero si scrive */
+  }
+  .m-count .m-count-in::-webkit-inner-spin-button, .m-count .m-count-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   /* modulo della routine: da quando valgono le modifiche */
   #mf-change-note { color: var(--gold); }
+  /* calendario: volta di una routine saltata (non conta) */
+  .mission.skipped .m-title { color: var(--ink-soft); }
   .xp-in:disabled, .text-in:disabled { opacity: .55; }
   /* finestre: sfondo dietro più scuro; le Impostazioni restano ancorate in alto tra una scheda e l'altra */
   .modal { background: rgba(0, 0, 0, .72); }

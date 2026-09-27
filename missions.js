@@ -35,6 +35,7 @@
     const MAX_ROUTINES = 30;
     const KEEP_DAYS = 60;
     const MAX_BRKS = 30;         // periodi mancati ricordati per routine (per ridare la serie se li recuperi)
+    const MAX_SKIPS = 120;       // volte saltate ricordate per routine (le più vecchie di KEEP_DAYS si tolgono comunque)
     const MAX_TIMES = 999;       // volte per periodo: non è un limite per chi gioca, serve solo a scartare i dati rovinati
     const MAX_EVERY = 100000;    // bonus "ogni N di fila": come la serie (oltre non scatterebbe mai); solo contro i dati rovinati
     const FREQS = ['d', 'w', 'm'];   // frequenza di una routine: ogni giorno, ogni settimana, ogni mese
@@ -236,6 +237,19 @@
       return a.filter(b => b && validDate(b.d) && Number.isInteger(b.n) && b.n >= 0 && b.n <= 100000 && !seen.has(b.d) && seen.add(b.d))
         .map(b => ({ d: b.d, n: b.n })).sort((x, y) => x.d.localeCompare(y.d)).slice(-MAX_BRKS);
     }
+    // volte saltate: d = il primo giorno del periodo (per le routine di ogni giorno: il giorno), p = le volte già
+    // segnate quando l'hai saltata (per ridartele se annulli il salto)
+    function normSkips(a) {
+      if (!Array.isArray(a)) return [];
+      const seen = new Set();
+      return a.filter(x => x && validDate(x.d) && !seen.has(x.d) && seen.add(x.d))
+        .map(x => {
+          const o = { d: x.d };
+          const p = Array.isArray(x.p) ? x.p.filter(validDate).slice(0, MAX_TIMES) : [];
+          if (p.length) o.p = p;
+          return o;
+        }).sort((x, y) => x.d.localeCompare(y.d)).slice(-MAX_SKIPS);
+    }
     const normDays = a => [...new Set((Array.isArray(a) ? a : []).map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
     const normTimes = v => { const n = Number(v); return Number.isInteger(n) && n >= 1 ? Math.min(n, MAX_TIMES) : 1; };
     function normalizeRoutines(arr) {
@@ -302,6 +316,9 @@
         if (validDate(r.gsd)) { it.gs = nn(r.gs, 100000); it.gsd = r.gsd; }
         if (nn(r.gbest, 100000)) it.gbest = nn(r.gbest, 100000);
         if (r.gc) it.gc = 1;   // aggiunta a Google Calendar (vedi le missioni)
+        // volte saltate (non per le routine di gruppo: lì il giorno è di tutti)
+        const sk = it.sr ? [] : normSkips(r.skip);
+        if (sk.length) it.skip = sk;
         if (out.length >= MAX_ROUTINES) break;
       }
       return out;
@@ -440,7 +457,11 @@
     const isDaily = r => !r.freq || r.freq === 'd';
     const anchorOf = r => r.at || r.start;   // da qui si contano i periodi
     // quel giorno una routine di ogni giorno c'è (per settimanali e mensili: mai, non hanno giorni precisi)
-    const dayCounts = (r, d) => isDaily(r) && d >= r.start && d >= anchorOf(r) && r.days.includes(parseDate(d).getDay());
+    // una volta saltata (vedi applySkip): quel periodo non c'è, come un giorno non scelto
+    const isSkipped = (r, s) => !!r.skip && r.skip.some(x => x.d === s);
+    // quel giorno è tra i giorni scelti, anche se è stato saltato
+    const dayPlanned = (r, d) => isDaily(r) && d >= r.start && d >= anchorOf(r) && r.days.includes(parseDate(d).getDay());
+    const dayCounts = (r, d) => dayPlanned(r, d) && !isSkipped(r, d);
     // il periodo che contiene il giorno ds: { s: primo giorno, e: ultimo }. null prima dell'inizio e,
     // per le routine di ogni giorno, nei giorni in cui non c'è
     function periodAt(r, ds) {
@@ -466,8 +487,9 @@
         return null;
       }
       const p = periodAt(r, ds);
-      const q = p.s >= ds ? p : periodAt(r, addDaysStr(p.e, 1));
-      return q.s <= until ? q : null;
+      let q = p.s >= ds ? p : periodAt(r, addDaysStr(p.e, 1));
+      for (let i = 0; i < 400 && q.s <= until && isSkipped(r, q.s); i++) q = periodAt(r, addDaysStr(q.e, 1));   // saltati: si passa oltre
+      return q.s <= until && !isSkipped(r, q.s) ? q : null;
     }
     // il periodo di una volta: occKey = il suo primo giorno (lo stesso dell'id), occEnd = l'ultimo, entro cui farla.
     // gd = il giorno del gruppo (routine di gruppo, nel fuso di chi l'ha creata): per settimanali e mensili è l'ultimo.
@@ -674,6 +696,88 @@
       if (back !== null) m.rj = back;
       return { restored, routineChanged: back !== null };
     }
+    // la volta di una routine nel periodo p ({ s, e }); here = il fuso di questo dispositivo
+    function makeOcc(r, p, here = hereTz()) {
+      const occ = { id: occId(r, p.s), title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
+        due: p.e, dueTime: r.time, created: p.s, done: null, failed: null, rid: r.id, stars: r.stars };
+      if (r.n > 1) { occ.n = r.n; occ.p = []; }
+      if (!isDaily(r)) occ.ps = p.s;
+      if (r.sr && r.tz) {
+        occ.gd = p.e;
+        if (r.tz !== here) Object.assign(occ, localDue(groupDueMs(r, p.e)));   // la scadenza del gruppo, nella tua ora
+      }
+      return occ;
+    }
+    /* ---------- saltare una volta ---------- */
+    // Saltare una volta di una routine (la lezione non c'è, sei in trasferta…), dal Calendario: quel periodo non conta,
+    // come un giorno non scelto. Niente XP, niente penalità, la serie resta com'è (non cresce e non si interrompe).
+    // Si salta la volta in corso (finché non è scaduta) o una futura; non le routine di gruppo (il giorno è di tutti).
+    // Ogni volta si indica con il primo giorno del suo periodo (s): per le routine di ogni giorno è il giorno stesso.
+    // La routine si ricorda i salti in r.skip; dayCounts e nextPeriod li trattano come periodi che non ci sono.
+
+    // la routine con le regole che valgono nel giorno ds (con il cambio in attesa, se in quel giorno è già arrivato)
+    const rulesOn = (r, ds) => (r.nx && r.nx.at <= ds ? foldedCopy(r) : r);
+    // il periodo che inizia il giorno s, anche se saltato; null se non c'è
+    function periodStarting(r, s) {
+      const y = rulesOn(r, s);
+      if (isDaily(y)) return dayPlanned(y, s) ? { s, e: s } : null;
+      if (s < anchorOf(y) || s < y.start) return null;
+      const p = periodAt(y, s);
+      return p && p.s === s ? p : null;
+    }
+    // il periodo (non saltato) che nel Calendario sta nel giorno ds: ogni giorno, quel giorno; settimanali e mensili,
+    // l'ultimo giorno del periodo (il giorno della scadenza, come le volte già create). null se non c'è
+    function plannedPeriod(r, ds) {
+      const y = rulesOn(r, ds);
+      if (isDaily(y)) return dayCounts(y, ds) ? { s: ds, e: ds } : null;
+      if (ds < anchorOf(y)) return null;
+      const p = periodAt(y, ds);
+      return p && p.e === ds && p.s >= y.start && !isSkipped(y, p.s) ? p : null;
+    }
+    const canSkipRoutine = r => !!r && !r.sr;
+    // la volta già creata si può saltare: da fare, non recuperata (dopo una penalità annullata) e non ancora scaduta
+    const canSkipOcc = (r, m) => canSkipRoutine(r) && !!m && m.rid === r.id && !m.done && !m.failed && !m.re && !isLate(m);
+    // Salta la volta del periodo che inizia il giorno s (m = la sua volta, se esiste già: chi chiama la toglie
+    // dall'elenco). Le volte già segnate si ricordano, per ridartele se annulli. Cambia la routine; true se è cambiata.
+    function applySkip(r, s, m) {
+      if (!canSkipRoutine(r) || !validDate(s) || isSkipped(r, s)) return false;
+      const x = { d: s };
+      if (m && m.p && m.p.length) x.p = m.p.slice();
+      r.skip = (r.skip || []).concat(x).sort((a, b) => a.d.localeCompare(b.d)).slice(-MAX_SKIPS);
+      return true;
+    }
+    // Annullare un salto: si può finché la volta non sarebbe già scaduta. Restituisce null se non si può; altrimenti
+    // { occ }: la volta da rimettere nell'elenco (con le volte già segnate), oppure null se il periodo non è ancora iniziato
+    // (arriverà da sola il suo giorno). Non cambia niente: per annullare davvero, applyUnskip.
+    function unskipPlan(r, s, today = todayStr(), here = hereTz()) {
+      const x = r && r.skip ? r.skip.find(y => y.d === s) : null;
+      const p = x && periodStarting(r, s);
+      if (!p) return null;
+      if (s > today) return { occ: null };
+      const occ = makeOcc(rulesOn(r, s), p, here);
+      if (occ.n && x.p) occ.p = x.p.slice(0, occ.n);
+      return isLate(occ) ? null : { occ };
+    }
+    function applyUnskip(r, s) {
+      if (!r || !r.skip) return false;
+      const before = r.skip.length;
+      r.skip = r.skip.filter(x => x.d !== s);
+      const changed = r.skip.length !== before;
+      if (!r.skip.length) delete r.skip;
+      return changed;
+    }
+    // le volte saltate che nel Calendario stanno nel giorno ds: [{ r, p, x }] (p = il periodo, x = il salto)
+    function skippedOn(routines, ds) {
+      const out = [];
+      routines.forEach(r => (r.skip || []).forEach(x => { const p = periodStarting(r, x.d); if (p && p.e === ds) out.push({ r, p, x }); }));
+      return out;
+    }
+    // i pallini delle volte saltate: quante per giorno (nel giorno della scadenza, come le altre)
+    function skipMarks(routines) {
+      const out = {};
+      routines.forEach(r => (r.skip || []).forEach(x => { const p = periodStarting(r, x.d); if (p) out[p.e] = (out[p.e] || 0) + 1; }));
+      return out;
+    }
     // Il \"giro di oggi\" delle routine: crea le volte dei periodi iniziati (anche quelli saltati dall'ultima apertura),
     // interrompe le serie non rispettate, applica i cambi arrivati al loro primo giorno e pulisce le volte che non servono più.
     // Cambia le routine ricevute e aggiunge le volte nuove all'elenco delle missioni; restituisce:
@@ -727,14 +831,7 @@
           for (let guard = 0; p && guard < 3660; guard++, p = nextPeriod(r, addDaysStr(p.e, 1), createUntil)) {
             const id = occId(r, p.s);
             if (existing.has(id) || missions.length >= MAX_MISSIONS) continue;
-            const occ = { id, title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
-              due: p.e, dueTime: r.time, created: p.s, done: null, failed: null, rid: r.id, stars: r.stars };
-            if (r.n > 1) { occ.n = r.n; occ.p = []; }
-            if (!isDaily(r)) occ.ps = p.s;
-            if (zoned) {
-              occ.gd = p.e;
-              if (r.tz !== here) Object.assign(occ, localDue(groupDueMs(r, p.e)));   // la scadenza del gruppo, nella tua ora
-            }
+            const occ = makeOcc(r, p, here);
             missions.push(occ);
             existing.add(id);
             months.add(p.s.slice(0, 7));
@@ -750,6 +847,12 @@
           routinesChanged = true;
         }
         run(today, addDaysStr(today, -1));
+        // i salti più vecchi della cronologia non servono più
+        if (r.skip && r.skip.some(x => x.d < keep)) {
+          r.skip = r.skip.filter(x => x.d >= keep);
+          if (!r.skip.length) delete r.skip;
+          routinesChanged = true;
+        }
       });
       // pulizia: volte di prima dell'inizio (ancora da fare), cronologia vecchia
       const keepFrom = addDaysStr(today0, -KEEP_DAYS);
@@ -820,12 +923,12 @@
       return out;
     }
 
-    // routine previste nei giorni futuri (non sono ancora missioni: compaiono il giorno stesso).
-    // Solo quelle di ogni giorno: settimanali e mensili non stanno in un giorno preciso (dayCounts è sempre falso)
-    // ids: gli id delle missioni che esistono già
+    // routine previste nei giorni futuri (non sono ancora missioni: compaiono quando inizia il loro periodo).
+    // Ogni giorno: nei giorni scelti. Settimanali e mensili: nell'ultimo giorno del periodo, come le volte già create
+    // (plannedPeriod). Le volte saltate non ci sono. ids: gli id delle missioni che esistono già
     function plannedRoutines(routines, ds, ids) {
       if (ds <= todayStr()) return [];
-      return routines.filter(r => dayCounts(r, ds) && !ids.has(occId(r, ds)));
+      return routines.filter(r => { const p = plannedPeriod(r, ds); return !!p && !ids.has(occId(r, p.s)); });
     }
 
     /* ---------- primo giorno della settimana ---------- */
@@ -912,6 +1015,8 @@
       WD_ALL, isDaily, anchorOf, dayCounts, periodAt, nextPeriod, occKey, occEnd, missingOf, changeAt, planChange,
       occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay,
       applySetCount, fullCount, applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
+      MAX_SKIPS, rulesOn, isSkipped, dayPlanned, makeOcc, periodStarting, plannedPeriod, canSkipRoutine, canSkipOcc, applySkip,
+      unskipPlan, applyUnskip, skippedOn, skipMarks,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
       foldedCopy, shapeOf, groupPeriods,
       gcalUrl, gcalRoutineUrl,

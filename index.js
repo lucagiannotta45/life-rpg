@@ -1191,6 +1191,7 @@
     p(b, T('info.mis.p7'));
     p(b, T('info.mis.p5'));
     p(b, T('info.mis.p6'));
+    p(b, T('info.mis.p8'));
 
     // amici
     b = section('friends', T('info.fr.h'));

@@ -452,6 +452,8 @@
       const inp = mk('input', 'xp-in m-count-in');
       inp.type = 'number'; inp.min = '0'; inp.max = String(m.n); inp.step = '1'; inp.inputMode = 'numeric'; inp.value = String(k);
       inp.setAttribute('aria-label', T('m.count.aria', { n: m.n }) + ' ' + m.title);
+      // largo quanto serve per il numero più grande possibile (almeno 2 cifre, per poterlo toccare comodamente)
+      inp.style.setProperty('--digits', String(Math.max(2, String(m.n).length)));
       inp.addEventListener('change', () => setCount(m.id, inp.value));
       inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
       line.append(mk('span', null, T('m.count.pre')), inp, mk('span', null, T('m.count.post', { n: m.n })));
@@ -491,6 +493,11 @@
         head.appendChild(mk('span', 'm-date' + (late ? ' late' : ''), txt + (shi && shi.ownerWhen && !m.done && !failedNow ? ' ' + shi.ownerWhen : '')));
       } else if (notYet(m)) head.appendChild(mk('span', 'm-date', T('m.from', { when: fromLabel(m) })));
       card.appendChild(head);
+      // calendario, settimanale o mensile ancora da fare: quale periodo (il giorno mostrato è solo la scadenza)
+      if (inCal && m.ps && rtn && !rtn.sr && !m.done && !failedNow) {
+        const kind = perKind(rtn, m.ps);
+        if (kind !== 'd') card.appendChild(mk('p', 'm-routine', periodText('skip.per', kind, { s: m.ps, e: MISSIONS.occEnd(m) })));
+      }
       // a che punto è la missione condivisa
       const open = shi && shi.joined && !m.done && !failedNow;
       if (open) {
@@ -538,9 +545,14 @@
         return b;
       };
       if (inCal) {
-        // calendario: niente azioni sulla missione, solo Google Calendar (se serve) e il collegamento alla scheda Missioni
+        // calendario: niente azioni sulla missione, solo Google Calendar (se serve), il collegamento alla scheda Missioni
+        // e, per una volta di routine ancora da fare, "Salta"
         if (!m.done && !failedNow && (m.rid ? !!rtn && isDaily(rtn) : !!m.due)) act.appendChild(gcalLink(m.rid ? gcalRoutineUrl(rtn) : gcalUrl(m), m.rid ? T('aria.gcal.routine') + ' ' + rtn.title : T('aria.gcal') + ' ' + m.title, m.rid ? { r: rtn } : { m }));
         act.appendChild(btn('', T('btn.goto'), T('aria.goto'), () => goToMission(m.id)));
+        if (MISSIONS.canSkipOcc(rtn, m)) {
+          const p = { s: MISSIONS.occKey(m), e: MISSIONS.occEnd(m) };
+          act.appendChild(skipBtn(rtn, perKind(rtn, p.s), p, () => skipOcc(m.id)));
+        }
       } else if (m.done) {
         // condivisa: non si annulla; routine di gruppo: non dopo che l'avete fatta tutti (la serie di gruppo l'ha contata)
         if (!m.sid && SR().canUndo(m)) act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
@@ -764,6 +776,7 @@
       const days = new Date(calY, calM + 1, 0).getDate();
       for (let i = 0; i < offset; i++) grid.appendChild(mk('div', 'cal-blank'));
       const { todo, done, fail } = MISSIONS.calendarMarks(S.missions);
+      const skip = MISSIONS.skipMarks(S.routines);
       const today = todayStr();
       const ids = new Set(S.missions.map(m => m.id));
       for (let d = 1; d <= days; d++) {
@@ -778,12 +791,14 @@
         if (todo[ds]) dots.appendChild(mk('i', 'dot todo'));
         if (fail[ds]) dots.appendChild(mk('i', 'dot fail'));
         if (done[ds]) dots.appendChild(mk('i', 'dot done'));
+        if (skip[ds]) dots.appendChild(mk('i', 'dot skip'));
         b.appendChild(dots);
         b.setAttribute('aria-pressed', String(ds === selDate));
         b.setAttribute('aria-label', fmtDay(ds, true)
           + (todo[ds] ? T('cal.aria.todo', { n: todo[ds] }) : '')
           + (fail[ds] ? TN('cal.aria.fail', fail[ds]) : '')
-          + (done[ds] ? TN('cal.aria.done', done[ds]) : ''));
+          + (done[ds] ? TN('cal.aria.done', done[ds]) : '')
+          + (skip[ds] ? TN('cal.aria.skip', skip[ds]) : ''));
         b.addEventListener('click', () => selectDate(ds));
         b.addEventListener('keydown', e => {
           const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
@@ -850,27 +865,83 @@
       card.focus({ preventScroll: true });
       card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
     }
+    /* ---------- saltare una volta (dal Calendario) ---------- */
+    // Le regole sono in missions.js (applySkip, unskipPlan...): qui i pulsanti, le etichette e il salvataggio.
+    // 'd' = routine di ogni giorno, 'w' = settimanale, 'm' = mensile (con le regole che valgono in quel periodo)
+    const perKind = (r, s) => { const y = MISSIONS.rulesOn(r, s); return isDaily(y) ? 'd' : y.freq; };
+    // "Settimana: 13 ott – 19 ott": il periodo di settimanali e mensili non è la settimana o il mese del calendario
+    // (parte dal primo giorno della routine), quindi le date si scrivono sempre
+    const periodText = (key, kind, p) => T(key + '.' + kind, { from: fmtDay(p.s), to: fmtDay(p.e) });
+    function skipBtn(r, kind, p, fn) {
+      const b = mk('button', 'btn small', T(kind === 'd' ? 'skip.btn' : 'skip.btn.' + kind));
+      b.type = 'button';
+      b.setAttribute('aria-label', T('skip.aria') + ' ' + r.title + ', ' + (kind === 'd' ? fmtDay(p.s, true) : periodText('skip.per', kind, p)));
+      b.addEventListener('click', fn);
+      return b;
+    }
+    function skipDone(r) {
+      missionMsg(T('msg.skip', { title: r.title }), 'good');
+      renderMissionViews();
+      sfx('save');
+    }
+    // la volta già creata (quella in corso): si toglie dall'elenco, con la lapide così non torna da un altro dispositivo
+    function skipOcc(id) {
+      const m = S.missions.find(x => x.id === id), r = routineOf(m);
+      if (!m || !MISSIONS.canSkipOcc(r, m)) { sfx('err'); renderMissionViews(); return; }
+      if (!MISSIONS.applySkip(r, MISSIONS.occKey(m), m)) return;
+      tombMissions([m]);
+      S.missions = S.missions.filter(x => x !== m);
+      touchMonth(monthOf(m));
+      saveRoutinesLocal();
+      skipDone(r);
+    }
+    // una volta futura (non ancora creata): basta ricordarsela nella routine
+    function skipPlanned(rid, s) {
+      const r = S.routines.find(x => x.id === rid);
+      if (!r || !MISSIONS.canSkipRoutine(r) || !MISSIONS.periodStarting(r, s) || S.missions.some(m => m.id === MISSIONS.occId(r, s))) return;
+      if (!MISSIONS.applySkip(r, s)) return;
+      saveRoutinesLocal();
+      skipDone(r);
+    }
+    function unskip(rid, s) {
+      const r = S.routines.find(x => x.id === rid);
+      const plan = r && MISSIONS.unskipPlan(r, s);
+      if (!plan) { missionMsg(T('msg.unskip.late'), 'bad', true); sfx('err'); renderMissionViews(); return; }
+      MISSIONS.applyUnskip(r, s);
+      // periodo già iniziato: la volta torna subito (con le volte già segnate); futuro: arriverà da sola
+      if (plan.occ && !S.missions.some(m => m.id === plan.occ.id)) { S.missions.push(plan.occ); touchMonth(monthOf(plan.occ)); }
+      saveRoutinesLocal();
+      missionMsg(T('msg.unskip', { title: r.title }), 'good');
+      renderMissionViews();
+      sfx('add');
+    }
     function renderDay() {
       $('day-title').textContent = fmtDay(selDate, true) + (selDate === todayStr() ? T('day.today') : '');
       const box = $('day-list');
       box.textContent = '';
       const { todo, failed, done } = MISSIONS.dayLists(S.missions, selDate);
       const planned = plannedRoutines(selDate, new Set(S.missions.map(m => m.id)));
-      if (!todo.length && !failed.length && !done.length && !planned.length) box.appendChild(mk('p', 'empty', T('day.empty')));
+      const skipped = MISSIONS.skippedOn(S.routines, selDate);
+      if (!todo.length && !failed.length && !done.length && !planned.length && !skipped.length) box.appendChild(mk('p', 'empty', T('day.empty')));
       if (planned.length) {
         box.appendChild(mk('h4', 'sub', T('day.routines') + ' (' + planned.length + ')'));
         planned.forEach(r => {
+          const p = MISSIONS.plannedPeriod(r, selDate), kind = perKind(r, p.s);
           const card = mk('article', 'mission');
           card.appendChild(routineTag(T('m.routine')));
           const head = mk('div', 'm-head');
           head.appendChild(mk('h3', 'm-title', r.title));
-          if (r.time) head.appendChild(mk('span', 'm-date', T('r.at', { time: r.time })));
+          if (kind === 'd' && r.time) head.appendChild(mk('span', 'm-date', T('r.at', { time: r.time })));
           card.appendChild(head);
+          // settimanali e mensili: quale periodo (il giorno mostrato è solo la scadenza)
+          if (kind !== 'd') card.appendChild(mk('p', 'm-routine', periodText('skip.per', kind, p)));
           if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
           card.appendChild(chips(r.rewards));
           const act = mk('div', 'm-actions');
-          act.appendChild(gcalLink(gcalRoutineUrl(r), T('aria.gcal.routine') + ' ' + r.title, { r }));
-          card.appendChild(act);
+          const gu = kind === 'd' ? gcalRoutineUrl(r) : null;
+          if (gu) act.appendChild(gcalLink(gu, T('aria.gcal.routine') + ' ' + r.title, { r }));
+          if (MISSIONS.canSkipRoutine(r)) act.appendChild(skipBtn(r, kind, p, () => skipPlanned(r.id, p.s)));
+          if (act.childElementCount) card.appendChild(act);
           box.appendChild(card);
         });
       }
@@ -878,6 +949,29 @@
       if (todo.length) group(T('mis.todo'), todo);
       if (failed.length) group(T('mis.failed'), failed);
       if (done.length) group(T('mis.done'), done);
+      if (skipped.length) {
+        box.appendChild(mk('h4', 'sub', T('day.skipped') + ' (' + skipped.length + ')'));
+        skipped.forEach(({ r, p }) => {
+          const kind = perKind(r, p.s);
+          const card = mk('article', 'mission skipped');
+          card.appendChild(routineTag(T('m.routine')));
+          const head = mk('div', 'm-head');
+          head.appendChild(mk('h3', 'm-title', r.title));
+          card.appendChild(head);
+          card.appendChild(mk('p', 'm-routine', kind === 'd' ? T('skip.done.d') : periodText('skip.done', kind, p)));
+          card.appendChild(mk('p', 'm-desc', T('skip.note')));
+          if (MISSIONS.unskipPlan(r, p.s)) {
+            const act = mk('div', 'm-actions');
+            const b = mk('button', 'btn small', T('skip.undo'));
+            b.type = 'button';
+            b.setAttribute('aria-label', T('skip.undo.aria') + ' ' + r.title);
+            b.addEventListener('click', () => unskip(r.id, p.s));
+            act.appendChild(b);
+            card.appendChild(act);
+          }
+          box.appendChild(card);
+        });
+      }
     }
     function moveMonth(delta) {
       const t = new Date(calY, calM + delta, 1);
