@@ -241,3 +241,20 @@ test('dati: una missione condivisa saltata resta saltata quando si salva e si ri
   const m = M.normalizeMissions([{ ...myCopy('g'), done: { date: '2026-10-05', t: 1, applied: {}, sk: 1 } }])[0];
   assert.equal(m.done.sk, 1);
 });
+
+test('chi ha saltato si può invitare di nuovo: accettando, il salto si annulla e la missione torna da fare', () => {
+  // chi l'ha creata vede Luca (che aveva saltato) tra gli amici da invitare
+  const doc0 = baseDoc({ uG: guest('Marco') }, { wd: { uH: 'Luca' } });
+  const W0 = fakeWorld('uO', doc0, [myCopy('o')]);
+  assert.deepEqual(W0.SH.notInvitable(doc0), ['uG']);
+  // Luca ha accettato il nuovo invito: la sua missione "saltata" torna da fare
+  const doc = baseDoc({ uG: guest('Marco'), uH: guest('Io', { a: 2 }) }, { ver: 2, wd: { uH: 'Io' } });
+  const mine = { ...myCopy('g'), done: { date: '2026-10-01', t: 1, applied: { Vigore: 0 }, sk: 1 } };
+  const W = fakeWorld('uH', doc, [mine]);
+  W.SH.evaluate();
+  const m = W.S.missions[0];
+  assert.deepEqual([m.done, m.sid, m.sh], [null, SID, 'g']);
+  assert.ok(W.msgs.some(x => /di nuovo dentro/.test(x)));
+  const W2 = fakeWorld('uG', doc, [myCopy('g')]);
+  assert.equal(W2.SH.info(W2.S.missions[0]).withdrawnCount, 0, 'per Marco Luca non risulta più tra chi ha saltato');
+});

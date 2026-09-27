@@ -93,7 +93,7 @@
     const allDone = d => { const j = joinedOf(d); return j.length > 0 && (d.oDone != null || ownerOut(d)) && j.every(x => x.a === d.ver && x.d != null); };
     // chi si è ritirato (per la scheda): gli amici (wd) e chi l'ha creata (ow)
     const withdrawnNames = d => (ownerOut(d) ? [noname(d.ownerName)] : [])
-      .concat(Object.entries(d.wd || {}).filter(([u]) => u !== me()).map(([, n]) => noname(n)));
+      .concat(Object.entries(d.wd || {}).filter(([u]) => u !== me() && !(d.g && d.g[u])).map(([, n]) => noname(n)));
     // resti solo tu (chi l'ha creata si è ritirato, gli altri anche) e non ci sono inviti in attesa: la missione diventa tua
     const aloneIn = d => ownerOut(d) && roleOf(d) === 'g' && joinedOf(d).length === 1 && joinedOf(d)[0].uid === me()
       && (guests(d).length === 1 || invitesExpired(d));
@@ -319,10 +319,12 @@
       return seenW;
     }
     function announceSkips(sid, d, L) {
-      const seen = loadSeenW(), was = seen[sid] || [];
-      const now = Object.keys(d.wd || {}).filter(u => u !== me()).concat(ownerOut(d) && d.owner !== me() ? [d.owner] : []);
+      const seen = loadSeenW();
+      // chi è tornato (invitato di nuovo e ha accettato) non conta: se salta di nuovo, lo si dice di nuovo
+      const was = (seen[sid] || []).filter(u => !(d.g && d.g[u]));
+      const now = Object.keys(d.wd || {}).filter(u => u !== me() && !(d.g && d.g[u])).concat(ownerOut(d) && d.owner !== me() ? [d.owner] : []);
       const fresh = now.filter(u => !was.includes(u));
-      if (!fresh.length) return;
+      if (!fresh.length) { if (was.length !== (seen[sid] || []).length) { seen[sid] = was; lsSet(LS_SEENW, JSON.stringify({ uid: me(), s: seen })); } return; }
       fresh.forEach(u => {
         const name = u === d.owner ? noname(d.ownerName) : noname(d.wd[u]);
         MUI().missionMsg(T(u === d.owner ? 'sh.msg.owner.skip' : 'sh.msg.friend.skip', { name, title: L.title }), '');
@@ -387,6 +389,13 @@
             deleteDoc(sid);
           }
           return;
+        }
+        // l'avevi saltata e ti hanno invitato di nuovo: accettando, il salto si annulla e la missione torna da fare
+        if (role === 'g' && L && L.done && L.done.sk && d.g[me()].j && out === 'open') {
+          L.done = null;
+          syncContent(L, d);
+          touchMonth(monthOf(L));
+          MUI().missionMsg(T('sh.msg.back', { title: L.title }), 'good');
         }
         // gli invitati ricevono la missione nel loro elenco (anche già finita, se non avevano ancora visto l'esito)
         const seenMine = role === 'o' ? d.seenO : !!d.g[me()].s;
@@ -865,10 +874,14 @@
 
     // \"Invita\" su una missione
     const slotsFor = m => MAX_GUESTS - (m && m.sid && docOf(m) && isV2(docOf(m)) ? guests(docOf(m)).length : 0);
+    // chi non si può invitare in questa missione: chi c'è già (dentro o invitato). Chi l'ha saltata sì: se accetta,
+    // il salto si annulla e la missione gli torna da fare (vedi evaluate)
+    const notInvitable = d => guests(d).map(x => x.uid);
     function openInvite(id) {
       const t = {
         id, text: T('sh.pick.text'), full: T('sh.pick.full'), allin: T('sh.pick.allin'),
-        inside: () => { const m = byId(id), d = m && m.sid ? docOf(m) : null; return new Set(d && isV2(d) ? guests(d).map(x => x.uid) : []); },
+        // (chi ha saltato questa missione non si può invitare di nuovo: nel suo elenco la missione è già finita, "saltata")
+        inside: () => { const m = byId(id), d = m && m.sid ? docOf(m) : null; return new Set(d && isV2(d) ? notInvitable(d) : []); },
         slots: () => slotsFor(byId(id)),
         canSend: () => { const m = byId(id); return !!m && canInvite(m); },
         send: chosen => sendMission(byId(id), chosen),
@@ -915,7 +928,7 @@
       // per shared-routines.js: la finestra "Invita amici" e l'amico come va scritto nel documento
       pickFriends, myName,
       // per le prove
-      outcome, localDue, localFrom, failInfo, canWithdrawIn, invitesExpired,
+      outcome, localDue, localFrom, failInfo, canWithdrawIn, invitesExpired, notInvitable,
     };
   }
   window.LIFE_RPG_SHARED = { create, MAX_GUESTS };
