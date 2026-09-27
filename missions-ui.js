@@ -887,7 +887,7 @@
     function skipDone(r) {
       missionMsg(T('msg.skip', { title: r.title }), 'good');
       renderMissionViews();
-      sfx('save');
+      sfx('leave');   // farsi da parte, senza conseguenze
     }
     // la volta già creata (quella in corso): si toglie dall'elenco, con la lapide così non torna da un altro dispositivo
     function skipOcc(id) {
@@ -931,7 +931,7 @@
       saveRoutinesLocal();
       missionMsg(T('msg.unskip', { title: r.title }), 'good');
       renderMissionViews();
-      sfx('add');
+      sfx('ok');   // di nuovo dentro (niente XP: non è "add")
       // routine di gruppo: se il server rifiuta, il salto resta
       if (r.sr) SR().writeSkip(r, s, false).then(ok => {
         if (ok) return;
