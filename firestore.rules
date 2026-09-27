@@ -244,6 +244,7 @@ service cloud.firestore {
     //   freq, n: ogni giorno / settimana / mese ('d', 'w', 'm'), quante volte per periodo (senza: ogni giorno, una volta);
     //   at: da dove si contano i periodi (dopo un cambio), pk: l'ultimo periodo prima di at, nx: il cambio in attesa
     //   (frequenza, volte, giorni e ora dal giorno nx.at; nx.pk come pk)
+    //   cal, wk: periodi del calendario (settimane dal giorno wk, 0-6 come Date.getDay; mesi dal 1°); senza, dall'inizio
     // Ognuno segna solo la propria parte, con l'ora del server, e solo vicino a quel periodo (il fuso del gruppo lo conosce
     // l'app: qui si accetta da 14 ore prima della mezzanotte UTC del primo giorno a 38 ore dopo quella dell'ultimo, che
     // copre tutti i fusi; per settimane e mesi l'ultimo giorno è al massimo 6 o 30 giorni dopo il primo).
@@ -253,13 +254,15 @@ service cloud.firestore {
       return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time',
               'start', 'bonus', 'tz', 'ver', 'k', 'lk', 'created', 'updated'];
     }
-    function srKeys() { return srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x']); }
+    function srKeys() { return srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x', 'cal', 'wk']); }
     function srTplKeys() {
       return ['title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time', 'start', 'pause', 'bonus', 'tz', 'ver', 'ownerName', 'updated',
-              'freq', 'n', 'at', 'pk', 'nx'];
+              'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk'];
     }
     // le regole della routine: cambiandole la versione sale di uno (gli amici dovranno riaccettare)
-    function srRuleKeys() { return ['rewards', 'penalty', 'days', 'time', 'freq', 'n', 'at', 'pk', 'nx']; }
+    function srRuleKeys() { return ['rewards', 'penalty', 'days', 'time', 'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk']; }
+    // periodi del calendario: cal 1 (o niente), wk da 0 a 6 (o niente)
+    function srCal(c, w) { return (c == null || c == 1) && (w == null || (w is int && w >= 0 && w <= 6)); }
     function okDay10(v) { return v is string && v.size() == 10; }
     // frequenza, volte, giorni e ora: i giorni solo ogni giorno (almeno uno), l'ora solo per una volta al giorno
     function srShape(f, times, days, time) {
@@ -269,8 +272,9 @@ service cloud.firestore {
         && okClockOrNull(time) && (time == null || (f == 'd' && times == 1));
     }
     function srNx(x) {
-      return x == null || (x is map && x.keys().hasOnly(['at', 'freq', 'n', 'days', 'time', 'pk']) && x.keys().hasAll(['at', 'freq', 'n', 'days'])
-        && okDay10(x.at) && srShape(x.freq, x.n, x.days, x.get('time', null)) && (x.get('pk', null) == null || okDay10(x.pk)));
+      return x == null || (x is map && x.keys().hasOnly(['at', 'freq', 'n', 'days', 'time', 'pk', 'cal', 'wk']) && x.keys().hasAll(['at', 'freq', 'n', 'days'])
+        && okDay10(x.at) && srShape(x.freq, x.n, x.days, x.get('time', null)) && (x.get('pk', null) == null || okDay10(x.pk))
+        && srCal(x.get('cal', null), x.get('wk', null)));
     }
     // il modello della routine (lo decide chi l'ha creata)
     function srTpl(n) {
@@ -278,6 +282,7 @@ service cloud.firestore {
         && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
         && srShape(n.get('freq', 'd'), n.get('n', 1), n.days, n.time)
         && (n.get('at', null) == null || okDay10(n.at)) && (n.get('pk', null) == null || okDay10(n.pk)) && srNx(n.get('nx', null))
+        && srCal(n.get('cal', null), n.get('wk', null))
         && n.start is string && n.start.size() == 10 && shortStr(n.tz, 64)
         && (n.get('pause', null) == null || (n.pause is map && n.pause.keys().hasOnly(['from', 'until'])
             && n.pause.from is string && n.pause.from.size() == 10 && n.pause.until is string && n.pause.until.size() == 10))

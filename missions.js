@@ -250,6 +250,14 @@
           return o;
         }).sort((x, y) => x.d.localeCompare(y.d)).slice(-MAX_SKIPS);
     }
+    // periodi del calendario (solo settimanali e mensili): { cal: 1, wk } oppure {} (wk solo per le settimanali: 0-6,
+    // i numeri di Date.getDay, 1 = lunedì se manca)
+    function calOf(freq, x) {
+      if (freq === 'd' || !x || x.cal !== 1) return {};
+      if (freq !== 'w') return { cal: 1 };
+      const wk = Number(x.wk);
+      return { cal: 1, wk: Number.isInteger(wk) && wk >= 0 && wk <= 6 ? wk : 1 };
+    }
     const normDays = a => [...new Set((Array.isArray(a) ? a : []).map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
     const normTimes = v => { const n = Number(v); return Number.isInteger(n) && n >= 1 ? Math.min(n, MAX_TIMES) : 1; };
     function normalizeRoutines(arr) {
@@ -294,6 +302,9 @@
         // at = da quando valgono frequenza, volte e giorni di adesso (i periodi si contano da qui); senza, dall'inizio.
         // Può anche venire prima dell'inizio: chi entra in una routine di gruppo inizia dopo, ma i periodi sono quelli
         // del gruppo. pk = il primo giorno dell'ultimo periodo prima di at (serve alla serie di gruppo per restare di fila)
+        // cal = periodi del calendario (settimane da wk, il primo giorno della settimana; mesi dal 1° all'ultimo giorno).
+        // Senza (routine di prima): i periodi si contano dal primo giorno della routine, come prima
+        Object.assign(it, calOf(freq, r));
         if (validDate(r.at) && r.at !== r.start) it.at = r.at;
         if (it.at && validDate(r.pk) && r.pk < it.at) it.pk = r.pk;
         // nx = un cambio di frequenza, volte o giorni che vale dal periodo successivo (at = il suo primo giorno)
@@ -302,7 +313,7 @@
           const nd = nx.freq === 'd' ? normDays(nx.days) : [];
           const nn = normTimes(nx.n);
           if (nx.freq !== 'd' || nd.length) {
-            it.nx = { at: nx.at, freq: nx.freq, n: nn, days: nd, time: nx.freq === 'd' && nn === 1 && validTime(nx.time) ? nx.time : null };
+            it.nx = { at: nx.at, freq: nx.freq, n: nn, days: nd, time: nx.freq === 'd' && nn === 1 && validTime(nx.time) ? nx.time : null, ...calOf(nx.freq, nx) };
             if (validDate(nx.pk) && nx.pk < nx.at) it.nx.pk = nx.pk;
           }
         }
@@ -468,9 +479,17 @@
     const dayCounts = (r, d) => dayPlanned(r, d) && !isSkipped(r, d);
     // il periodo che contiene il giorno ds: { s: primo giorno, e: ultimo }. null prima dell'inizio e,
     // per le routine di ogni giorno, nei giorni in cui non c'è
+    // Periodi del calendario (cal): la settimana (da wk) o il mese che contengono ds, senza guardare l'inizio
+    function gridAt(r, ds) {
+      if (r.freq === 'w') { const s = weekStart(ds, Number.isInteger(r.wk) ? r.wk : 1); return { s, e: addDaysStr(s, 6) }; }
+      const s = ds.slice(0, 8) + '01';
+      return { s, e: addDaysStr(addMonthsStr(s, 1), -1) };
+    }
     function periodAt(r, ds) {
       const a = anchorOf(r);
       if (ds < a) return null;
+      // del calendario: un periodo già cominciato all'inizio (o al cambio) non c'è; si parte dal primo intero
+      if (r.cal && !isDaily(r)) { const g = gridAt(r, ds); return g.s >= a ? g : null; }
       if (r.freq === 'w') {
         const s = addDaysStr(a, Math.floor(daysBetween(a, ds) / 7) * 7);
         return { s, e: addDaysStr(s, 6) };
@@ -490,6 +509,12 @@
         for (let i = 0; i < 800 && ds <= until; i++, ds = addDaysStr(ds, 1)) if (dayCounts(r, ds)) return { s: ds, e: ds };
         return null;
       }
+      if (r.cal) {
+        let g = gridAt(r, ds);
+        if (g.s < ds) g = gridAt(r, addDaysStr(g.e, 1));
+        for (let i = 0; i < 400 && g.s <= until && isSkipped(r, g.s); i++) g = gridAt(r, addDaysStr(g.e, 1));
+        return g.s <= until ? g : null;
+      }
       const p = periodAt(r, ds);
       let q = p.s >= ds ? p : periodAt(r, addDaysStr(p.e, 1));
       for (let i = 0; i < 400 && q.s <= until && isSkipped(r, q.s); i++) q = periodAt(r, addDaysStr(q.e, 1));   // saltati: si passa oltre
@@ -507,9 +532,17 @@
     // per una routine non ancora iniziata, il suo primo giorno (il cambio vale subito)
     function changeAt(r, today) {
       if (r.start > today) return r.start;
-      return addDaysStr(isDaily(r) ? today : periodAt(r, today).e, 1);
+      const p = isDaily(r) ? null : periodAt(r, today);   // (del calendario, prima del primo periodo intero: nessuno in corso)
+      return addDaysStr(p ? p.e : today, 1);
     }
-    const sameShape = (a, b) => (a.freq || 'd') === (b.freq || 'd') && (a.n || 1) === (b.n || 1) && a.days.join() === b.days.join();
+    const sameShape = (a, b) => (a.freq || 'd') === (b.freq || 'd') && (a.n || 1) === (b.n || 1) && a.days.join() === b.days.join()
+      && (a.cal || 0) === (b.cal || 0) && (Number.isInteger(a.wk) ? a.wk : null) === (Number.isInteger(b.wk) ? b.wk : null);
+    // mette frequenza, volte, giorni, ora e periodi del calendario (to = la routine o una sua copia)
+    function applyShape(to, x) {
+      Object.assign(to, { freq: x.freq, n: x.n, days: x.days, time: x.freq === 'd' && x.n === 1 ? x.time || null : null });
+      delete to.cal; delete to.wk;
+      Object.assign(to, calOf(x.freq, x));
+    }
     // Cambiare frequenza, volte o giorni: vale dal giorno dopo la fine del periodo in corso (per una routine di ogni giorno:
     // da domani), così nessuna volta cambia regole a metà. La serie resta. Una routine non ancora iniziata cambia subito.
     // c = { freq, n, days, time }; today = il giorno di oggi della routine (routineToday). L'ora va con il cambio (vale
@@ -519,22 +552,25 @@
       const next = { freq: FREQS.includes(c.freq) ? c.freq : 'd', n: normTimes(c.n) };
       next.days = next.freq === 'd' ? normDays(c.days) : [];
       next.time = next.freq === 'd' && next.n === 1 && validTime(c.time) ? c.time : null;
+      Object.assign(next, calOf(next.freq, c));
       delete r.nx;
       if (r.start > today) {
-        Object.assign(r, next);
+        applyShape(r, next);
         return r.start;
       }
       if (sameShape(next, r)) return today;
       r.nx = { at: changeAt(r, today), ...next };
       // l'ultimo periodo con le regole di adesso (per la serie di gruppo: il periodo nuovo viene subito dopo di lui)
-      const pk = isDaily(r) ? (dayCounts(r, today) ? today : prevDay(r, today)) : periodAt(r, today).s;
+      const pc = isDaily(r) ? null : periodAt(r, today);
+      const pk = isDaily(r) ? (dayCounts(r, today) ? today : prevDay(r, today)) : pc ? pc.s : prevDay(r, today);
       if (pk) r.nx.pk = pk;
       return r.nx.at;
     }
     // la routine come sarà dopo il cambio in attesa (una copia; la routine non cambia)
     function foldedCopy(r) {
-      const { at, freq, n, days, time, pk } = r.nx;
-      const c = { ...r, at, freq, n, days, time: freq === 'd' && n === 1 ? time || null : null };
+      const { at, pk } = r.nx;
+      const c = { ...r, at };
+      applyShape(c, r.nx);
       delete c.nx; delete c.pk;
       if (pk) c.pk = pk;
       return c;
@@ -544,13 +580,15 @@
     // una copia che l'ha già applicato e una che non ancora risultano uguali.
     function shapeOf(r, day) {
       const y = r.nx && r.nx.at <= day ? foldedCopy(r) : r;
-      const x = y.nx ? { at: y.nx.at, f: y.nx.freq, n: y.nx.n, d: y.nx.days.join(), t: y.nx.time || null } : null;
-      return JSON.stringify({ f: y.freq || 'd', n: y.n || 1, d: y.days.join(), t: y.time || null, a: anchorOf(y), x });
+      const cw = z => ({ c: z.cal || 0, w: Number.isInteger(z.wk) ? z.wk : null });
+      const x = y.nx ? { at: y.nx.at, f: y.nx.freq, n: y.nx.n, d: y.nx.days.join(), t: y.nx.time || null, ...cw(y.nx) } : null;
+      return JSON.stringify({ f: y.freq || 'd', n: y.n || 1, d: y.days.join(), t: y.time || null, a: anchorOf(y), ...cw(y), x });
     }
     // il cambio arriva al suo primo giorno: da lì si contano i periodi nuovi
     function foldChange(r) {
-      const { at, freq, n, days, time, pk } = r.nx;
-      Object.assign(r, { at, freq, n, days, time: freq === 'd' && n === 1 ? time || null : null });
+      const { at, pk } = r.nx;
+      r.at = at;
+      applyShape(r, r.nx);
       if (pk) r.pk = pk; else delete r.pk;
       delete r.nx;
     }
@@ -810,7 +848,7 @@
             mark = '';
             if (closeThrough >= anchorOf(r)) {
               let lc = periodAt(r, closeThrough);
-              if (lc.e > closeThrough) lc = lc.s > anchorOf(r) ? periodAt(r, addDaysStr(lc.s, -1)) : null;
+              if (lc && lc.e > closeThrough) lc = lc.s > anchorOf(r) ? periodAt(r, addDaysStr(lc.s, -1)) : null;
               if (lc) mark = lc.s;
             }
           }
@@ -895,7 +933,7 @@
       const today = zoneDay(now, r.tz);
       if (!isDaily(r)) {
         const p = periodAt(r, today);
-        if (!p) return '';
+        if (!p) return prevDay(r, today);   // (del calendario, prima del primo periodo intero)
         return groupDueMs(r, p.e) <= now && !groupSkipped(r, p.s) ? p.s : prevDay(r, p.s);
       }
       let d = today;
@@ -931,6 +969,21 @@
       return out;
     }
 
+    // Routine settimanali e mensili di prima (periodi contati dal loro primo giorno): passano ai periodi del calendario
+    // (wk = il primo giorno della settimana) alla fine del periodo in corso, come un cambio di frequenza. I giorni fra la
+    // fine di quel periodo e il primo periodo intero del calendario non hanno volte (niente da fare, la serie resta).
+    // Non le routine di gruppo (le regole le decide chi l'ha creata) e non con un cambio già in attesa.
+    // Cambia la routine; true se è cambiata.
+    function calMigrate(r, wk, today = routineToday(r)) {
+      if (!r || isDaily(r) || r.cal || r.sr || r.nx) return false;
+      planChange(r, { freq: r.freq, n: r.n, days: [], time: null, cal: 1, wk }, today);
+      return true;
+    }
+    // il primo periodo di una routine settimanale o mensile del calendario che parte il giorno from (per il modulo)
+    function firstCalPeriod(freq, wk, from) {
+      const t = { freq, n: 1, days: [], start: from, ...calOf(freq, { cal: 1, wk }) };
+      return nextPeriod(t, from, addDaysStr(from, 400));
+    }
     // routine previste nei giorni futuri (non sono ancora missioni: compaiono quando inizia il loro periodo).
     // Ogni giorno: nei giorni scelti. Settimanali e mensili: nell'ultimo giorno del periodo, come le volte già create
     // (plannedPeriod). Le volte saltate non ci sono. ids: gli id delle missioni che esistono già
@@ -1023,6 +1076,7 @@
       WD_ALL, isDaily, anchorOf, dayCounts, periodAt, nextPeriod, occKey, occEnd, missingOf, changeAt, planChange,
       occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay,
       applySetCount, fullCount, applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
+      calOf, gridAt, calMigrate, firstCalPeriod,
       MAX_SKIPS, rulesOn, isSkipped, dayPlanned, makeOcc, periodStarting, plannedPeriod, canSkipRoutine, canSkipOcc, applySkip,
       unskipPlan, applyUnskip, skippedOn, skipMarks,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,

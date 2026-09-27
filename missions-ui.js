@@ -327,6 +327,8 @@
     let routinesDay = '';
     function syncRoutines() {
       routinesDay = todayStr();
+      // settimanali e mensili di prima: passano ai periodi del calendario alla fine del periodo in corso (missions.js)
+      if (S.routines.map(r => MISSIONS.calMigrate(r, firstDay())).some(Boolean)) saveRoutinesLocal();
       const res = MISSIONS.routineDay(S.routines, S.missions, todayStr());
       S.missions = res.missions;
       if (res.routinesChanged) saveRoutinesLocal();
@@ -1137,6 +1139,7 @@
     let formFreq = 'd';
     const freqBtns = [...$('mf-freq').querySelectorAll('button')];
     freqBtns.forEach(b => b.addEventListener('click', () => { formFreq = b.dataset.f; paintFreq(); }));
+    $('mf-start').addEventListener('input', paintFreq);   // il primo periodo dipende dal giorno di inizio
     // le volte scritte (vuoto = 1; un valore non valido vale 1 finché non salvi, e lì si dice cosa non va)
     const timesNow = () => {
       const v = $('mf-times').value.trim(), n = Number(v);
@@ -1145,6 +1148,9 @@
     const editingRoutine = () => (editingRid ? S.routines.find(x => x.id === editingRid) || null : null);
     // l'ora di scadenza vale solo per una volta al giorno
     const routineTimeOk = () => formFreq === 'd' && timesNow() === 1;
+    // il primo giorno della settimana di una routine: quello che ha già (se resta settimanale del calendario), altrimenti
+    // quello di adesso (impostazioni o lingua)
+    const wkFor = (r, f) => (r && r.cal && r.freq === 'w' && f === 'w' && Number.isInteger(r.wk) ? r.wk : firstDay());
     function paintFreq() {
       const r = editingRoutine();
       const f = formFreq, n = timesNow();
@@ -1157,6 +1163,12 @@
       if (f === 'd' && n > 1) tips.push(T('mf.freq.tip.dn'));
       if (f !== 'd') tips.push(T('mf.freq.tip.' + f));
       if (n > 1) tips.push(T('mf.freq.tip.all'));
+      // settimane e mesi del calendario: quale sarà il primo (una settimana o un mese già cominciati non contano)
+      if (f !== 'd' && (!r || r.start > todayStr())) {
+        const from = $('mf-start').value || todayStr();
+        const p = validDate(from) ? MISSIONS.firstCalPeriod(f, wkFor(r, f), from) : null;
+        if (p) tips.push(T('mf.first.' + f, { from: fmtDay(p.s), to: fmtDay(p.e) }));
+      }
       $('mf-freq-tip').textContent = tips.join(' ');
       $('mf-freq-tip').hidden = !tips.length;
       syncTime();
@@ -1171,7 +1183,14 @@
       const same = r && formFreq === (r.freq || 'd') && timesNow() === (r.n || 1) && days.join() === r.days.join();
       note.hidden = !r || r.start > today || !!same;
       // la data a metà frase: senza la maiuscola che fmtDay mette all'inizio ("dal sabato 3 ottobre")
-      if (!note.hidden) note.textContent = T('mf.change.at', { when: parseDate(changeAt(r, today)).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' }) });
+      if (note.hidden) return;
+      let when = changeAt(r, today);
+      // settimane e mesi del calendario: dal primo periodo intero dopo quel giorno
+      if (formFreq !== 'd' && (!r.sr || r.cal || formFreq !== (r.freq || 'd'))) {
+        const p = MISSIONS.firstCalPeriod(formFreq, wkFor(r, formFreq), when);
+        if (p) when = p.s;
+      }
+      note.textContent = T('mf.change.at', { when: parseDate(when).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' }) });
     }
     $('mf-times').addEventListener('input', paintFreq);
     function paintDayChips() {
@@ -1353,13 +1372,17 @@
         if (newStart) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); r.brks = []; delete r.at; }
         // frequenza, volte e giorni: dal periodo successivo (se non è ancora iniziata, subito); le regole sono in missions.js.
         // Routine di gruppo: il cambio in attesa va nel documento, così vale per tutti dallo stesso giorno
-        MISSIONS.planChange(r, { freq, n: times, days, time }, routineToday(r));
+        // settimane e mesi del calendario; una routine di gruppo di prima ci passa solo cambiando frequenza (altrimenti
+        // gli amici dovrebbero riaccettare le regole per una modifica al titolo)
+        const cal = freq !== 'd' && (!r.sr || r.cal || freq !== (r.freq || 'd'));
+        MISSIONS.planChange(r, { freq, n: times, days, time, ...(cal ? { cal: 1, wk: wkFor(r, freq) } : {}) }, routineToday(r));
         if (!r.nx && isDaily(r) && (r.n || 1) === 1) r.time = time;   // stesse regole: l'ora nuova vale subito
         if (r.made && r.made >= today) r.made = addDaysStr(today, -1);   // se oggi ora è un giorno previsto, compare subito
       } else {
         if (S.routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
         r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty,
-          freq, n: times, days, time, start, streak: 0, streakDate: addDaysStr(start, -1), best: 0, bonus, stars };
+          freq, n: times, days, time, start, streak: 0, streakDate: addDaysStr(start, -1), best: 0, bonus, stars,
+          ...MISSIONS.calOf(freq, { cal: 1, wk: firstDay() }) };   // settimane e mesi del calendario
         S.routines.push(r);
       }
       // le volte ancora da fare prendono i valori nuovi (l'ora solo quelle da una volta al giorno)

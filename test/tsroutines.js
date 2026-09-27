@@ -397,3 +397,30 @@ test('una routine non più di gruppo (dati di prima) perde serie e record di gru
     sr: ID, sh: 'o', gs: 3, gsd: '2026-10-02', gbest: 7 }])[0];
   assert.deepEqual([g.gs, g.gsd, g.gbest], [3, '2026-10-02', 7], 'di gruppo: restano');
 });
+
+/* ---------- settimane e mesi del calendario nelle routine di gruppo ---------- */
+test('gruppo con le settimane del calendario: l\'invitato prende le settimane di chi l\'ha creata', t => {
+  now(t, '2026-10-07');
+  const { SR, S } = fakeWorld('uG', baseDoc({ start: '2026-10-05', cal: 1, wk: 1, n: 1,
+    g: { uG: { n: 'Io', j: true, a: 1, since: '2026-10-07' } } }));
+  SR.evaluate();
+  const r = S.routines[0];
+  assert.deepEqual([r.cal, r.wk, r.start], [1, 1, '2026-10-12'], 'entrato a metà settimana: dalla prossima, da lunedì');
+  assert.deepEqual(M.nextPeriod(r, r.start, '2026-12-31'), { s: '2026-10-12', e: '2026-10-18' });
+});
+
+test('chi l\'ha creata: il gruppo nuovo di una routine del calendario scrive cal e wk; una di prima no', async t => {
+  now(t, '2026-10-05');
+  const SHfake = { pickFriends: o => o.send([{ uid: 'uF', name: 'Marco' }]), joinNames: l => l.join(', '), myName: () => 'Anna' };
+  const W = fakeWorldWithSH('uO', SHfake);
+  const r = M.normalizeRoutines([{ id: 'r5', title: 'Palestra', rewards: { Vigore: 4 }, freq: 'w', start: '2026-10-05', cal: 1, wk: 0 }])[0];
+  W.S.routines.push(r);
+  await W.SR.openInvite(r.id);
+  const c = W.writes.filter(x => x.set)[0].set;
+  assert.deepEqual([c.cal, c.wk], [1, 0]);
+  const old = M.normalizeRoutines([{ id: 'r6', title: 'Palestra', rewards: { Vigore: 4 }, freq: 'w', start: '2026-10-05' }])[0];
+  W.S.routines.push(old);
+  await W.SR.openInvite(old.id);
+  const c2 = W.writes.filter(x => x.set)[1].set;
+  assert.deepEqual(['cal', 'wk'].filter(k => k in c2), [], 'periodi dall\'inizio: niente campi nuovi');
+});

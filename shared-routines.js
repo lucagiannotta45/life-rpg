@@ -91,7 +91,8 @@
     // ogni giorno, una volta)
     function tplOf(d) {
       const r = normalizeRoutines([{ id: 'x', title: d.title, desc: d.desc, rewards: d.rewards, penalty: d.penalty, days: d.days,
-        time: d.time, start: d.start, bonus: d.bonus, stars: d.stars, freq: d.freq, n: d.n, at: d.at, pk: d.pk, nx: d.nx }])[0];
+        time: d.time, start: d.start, bonus: d.bonus, stars: d.stars, freq: d.freq, n: d.n, at: d.at, pk: d.pk, nx: d.nx,
+        cal: d.cal, wk: d.wk }])[0];
       if (!r) return null;
       const tz = typeof d.tz === 'string' && d.tz ? d.tz : hereTz();
       const t = { title: r.title, desc: r.desc, rewards: r.rewards, penalty: r.penalty, freq: r.freq, n: r.n, days: r.days, time: r.time,
@@ -99,6 +100,8 @@
       if (r.at) t.at = r.at;
       if (r.pk) t.pk = r.pk;
       if (r.nx) t.nx = r.nx;
+      if (r.cal) t.cal = 1;
+      if (Number.isInteger(r.wk)) t.wk = r.wk;
       return t;
     }
     const keyOf = ds => ds.replace(/-/g, '');
@@ -286,6 +289,8 @@
     // frequenza, volte, giorni e ora del gruppo; i periodi si contano da dove li conta il gruppo (at)
     function takeShape(r, t) {
       Object.assign(r, { freq: t.freq || 'd', n: t.n || 1, days: t.days.slice(), time: t.time || null });
+      delete r.cal; delete r.wk;
+      Object.assign(r, MISSIONS.calOf(r.freq, t));   // periodi del calendario del gruppo (settimane di chi l'ha creata)
       const anchor = t.at || t.start;
       if (anchor !== r.start) r.at = anchor; else delete r.at;
       if (t.pk) r.pk = t.pk; else delete r.pk;
@@ -456,16 +461,19 @@
     function fieldsOf(r) {
       const nx = r.nx ? { at: r.nx.at, freq: r.nx.freq, n: r.nx.n, days: r.nx.days.slice(), time: r.nx.time || null } : null;
       if (nx && r.nx.pk) nx.pk = r.nx.pk;
+      if (nx && r.nx.cal) { nx.cal = 1; if (Number.isInteger(r.nx.wk)) nx.wk = r.nx.wk; }
       return {
         title: r.title, desc: r.desc || '', rewards: { ...r.rewards }, penalty: { ...r.penalty },
         stars: r.stars ? { d: r.stars.d, f: r.stars.f } : null, days: r.days.slice(), time: r.time || null,
         start: r.start,
         bonus: r.bonus ? { every: r.bonus.every, xp: r.bonus.xp } : null, tz: r.tz || hereTz(),
         freq: r.freq || 'd', n: r.n || 1, at: r.at || null, pk: r.pk || null, nx,
+        // periodi del calendario (settimane da wk, il primo giorno della settimana di chi l'ha creata)
+        cal: r.cal ? 1 : null, wk: r.cal && Number.isInteger(r.wk) ? r.wk : null,
       };
     }
     // le regole della routine: cambiandole, gli amici devono accettare di nuovo (le regole di Firebase lo controllano)
-    const SHAPE_KEYS = ['days', 'time', 'freq', 'n', 'at', 'pk', 'nx'];
+    const SHAPE_KEYS = ['days', 'time', 'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk'];
     const RULE_KEYS = ['rewards', 'penalty'].concat(SHAPE_KEYS);
     const sortKeys = v => Array.isArray(v) ? v.map(sortKeys)
       : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sortKeys(v[k])])) : v;
@@ -597,6 +605,7 @@
         // documento resta uguale a quelli di prima
         const f = fieldsOf(r);
         if (f.freq === 'd' && f.n === 1 && !f.at && !f.pk && !f.nx) ['freq', 'n', 'at', 'pk', 'nx'].forEach(k => { delete f[k]; });
+        if (!f.cal) { delete f.cal; delete f.wk; }   // periodi contati dall'inizio (come prima): i campi nuovi non servono
         const data = {
           v: 1, owner: me(), ownerName: myName(), members: [me()].concat(chosen.map(f => f.uid)),
           g: Object.fromEntries(chosen.map(f => [f.uid, guestEntry(f)])),
