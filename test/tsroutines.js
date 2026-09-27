@@ -325,3 +325,26 @@ test('salta: diventando di gruppo, i salti della volta in corso e futuri passano
   assert.deepEqual(keys, ['20261005', '20261007'], 'oggi e mercoledì; quello già passato no');
   assert.deepEqual(r.skip.map(x => x.d), ['2026-10-05', '2026-10-07']);
 });
+
+test('chi l\'ha creata: se l\'amico rifiuta (e non resta nessuno) il gruppo si scioglie e la routine torna normale', async t => {
+  now(t, '2026-10-05');
+  const { SR, S } = fakeWorld('uO', baseDoc({ members: ['uO'], g: {} }));
+  const r = M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { Vigore: 10 }, freq: 'w', n: 3, start: '2026-09-25',
+    sr: ID, sh: 'o', tz: 'Europe/Rome', shn: ['Io'], gs: 2, gsd: '2026-09-25' }])[0];
+  S.routines.push(r);
+  SR.evaluate();
+  for (let i = 0; i < 5; i++) await new Promise(res => setImmediate(res));
+  assert.deepEqual([r.sr, r.sh, r.shn], [undefined, undefined, undefined], 'non è più di gruppo (niente etichetta)');
+  assert.equal(r.gs, 2, 'la serie di gruppo raggiunta resta');
+});
+
+test('chi l\'ha creata: con un invito ancora senza risposta il gruppo resta', async t => {
+  now(t, '2026-10-05');
+  const { SR, S } = fakeWorld('uO', baseDoc({ g: { uG: { n: 'Io', j: false, a: 0, since: '' } } }));
+  const r = M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { Vigore: 10 }, freq: 'w', n: 3, start: '2026-09-25',
+    sr: ID, sh: 'o', tz: 'Europe/Rome' }])[0];
+  S.routines.push(r);
+  SR.evaluate();
+  for (let i = 0; i < 5; i++) await new Promise(res => setImmediate(res));
+  assert.equal(r.sr, ID);
+});

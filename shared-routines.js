@@ -192,6 +192,20 @@
       unlink(r);
       if (wasGuest) msg('sr.msg.gone', { title: r.title });
     }
+    // chi l'ha creata è rimasto solo: il documento si elimina e la routine resta sua, come routine normale
+    // (serie personale e serie di gruppo raggiunta restano). Lo fa da sola, quindi senza messaggi di errore
+    function alone(r, id) {
+      if (leaving.has(id) || !online()) return;
+      leaving.add(id);
+      ref(id).delete()
+        .then(() => {
+          delete docs[id]; saveCache();
+          if (r.sr === id) { unlink(r); msg('sr.msg.alone', { title: r.title }); }
+          paint(); MUI().renderMissionViews();
+        })
+        .catch(e => console.warn('sroutines alone', e && e.code, e))
+        .then(() => leaving.delete(id));
+    }
     // una routine collegata a un documento che qui non è mai arrivato: si chiede al server se c'è ancora
     const fetching = {};
     function checkOrphans() {
@@ -223,6 +237,9 @@
         let r = routineBySr(id);
         if (role === 'o') {
           if (!r) return;   // su un altro dispositivo, prima che arrivi la sincronizzazione: si aspetta
+          // nel gruppo non è rimasto nessuno (hanno rifiutato o sono usciti tutti, e non ci sono inviti in attesa):
+          // il gruppo non serve più e la routine torna normale (come fanno le missioni condivise)
+          if (!guests(d).length && !d._pw) { alone(r, id); return; }
         } else {
           const mine = d.g[me()];
           if (!mine.j) return;   // invito: lo mostra invites()
