@@ -258,3 +258,13 @@ test('chi ha saltato si può invitare di nuovo: accettando, il salto si annulla 
   const W2 = fakeWorld('uG', doc, [myCopy('g')]);
   assert.equal(W2.SH.info(W2.S.missions[0]).withdrawnCount, 0, 'per Marco Luca non risulta più tra chi ha saltato');
 });
+
+test('invitare altri amici non fa riaccettare niente a chi è già dentro', async () => {
+  const doc = baseDoc({ uG: guest('Marco') });
+  const W = fakeWorld('uO', doc, [myCopy('o')]);
+  await W.SH.sendMission(W.S.missions[0], [{ uid: 'uL', name: 'Lia' }]);
+  const w = W.writes.at(-1).data;
+  assert.equal('ver' in w, false, 'la versione non cambia: Marco resta dentro con le regole di prima');
+  assert.deepEqual(w.members, { union: ['uL'] });
+  assert.equal(w['g.uL'].j, false);
+});

@@ -190,9 +190,9 @@ service cloud.firestore {
                        'ver', 'ownerName', 'updated'])
             && shOpen(o) && shInTime(o) && okContent(n)
             && (k.hasAny(['rewards', 'penalty', 'dueAt']) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
-        // invitare altri amici: vale come modifica, quindi la versione sale di uno (chi è dentro deve riaccettare)
-        || (k.hasOnly(['g', 'members', 'ver', 'updated']) && shOpen(o) && shInTime(o)
-            && n.ver == o.ver + 1 && n.members.size() > o.members.size() && n.members.size() <= 4
+        // invitare altri amici: lo decide solo chi l'ha creata, e chi è già dentro non deve riaccettare (la versione resta)
+        || (k.hasOnly(['g', 'members', 'updated']) && shOpen(o) && shInTime(o)
+            && n.members.size() > o.members.size() && n.members.size() <= 4
             && n.members[0:o.members.size()] == o.members && gMatches(n)
             && n.g.diff(o.g).changedKeys().size() == 0
             && newGuestAt(o.members.size(), n, 1) && newGuestAt(o.members.size(), n, 2) && newGuestAt(o.members.size(), n, 3))

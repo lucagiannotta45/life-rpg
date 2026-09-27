@@ -15,7 +15,7 @@
  *   ritirato, e sceglie) ma scadono dopo 24 ore, perché nessuno li potrebbe più togliere. Quando resta una persona
  *   sola, senza inviti in attesa, la missione diventa una sua missione normale (e il documento si elimina);
  * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla quando vuole. Se cambia XP,
- *   penalità o scadenza, oppure invita altri amici, chi è dentro va "in sospeso" e sceglie "Accetta" oppure
+ *   penalità o scadenza, chi è dentro va "in sospeso" e sceglie "Accetta" oppure
  *   "Esci" (uscire così non è un fallimento); in sospeso non può fare la sua parte né abbandonare.
  *   Chi è ancora in sospeso quando la missione finisce (scadenza o abbandono di un altro) esce senza penalità;
  * - un invito senza risposta non blocca nessuno: se la missione finisce, o arriva la scadenza, si annulla da solo.
@@ -891,13 +891,11 @@
     async function sendMission(m, chosen) {
       const names = joinNames(chosen.map(f => f.name || T('fr.noname')));
       if (m.sid) {
-        // missione già condivisa: si aggiungono i nuovi amici; vale come modifica (chi è dentro deve riaccettare)
-        const d = docOf(m);
-        const data = { members: FV().arrayUnion(...chosen.map(f => f.uid)), ver: FV().increment(1) };
+        // missione già condivisa: si aggiungono i nuovi amici. Chi entra lo decide solo chi l'ha creata: chi è già
+        // dentro non deve riaccettare niente (le regole della missione non cambiano)
+        const data = { members: FV().arrayUnion(...chosen.map(f => f.uid)) };
         chosen.forEach(f => { data['g.' + f.uid] = guestEntry(f); });
         await update(m.sid, data);
-        const j = d ? joinedOf(d) : [];
-        if (j.length) MUI().missionMsg(T('sh.msg.changed', { name: joinNames(j.map(x => noname(x.n))) }), '');
       } else {
         const sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
         const now = Date.now();
@@ -928,7 +926,7 @@
       // per shared-routines.js: la finestra "Invita amici" e l'amico come va scritto nel documento
       pickFriends, myName,
       // per le prove
-      outcome, localDue, localFrom, failInfo, canWithdrawIn, invitesExpired, notInvitable,
+      outcome, localDue, localFrom, failInfo, canWithdrawIn, invitesExpired, notInvitable, sendMission,
     };
   }
   window.LIFE_RPG_SHARED = { create, MAX_GUESTS };
