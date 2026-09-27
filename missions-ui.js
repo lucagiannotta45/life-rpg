@@ -219,7 +219,7 @@
     // tornano e, se quel giorno aveva interrotto la serie, la serie di prima si riattacca. Non per le routine di gruppo.
     function revertRoutine(m) {
       const rt = routineOf(m);
-      if (rt && rt.sr) return;
+      // (routine di gruppo: vale solo per la tua parte, XP e serie personale; per il gruppo quel periodo resta mancato)
       const { restored, routineChanged } = MISSIONS.applyRevert(S.xp, m, rt);   // regole in missions.js
       if (routineChanged) saveRoutinesLocal();
       persist();
@@ -510,7 +510,9 @@
         if (!shi.pending && shi.pendNames && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.pend.others', { name: shi.pendNames })));
         if (shi.role === 'o' && shi.invitedCount && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.invited.wait', { name: shi.invitedNames })));
       }
-      if (sri && !failedNow) {
+      // routine di gruppo ripresa dopo "Annulla penalità": vale solo per te, per il gruppo è andata
+      if (sri && !failedNow && m.re) card.appendChild(mk('p', 'm-shared', T(m.done ? 'sr.rec.solo.done' : 'sr.rec.solo')));
+      else if (sri && !failedNow) {
         if (sri.pending && !m.done) card.appendChild(mk('p', 'm-shared warn', T('sr.changed', { name: (SR().info(rtn) || {}).ownerName || '' })));
         else if (sri.inGroup) {
           if (sri.together) card.appendChild(mk('p', 'm-shared', T(sri.skipCount ? 'sr.together.skip' : 'sr.together')));
@@ -560,7 +562,7 @@
         // condivisa: non si annulla; routine di gruppo: non dopo che l'avete fatta tutti (la serie di gruppo l'ha contata)
         if (!m.sid && SR().canUndo(m)) act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
       } else if (failedNow) {
-        if (!m.sid && !(rtn && rtn.sr)) {   // non per le missioni condivise e le routine di gruppo
+        if (!m.sid) {   // non per le missioni condivise (routine di gruppo: sì, solo per la tua parte)
           const hadPenalty = hasAny(m.penalty);
           act.appendChild(btn('', T(hadPenalty ? 'btn.undopen' : 'btn.resched'), T(hadPenalty ? 'aria.undopen' : 'aria.resched'), () => revertPenalty(m.id)));
         }

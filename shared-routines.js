@@ -537,6 +537,9 @@
       const d = docOfR(r);
       if (!d || !isDoc(d) || !online()) return;
       const day = occKey(m);   // il primo giorno del periodo
+      // volta ripresa dopo "Annulla penalità": vale solo per te (XP e serie personale); per il gruppo quel periodo
+      // resta mancato, quindi nel documento non si scrive niente (gli amici non la vedono come fatta)
+      if (on && m.re) return;
       if (!partsOf(d, day).includes(me())) return;   // in sospeso, o non ancora dentro quel giorno: non conta per il gruppo
       if (!on && !partSeen(d, day, me())) return;
       const key = keyOf(day);

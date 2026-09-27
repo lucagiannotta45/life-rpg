@@ -364,3 +364,26 @@ test('salta: se gli altri l\'hanno già completata, il salto non si annulla più
   assert.deepEqual([r2.gs, r2.gsd], [1, '2026-10-02'], 'la serie di gruppo l\'ha contato');
   assert.equal(W2.SR.canUnskip(r2, '2026-10-02'), false);
 });
+
+test('annulla penalità in una routine di gruppo: vale solo per me, nel documento non si scrive niente', t => {
+  now(t, '2026-10-03', '10:00');
+  const { SR, S, writes } = fakeWorld('uG', baseDoc({ k: { 20261002: { uO: at('2026-10-03') } } }));
+  SR.evaluate();
+  D_sync(S);
+  const r = S.routines[0];
+  r.streak = 3; r.streakDate = '2026-09-25';
+  const m = S.missions.find(y => y.id === ID + '-20261002');
+  t.mock.timers.setTime(at('2026-10-09', '10:00'));
+  D_sync(S);   // chiude la settimana del 2 ottobre: la serie personale si interrompe
+  M.applyFail(M.normalizeRewards(null), m, r, '2026-10-09', 1);
+  assert.equal(r.streak, 0);
+  M.applyRevert(M.normalizeRewards(null), m, r);   // "Annulla penalità"
+  assert.deepEqual([m.re, r.streak], ['2026-10-09', 3], 'ripresa fino a stasera, serie personale riattaccata');
+  M.applySetCount(m, 3);
+  M.applyComplete(M.normalizeRewards(null), m, r, 1);
+  const before = writes.length;
+  SR.markPart(r, m, true);   // come fa l'app completandola
+  assert.equal(writes.length, before, 'per il gruppo non conta: niente parte nel documento');
+  assert.equal(r.streak, 4, 'la serie personale cresce');
+  assert.equal(r.gs, undefined, 'la serie di gruppo no');
+});
