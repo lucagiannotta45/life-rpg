@@ -10,9 +10,13 @@
  *
  * Come si lanciano i test (serve Node 20 o più recente), dalla cartella del progetto:
  *   node --test
+ * e, con il dispositivo in un altro fuso:
+ *   TEST_TZ=America/Sao_Paulo node --test
  */
 'use strict';
-process.env.TZ = 'Europe/Rome';
+// il fuso del "dispositivo" durante i test: Roma, oppure quello scelto con TEST_TZ (per provare tutto anche da un
+// altro fuso, per esempio: TEST_TZ=America/Sao_Paulo node --test)
+process.env.TZ = process.env.TEST_TZ || 'Europe/Rome';
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');

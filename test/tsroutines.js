@@ -9,7 +9,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
-const { MISSIONS: M, T, at } = require('./carica');
+const { MISSIONS: M, T } = require('./carica');
+// le ore dei test sono quelle del gruppo (Roma, il fuso dei documenti qui sotto), qualunque sia il fuso del dispositivo
+const at = (ds, time = '12:00') => M.zoneMs(ds, time, 'Europe/Rome');
 require(path.join(__dirname, '..', 'shared-routines.js'));
 
 const LS = 'liferpg:sroutines:v1';
@@ -76,7 +78,9 @@ test('invitato: entrando a metà settimana conta dalla settimana dopo, con le se
   SR.evaluate();
   D_sync(S);
   const m = S.missions[0];
-  assert.deepEqual([m.id, m.ps, m.due, m.gd, m.n], [ID + '-20261002', '2026-10-02', '2026-10-08', '2026-10-08', 3]);
+  assert.deepEqual([m.id, m.ps, m.gd, m.n], [ID + '-20261002', '2026-10-02', '2026-10-08', 3]);
+  // la scadenza è la fine della settimana del gruppo (Roma), scritta nell'ora di questo dispositivo
+  assert.equal(M.dueEndMs(m), M.groupDueMs(r, '2026-10-08'));
 });
 // il \"giro di oggi\" come lo fa l'app
 function D_sync(S) { const res = M.routineDay(S.routines, S.missions, M.todayStr()); S.missions = res.missions; }
@@ -156,7 +160,7 @@ test('cambio di frequenza del gruppo: arriva a tutti lo stesso giorno, senza ria
   SR.evaluate();
   assert.equal(JSON.stringify(r), before, 'il documento ha ancora il cambio \"in attesa\": per me è già fatto, niente cambia');
   assert.equal(saves.n, saved, 'e niente da salvare');
-  assert.ok(S.missions.some(m => m.id === ID + '-20261002' && m.due === '2026-11-01'), 'il primo mese');
+  assert.ok(S.missions.some(m => m.id === ID + '-20261002' && m.gd === '2026-11-01'), 'il primo mese (giorni del gruppo)');
 });
 
 test('chi l\'ha creata: cambiare il titolo non fa riaccettare niente, cambiare la frequenza sì', t => {
@@ -423,4 +427,48 @@ test('chi l\'ha creata: il gruppo nuovo di una routine del calendario scrive cal
   await W.SR.openInvite(old.id);
   const c2 = W.writes.filter(x => x.set)[1].set;
   assert.deepEqual(['cal', 'wk'].filter(k => k in c2), [], 'periodi dall\'inizio: niente campi nuovi');
+});
+
+/* ---------- fusi orari: gruppo in un fuso diverso da quello del dispositivo ---------- */
+// (i test girano anche con il dispositivo in altri fusi: TEST_TZ=America/Sao_Paulo node --test)
+const atZ = (ds, time, tz) => M.zoneMs(ds, time, tz);
+
+test('fusi orari: nel gruppo in Brasile il salto conta fino alla fine della settimana brasiliana', t => {
+  t.mock.timers.enable({ apis: ['Date'], now: atZ('2026-10-12', '12:00', 'America/Sao_Paulo') });
+  const doc = x => baseDoc({ tz: 'America/Sao_Paulo', k: { 20261002: { uO: atZ('2026-10-03', '12:00', 'America/Sao_Paulo') } }, x });
+  // giovedì 8 alle 22:00 in Brasile (a Roma è già venerdì 9): in tempo
+  const W1 = fakeWorld('uG', doc({ 20261002: { uG: atZ('2026-10-08', '22:00', 'America/Sao_Paulo') } }));
+  W1.SR.evaluate();
+  assert.deepEqual([W1.S.routines[0].gs, W1.S.routines[0].gsd], [1, '2026-10-02']);
+  // venerdì 9 alle 00:30 in Brasile: la settimana del gruppo è finita
+  const W2 = fakeWorld('uG', doc({ 20261002: { uG: atZ('2026-10-09', '00:30', 'America/Sao_Paulo') } }));
+  W2.SR.evaluate();
+  assert.equal(W2.S.routines[0].gs, undefined);
+});
+
+test('fusi orari: le settimane del calendario di un gruppo in Giappone cambiano alla mezzanotte giapponese', t => {
+  // domenica 11 ottobre alle 20:00 a Roma = lunedì 12 alle 03:00 a Tokyo
+  t.mock.timers.enable({ apis: ['Date'], now: atZ('2026-10-11', '20:00', 'Europe/Rome') });
+  const { SR, S } = fakeWorld('uG', baseDoc({ tz: 'Asia/Tokyo', start: '2026-10-05', cal: 1, wk: 1, n: 1,
+    g: { uG: { n: 'Io', j: true, a: 1, since: '2026-10-05' } } }));
+  SR.evaluate();
+  D_sync(S);
+  const r = S.routines[0];
+  assert.equal(M.routineToday(r), '2026-10-12', 'per il gruppo è già lunedì');
+  const m = S.missions.find(y => y.ps === '2026-10-12');
+  assert.ok(m, 'la volta della settimana 12-18 c\'è già');
+  assert.deepEqual([m.gd, M.dueEndMs(m)], ['2026-10-18', M.groupDueMs(r, '2026-10-18')], 'scade alla fine della domenica giapponese');
+  assert.ok(!S.missions.some(y => y.ps === '2026-10-05' && !y.done && !y.failed && !M.isLate(y)), 'la settimana 5-11 è finita');
+});
+
+test('fusi orari: "Annulla salto" su una volta con orario di un gruppo in Giappone segue l\'ora del gruppo', t => {
+  const r = M.normalizeRoutines([{ id: 'r7', title: 'Studio', rewards: { Intelletto: 5 }, days: [1, 2, 3, 4, 5], time: '09:00',
+    start: '2026-10-05', sr: ID, sh: 'o', tz: 'Asia/Tokyo' }])[0];
+  t.mock.timers.enable({ apis: ['Date'], now: atZ('2026-10-06', '08:00', 'Asia/Tokyo') });
+  assert.ok(M.applySkip(r, '2026-10-06'));
+  const plan = M.unskipPlan(r, '2026-10-06');
+  assert.ok(plan && plan.occ, 'alle 8:00 a Tokyo si può ancora');
+  assert.equal(M.localDue(M.groupDueMs(r, '2026-10-06')).due, plan.occ.due, 'la scadenza nell\'ora di questo dispositivo');
+  t.mock.timers.setTime(atZ('2026-10-06', '09:30', 'Asia/Tokyo'));
+  assert.equal(M.unskipPlan(r, '2026-10-06'), null, 'dopo le 9:00 a Tokyo è già scaduta');
 });

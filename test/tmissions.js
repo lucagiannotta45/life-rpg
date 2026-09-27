@@ -628,10 +628,11 @@ test('serie di gruppo: settimane "tutti insieme" di fila', t => {
   assert.deepEqual([step.n, step.bonus], [2, { Vigore: 9 }]);
   assert.equal(M.groupStep(r, '2026-10-09').n, 1, 'saltata una settimana: si riparte');
   Object.assign(r, { gs: 2, gsd: '2026-10-02' });
-  now(t, '2026-10-08', '23:00');
+  // (ore del gruppo, a Roma: qualunque sia il fuso del dispositivo)
+  t.mock.timers.enable({ apis: ['Date'], now: M.zoneMs('2026-10-08', '23:00', 'Europe/Rome') });
   assert.equal(M.lastClosedDay(r, Date.now()), '2026-09-25');
   assert.equal(M.groupStreakNow(r), 2, 'la settimana del 2 non è ancora finita');
-  t.mock.timers.setTime(at('2026-10-16', '12:00'));
+  t.mock.timers.setTime(M.zoneMs('2026-10-16', '12:00', 'Europe/Rome'));
   assert.equal(M.lastClosedDay(r, Date.now()), '2026-10-09');
   assert.equal(M.groupStreakNow(r), 0, 'la settimana del 9 è finita senza');
 });
@@ -685,7 +686,7 @@ test('fusi orari: giorno e istante in un altro fuso', () => {
   assert.equal(M.zoneMs('2026-03-29', '02:30', 'Europe/Rome'), Date.UTC(2026, 2, 29, 1, 30), 'un\'ora che non esiste: la prima dopo');
 });
 
-test('fusi orari: la scadenza del gruppo, nell\'ora di questo dispositivo', () => {
+test('fusi orari: la scadenza del gruppo, nell\'ora di questo dispositivo', { skip: process.env.TZ !== 'Europe/Rome' && 'racconta il caso con il dispositivo in Italia' }, () => {
   const r = rou({ sr: 'qabc1234', tz: 'America/Sao_Paulo', time: '13:00' });
   const due = M.groupDueMs(r, '2026-06-10');
   assert.equal(due, Date.UTC(2026, 5, 10, 16, 1));
@@ -709,7 +710,7 @@ test('serie di gruppo: giorni "tutti insieme" di fila', t => {
   assert.equal(M.groupStreakNow(r), 0, 'lunedì 9 è passato senza');
 });
 
-test('fusi orari: chi è indietro rispetto al gruppo può fare la sua volta appena inizia il giorno del gruppo', t => {
+test('fusi orari: chi è indietro rispetto al gruppo può fare la sua volta appena inizia il giorno del gruppo', { skip: process.env.TZ !== 'Europe/Rome' && 'racconta il caso con il dispositivo in Italia' }, t => {
   // il gruppo è in Giappone (7 ore avanti in ottobre): il suo 2 ottobre inizia alle 17:00 del 1° ottobre in Italia
   now(t, '2026-10-01', '18:00');
   const r = rou({ sr: 'qabc1234', tz: 'Asia/Tokyo', start: '2026-10-02', streakDate: '2026-10-01' });
