@@ -356,14 +356,15 @@ test('invitato: le regole nuove arrivano insieme per tutti, all\'istante del cam
   W.SH.evaluate();
   const L = W.S.missions[0];
   assert.equal(L.rewards.Vigore, 10, 'prima del cambio: le regole di adesso');
-  assert.equal(W.SH.info(L).next, true, 'la scheda dice che da domani cambiano');
+  const nm = W.SH.info(L).nextM;
+  assert.equal(nm.rewards.Vigore, 20, 'la scheda sa che cosa cambia da domani');
   const now = { ...later, at: Date.now() - 1000 };
   const W2 = fakeWorld('uG', baseDoc({ uG: guest('Io') }, { nx: now }), [myCopy('g')]);
   W2.SH.evaluate();
   const L2 = W2.S.missions[0];
   assert.deepEqual([L2.rewards.Vigore, L2.due, L2.dueTime], [20, W2.SH.localDue(DUE + DAY).due, W2.SH.localDue(DUE + DAY).dueTime],
     'dopo: XP e scadenza nuovi');
-  assert.equal(W2.SH.info(L2).next, false);
+  assert.equal(W2.SH.info(L2).nextM, null);
 });
 
 test('la scadenza che vale: rimandata dal cambio già arrivato; ma una missione scaduta prima del cambio resta scaduta', () => {

@@ -562,7 +562,8 @@
       const doneOthers = others.filter(p => p.done && !p.pend).map(p => p.name);
       return {
         role, out, ownerWhen,
-        next: !!d.nx,   // c'è un cambio in attesa (vale dal giorno dopo)
+        // il cambio in attesa (vale dal giorno dopo), come sarà la missione: per dire che cosa cambia
+        nextM: d.nx ? nxLocal(d.nx, d.tz) : null,
         // role 'o': c'è almeno un amico dentro; role 'g': hai accettato
         joined: role === 'o' ? anyJ : !!(mine && mine.j),
         // role 'o': ci sono solo inviti senza risposta

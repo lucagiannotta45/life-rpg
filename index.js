@@ -1184,22 +1184,19 @@
 
     // missioni
     b = section('missions', T('info.mis.h'));
-    p(b, T('info.mis.p1'));
-    p(b, T('info.mis.p2'));
-    p(b, T('info.mis.p3'));
-    p(b, T('info.mis.p4'));
-    p(b, T('info.mis.p7'));
-    p(b, T('info.mis.p5'));
-    p(b, T('info.mis.p6'));
-    p(b, T('info.mis.p8'));
-    p(b, T('info.mis.p9'));   // impegni: modifiche ed eliminazioni dal giorno dopo
+    // a sezioni, ognuna con il suo titoletto: s1…s6, con i loro paragrafi (s1p1, s1p2…)
+    const h = (body, text) => body.appendChild(mk('h4', null, text));
+    const parts = (prefix, list) => list.forEach(([sec, n]) => {
+      h(b, T(prefix + sec));
+      for (let i = 1; i <= n; i++) p(b, T(prefix + sec + 'p' + i));
+    });
+    parts('info.mis.', [['s1', 2], ['s2', 2], ['s3', 3], ['s4', 2], ['s5', 2], ['s6', 1]]);
 
     // amici
     b = section('friends', T('info.fr.h'));
     p(b, T('info.fr.p1'));
     p(b, T('info.fr.p2'));
-    p(b, T('info.fr.p3'));
-    p(b, T('info.fr.p4'));   // routine di gruppo
+    parts('info.fr.', [['s1', 3], ['s2', 3]]);   // missioni condivise, routine di gruppo
 
     // dati
     b = section('data', T('info.data.h'));

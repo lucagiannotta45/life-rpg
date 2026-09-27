@@ -72,6 +72,41 @@
       live.textContent = '';
       if (!visible && text) setTimeout(() => { live.textContent = text; }, 50);   // un attimo dopo, così viene letto anche se è uguale al precedente
     }
+    // che cosa cambia con una modifica in attesa, in breve: "ricompensa 10 Vigore → 20 Vigore · scadenza 10 mar → 20 mar".
+    // cur = com'è adesso, nxt = come sarà (missioni e routine: si confrontano solo i campi che hanno tutte e due).
+    // La durata e la difficoltà si dicono solo se la ricompensa resta uguale (altrimenti cambiano con lei)
+    const xpList = map => {
+      if (allSame(map)) return fmt(allSame(map)) + ' ' + T('xp.all');
+      const parts = STATS.filter(s => map[s.key] > 0).map(s => fmt(map[s.key]) + ' ' + s.name);
+      return parts.length ? parts.join(', ') : T('chg.none');
+    };
+    const whenText = (d, t) => (d ? fmtDay(d) + (t ? T('time.at', { time: t }) : '') : T('chg.none'));
+    function changeText(cur, nxt, isRoutine) {
+      const parts = [], eq = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+      const both = (a, b) => T('chg.arrow', { from: a, to: b });
+      if (isRoutine && freqText(cur) !== freqText(nxt)) parts.push(both(freqText(cur), freqText(nxt)));
+      if (nxt.rewards && !eq(cur.rewards, nxt.rewards)) parts.push(T('chg.reward', { what: both(xpList(cur.rewards), xpList(nxt.rewards)) }));
+      else if (nxt.rewards && !eq(cur.stars, nxt.stars)) {
+        const st = (x, k) => (x ? String(x[k]) : '–');
+        if (st(cur.stars, 'd') !== st(nxt.stars, 'd')) parts.push(T('chg.dur', { what: both(st(cur.stars, 'd'), st(nxt.stars, 'd')) }));
+        if (st(cur.stars, 'f') !== st(nxt.stars, 'f')) parts.push(T('chg.dif', { what: both(st(cur.stars, 'f'), st(nxt.stars, 'f')) }));
+      }
+      if (nxt.penalty && !eq(cur.penalty, nxt.penalty)) parts.push(T('chg.penalty', { what: both(xpList(cur.penalty), xpList(nxt.penalty)) }));
+      if (isRoutine && nxt.rewards && !eq(cur.bonus, nxt.bonus)) {
+        const bt = b => (b ? T('chg.bonus.v', { xp: fmt(b.xp), n: b.every }) : T('chg.none.m'));
+        parts.push(T('chg.bonus', { what: both(bt(cur.bonus), bt(nxt.bonus)) }));
+      }
+      if (!isRoutine) {
+        if ((cur.due || null) !== (nxt.due || null) || (cur.dueTime || null) !== (nxt.dueTime || null)) {
+          parts.push(T('chg.due', { what: both(whenText(cur.due, cur.dueTime), whenText(nxt.due, nxt.dueTime)) }));
+        }
+        if ((cur.from || null) !== (nxt.from || null) || (cur.fromTime || null) !== (nxt.fromTime || null)) {
+          parts.push(T('chg.from', { what: both(whenText(cur.from, cur.fromTime), whenText(nxt.from, nxt.fromTime)) }));
+        }
+      }
+      // (per esempio una routine di prima passata alle settimane del calendario: cambia solo come si contano i periodi)
+      return parts.length ? parts.join(' · ') : T('chg.other');
+    }
     const gainText = map => {
       if (allSame(map)) return '+' + fmt(allSame(map)) + ' ' + T('xp.all');
       const parts = STATS.filter(s => map[s.key] > 0).map(s => '+' + fmt(map[s.key]) + ' ' + s.name);
@@ -509,9 +544,11 @@
       // impegni: eliminata (sparisce domani) o con modifiche che valgono da domani
       if (m.del && !m.done && !m.failed) card.appendChild(mk('p', 'm-shared warn', T('m.deleting')));
       else if (m.del) card.appendChild(mk('p', 'm-shared', T('m.deleting.over')));
-      else if (m.nx && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared', T('m.next')));
+      else if (m.nx && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared', T('m.next', { what: changeText(m, m.nx) })));
       // condivisa da un amico: le sue modifiche valgono da domani
-      else if (shi && shi.role === 'g' && shi.next && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared', T('sh.next', { name: shi.ownerName })));
+      else if (shi && shi.role === 'g' && shi.nextM && !m.done && !failedNow) {
+        card.appendChild(mk('p', 'm-shared', T('sh.next', { name: shi.ownerName, what: changeText(m, shi.nextM) })));
+      }
       // calendario, settimanale o mensile ancora da fare: quale periodo (il giorno mostrato è solo la scadenza)
       if (inCal && m.ps && rtn && !m.done && !failedNow) {
         const kind = perKind(rtn, m.ps);
@@ -1504,10 +1541,26 @@
       const later = wasEdit && r.nx ? ' ' + T('msg.routine.from', { when: midDay(r.nx.at) }) : '';
       missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }) + later + (movedStart ? ' ' + T('msg.routine.tomorrow', { time }) : ''), 'good', movedStart || !!later);
     }
+    // eliminazione rimandata: prima di confermare si spiega che cosa succederà (nella nota del modulo, che resta
+    // anche quando "Conferma" torna "Elimina"), e il pulsante dice da quando
+    function delWarn(text, confirmLabel) {
+      const note = $('mf-mchange-note');
+      note.textContent = text;
+      note.hidden = false;
+      $('mf-del').textContent = confirmLabel;
+    }
     async function deleteRoutine() {
       const r = S.routines.find(x => x.id === editingRid);
       if (!r) return;
-      if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
+      // solo "Elimina" → "Conferma", nello stesso punto. Se sparirà solo alla fine del periodo lo si dice prima di confermare
+      if (!$('mf-del').dataset.armed) {
+        mfDelArm(true);
+        if (!MISSIONS.routineDelNow(r, S.missions)) {
+          const when = MISSIONS.changeAt(r, routineToday(r));
+          delWarn(T('del.warn.r', { when: midDay(when) }), T('btn.delete.from', { when: fmtDay(when) }));
+        }
+        return;
+      }
       // routine di gruppo: prima si scioglie il gruppo sul server (agli amici la routine resta, come routine normale)
       if (r.sr && !(await SR().beforeDelete(r))) { mfDelArm(false); return; }
       if (!S.routines.includes(r)) return;
@@ -1693,10 +1746,16 @@
       if (!m || m.done) return;
       const blk = m.sid ? SH().beforeDelete(m) : '';
       if (blk) { mfMsg(blk); sfx('err'); return; }
-      if (!$('mf-del').dataset.armed) { mfDelArm(true); return; }   // solo "Elimina" → "Conferma", nello stesso punto
+      const later = !m.sid && !MISSIONS.missionDelNow(m);
+      // solo "Elimina" → "Conferma", nello stesso punto. Se sparirà solo domani lo si dice prima di confermare
+      if (!$('mf-del').dataset.armed) {
+        mfDelArm(true);
+        if (later) delWarn(T('del.warn'), T('btn.delete.later'));
+        return;
+      }
       // impegni: una missione con penalità già disponibile sparisce domani; fino ad allora si può completare, e se scade
       // la penalità si paga (missions.js)
-      if (!m.sid && !MISSIONS.missionDelNow(m)) {
+      if (later) {
         m.del = addDaysStr(todayStr(), 1);
         delete m.nx;
         touchMonth(monthOf(m));
@@ -1748,12 +1807,7 @@
       head.appendChild(mk('span', 'm-date', freqText(r)));
       card.appendChild(head);
       // il cambio in attesa: che cosa cambia e da quando (frequenza e giorni; ricompense, penalità e bonus)
-      const nxp = MISSIONS.nxParts(r);
-      if (nxp && (nxp.shape || !nxp.vals)) card.appendChild(mk('p', 'm-routine', T('r.next', { when: fmtDay(r.nx.at), what: freqText(r.nx) })));
-      if (nxp && nxp.vals) {
-        card.appendChild(mk('p', 'm-routine', T('r.next.vals', { when: fmtDay(r.nx.at) })));
-        card.appendChild(chips(r.nx.rewards));
-      }
+      if (r.nx) card.appendChild(mk('p', 'm-routine', T('r.next', { when: midDay(r.nx.at), what: changeText(r, r.nx, true) })));
       if (r.del) card.appendChild(mk('p', 'm-shared warn', T('r.deleting', { when: midDay(r.del) })));
       if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
       const rsl = starsLine(r.stars);
