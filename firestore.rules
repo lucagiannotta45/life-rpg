@@ -131,9 +131,26 @@ service cloud.firestore {
     function allDone(o) { return anyJoined(o) && (o.oDone != null || ownerOut(o)) && gDoneOk(o, 1) && gDoneOk(o, 2) && gDoneOk(o, 3); }
     // ancora aperta: nessuno ha abbandonato e non è già superata
     function shOpen(o) { return o.left == '' && !allDone(o); }
+    // Il cambio in attesa (nx): XP, stelle, penalità e date nuove di chi l'ha creata valgono dall'istante nx.at (la
+    // mezzanotte del giorno dopo, nel suo fuso), per tutti. Se la missione scade prima, non arriva mai. Come eff in shared.js
+    function nxOn(o) {
+      return o.get('nx', null) != null && request.time.toMillis() >= o.nx.at && (o.dueAt == null || o.dueAt > o.nx.at);
+    }
+    // la scadenza che vale adesso: quella del cambio in attesa, se è arrivato
+    function effDue(o) { return nxOn(o) ? o.nx.get('dueAt', null) : o.dueAt; }
     // prima della scadenza (se c'è), con l'ora del server
-    function shInTime(o) { return o.dueAt == null || request.time.toMillis() < o.dueAt; }
-    function shDueOk(d) { return d.dueAt == null || d.dueAt > request.time.toMillis(); }
+    function shInTime(o) { return effDue(o) == null || request.time.toMillis() < effDue(o); }
+    function shDueOk(d) { return effDue(d) == null || effDue(d) > request.time.toMillis(); }
+    // il cambio in attesa, se c'è: da un istante preciso, con regole valide, e una scadenza (se c'è) dopo quell'istante
+    function okShNx(x) {
+      return x == null || (x is map
+        && x.keys().hasOnly(['at', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'oDue', 'oDueTime', 'oFrom', 'oFromTime'])
+        && x.keys().hasAll(['at', 'rewards', 'penalty', 'dueAt', 'fromAt'])
+        && x.at is int && okStats(x.rewards) && okStats(x.penalty) && okStars(x.get('stars', null))
+        && okTimeOrNull(x.dueAt) && okTimeOrNull(x.fromAt) && (x.dueAt == null || x.dueAt > x.at)
+        && okDateOrNull(x.get('oDue', null)) && okClockOrNull(x.get('oDueTime', null))
+        && okDateOrNull(x.get('oFrom', null)) && okClockOrNull(x.get('oFromTime', null)));
+    }
     // finita: qualcuno ha abbandonato, è superata, oppure è scaduta
     function shFinal(o) { return !shOpen(o) || !shInTime(o); }
     // l'esito l'ha visto chiunque debba vederlo (chi era in sospeso esce senza fallire e non serve)
@@ -153,21 +170,23 @@ service cloud.firestore {
     function gMatches(n) {
       return n.g is map && n.g.keys().hasOnly(n.members) && !(n.owner in n.g) && n.g.size() == n.members.size() - 1;
     }
-    function sharedKeys() {
+    // i campi che ha sempre (i primi 23, come prima) e quelli che può avere: ow, wd e nx (il cambio in attesa)
+    function sharedBaseKeys() {
       return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars',
-              'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime', 'ver', 'oDone', 'left', 'seenO', 'created', 'updated',
-              'ow', 'wd'];
+              'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime', 'ver', 'oDone', 'left', 'seenO', 'created', 'updated'];
     }
+    function sharedKeys() { return sharedBaseKeys().concat(['ow', 'wd', 'nx']); }
     // il contenuto della missione (lo decide chi l'ha creata)
     function okContent(n) {
       return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
         && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
         && okTimeOrNull(n.dueAt) && okTimeOrNull(n.fromAt) && shortStr(n.tz, 64) && shDueOk(n)
-        && okDateOrNull(n.oDue) && okClockOrNull(n.oDueTime) && okDateOrNull(n.oFrom) && okClockOrNull(n.oFromTime);
+        && okDateOrNull(n.oDue) && okClockOrNull(n.oDueTime) && okDateOrNull(n.oFrom) && okClockOrNull(n.oFromTime)
+        && okShNx(n.get('nx', null));
     }
     // creazione: tutto parte da zero, con da 1 a 3 amici veri
     function shCreate(n) {
-      return n.keys().hasOnly(sharedKeys()) && n.keys().size() == 23
+      return n.keys().hasOnly(sharedBaseKeys().concat(['nx'])) && n.keys().hasAll(sharedBaseKeys())
         && n.v == 2 && n.owner == me() && n.members is list && n.members[0] == me()
         && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
         && newGuestAt(1, n, 1) && newGuestAt(1, n, 2) && newGuestAt(1, n, 3)
@@ -185,11 +204,13 @@ service cloud.firestore {
         || (k.hasOnly(['ow', 'updated']) && anyJoined(o) && shOpen(o) && shInTime(o) && o.oDone == null && n.ow == request.time)
         // segnare di aver visto l'esito
         || (k.hasOnly(['seenO', 'updated']) && n.seenO == true && shFinal(o))
-        // modificare la missione; se cambiano XP, penalità o scadenza la versione sale di uno (gli amici dovranno riaccettare)
+        // modificare la missione; se cambiano XP, penalità, scadenza o il cambio in attesa la versione sale di uno (gli
+        // amici dovranno riaccettare). Un cambio in attesa nuovo vale da un istante futuro
         || (k.hasOnly(['title', 'desc', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime',
-                       'ver', 'ownerName', 'updated'])
+                       'ver', 'ownerName', 'updated', 'nx'])
             && shOpen(o) && shInTime(o) && okContent(n)
-            && (k.hasAny(['rewards', 'penalty', 'dueAt']) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
+            && (!k.hasAny(['nx']) || n.get('nx', null) == null || n.nx.at > request.time.toMillis())
+            && (k.hasAny(['rewards', 'penalty', 'dueAt', 'nx']) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
         // invitare altri amici: lo decide solo chi l'ha creata, e chi è già dentro non deve riaccettare (la versione resta)
         || (k.hasOnly(['g', 'members', 'updated']) && shOpen(o) && shInTime(o)
             && n.members.size() > o.members.size() && n.members.size() <= 4

@@ -209,8 +209,9 @@
         const mct = Number(m.ct);
         if (!it.rid && Number.isFinite(mct) && mct > 0) it.ct = Math.floor(mct);
         // nx = le modifiche che valgono dal giorno at (XP, stelle, penalità, date); del = il giorno da cui sparisce
-        // (eliminata quando c'era un impegno in corso). Solo le missioni tue, non le volte delle routine né le condivise
-        if (!it.rid && !it.sid && m.nx && typeof m.nx === 'object' && validDate(m.nx.at)) {
+        // (eliminata quando c'era un impegno in corso). Le missioni tue e quelle condivise che hai creato tu (lì il cambio
+        // va anche nel documento: shared.js); non le volte delle routine, né le condivise di un amico (le prendi dal documento)
+        if (!it.rid && !(it.sid && it.sh === 'g') && m.nx && typeof m.nx === 'object' && validDate(m.nx.at)) {
           const x = m.nx, rw = normalizeRewards(x.rewards);
           if (Object.values(rw).some(v => v > 0)) {
             const due = validDate(x.due) ? x.due : null, from = validDate(x.from) ? x.from : null;
@@ -1062,11 +1063,12 @@
     //   fino ad allora si può ancora completare, e se scade la penalità si paga;
     // - nessun impegno ancora da sciogliere: una missione non ancora disponibile, o creata da meno di 15 minuti (per
     //   correggere un errore), cambia e si elimina subito. Anche una senza penalità si elimina subito.
-    // Le missioni condivise hanno le loro regole (shared.js): le modifiche le accettano gli amici, e c'è "Salta".
+    // Missioni condivise: le modifiche di chi l'ha creata seguono le stesse regole, per tutti (il cambio in attesa va nel
+    // documento condiviso, shared.js), e gli amici le accettano; l'eliminazione e "Salta" hanno le loro regole.
     const inGrace = (x, now = Date.now()) => !!x && Number.isFinite(x.ct) && now - x.ct >= 0 && now - x.ct < GRACE_MS;
     const hasPenalty = x => !!x && !!x.penalty && Object.values(x.penalty).some(v => v > 0);
     // le modifiche a questa missione aspettano il giorno dopo?
-    const missionLocked = (m, now = Date.now()) => !!m && !m.rid && !m.sid && !m.done && !m.failed && !notYet(m) && !inGrace(m, now);
+    const missionLocked = (m, now = Date.now()) => !!m && !m.rid && !(m.sid && m.sh === 'g') && !m.done && !m.failed && !notYet(m) && !inGrace(m, now);
     // le regole di una missione che cambiano solo dal giorno dopo, per confrontarle
     const MISSION_RULES = ['rewards', 'penalty', 'stars', 'due', 'dueTime', 'from', 'fromTime'];
     const missionRulesKey = x => JSON.stringify(MISSION_RULES.map(k => x[k] === undefined ? null : x[k]));
@@ -1104,7 +1106,8 @@
       return changed;
     }
     // eliminarla adesso non scioglie nessun impegno (altrimenti sparisce dal giorno dopo)
-    const missionDelNow = (m, now = Date.now()) => !missionLocked(m, now) || !hasPenalty(m);
+    // (le condivise hanno le loro regole per uscire: shared.js)
+    const missionDelNow = (m, now = Date.now()) => !!m.sid || !missionLocked(m, now) || !hasPenalty(m);
     // le missioni eliminate il cui giorno è arrivato (se non sono scadute: prima si paga la penalità)
     const deletedDue = (missions, today = todayStr()) => missions.filter(m => m.del && m.del <= today && (m.done || m.failed || !isLate(m)));
     // una routine si elimina subito se non ha una volta in corso con una penalità (o se l'hai appena creata)

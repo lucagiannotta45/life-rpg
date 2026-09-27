@@ -316,3 +316,65 @@ test('chi l\'ha creata: con un errore di rete la modifica resta e si riprova (no
   await flush();
   assert.deepEqual([W.writes.length, W.writes[0].data.title, L.shd], [1, 'Trasloco grande', undefined], 'riprovata e confermata');
 });
+
+/* ---------- le modifiche di chi l'ha creata valgono dal giorno dopo, per tutti ---------- */
+const DAY = 86400000;
+test('chi l\'ha creata: XP e scadenza nuovi vanno nel documento come cambio in attesa (da domani); oggi restano quelli di prima', () => {
+  const W = fakeWorld('uO', baseDoc({ uG: guest('Io') }), [myCopy('o')]);
+  const L = W.S.missions[0];
+  assert.equal(M.missionLocked(L), true);
+  M.planMissionChange(L, { rewards: { Vigore: 20 }, penalty: L.penalty, stars: null, due: '2030-01-05', dueTime: null, from: null, fromTime: null });
+  W.SH.afterEdit(L);
+  const w = W.writes[0].data;
+  const tomorrow = M.parseDate(M.addDaysStr(M.todayStr(), 1)).getTime();
+  assert.deepEqual([w.nx.at, w.nx.rewards.Vigore, w.nx.oDue, w.rewards.Vigore, w.ver], [tomorrow, 20, '2030-01-05', 10, 2],
+    'da mezzanotte; oggi 10 XP; gli amici riaccettano');
+  assert.equal(L.rewards.Vigore, 10, 'anche nella tua missione, fino a domani');
+});
+
+test('chi l\'ha creata: con il cambio già arrivato, cambiare solo il titolo non riscrive le regole (niente da riaccettare)', () => {
+  // (come li scrive l'app: tutte le statistiche, scadenza a fine giornata)
+  const due = '2030-01-05', dueAt = M.dueEndMs({ due, dueTime: null });
+  const nx = { at: Date.now() - 60000, rewards: M.normalizeRewards({ Vigore: 20 }), penalty: M.normalizeRewards({ Vigore: 5 }), stars: null,
+    dueAt, fromAt: null, oDue: due, oDueTime: null, oFrom: null, oFromTime: null };
+  const W = fakeWorld('uO', baseDoc({ uG: guest('Io') }, { nx }), [myCopy('o')]);
+  const L = W.S.missions[0];
+  // la tua missione l'ha già preso (a mezzanotte): come il documento, adesso
+  Object.assign(L, { due, dueTime: null, rewards: M.normalizeRewards({ Vigore: 20 }), penalty: M.normalizeRewards({ Vigore: 5 }) });
+  L.title = 'Trasloco grande';
+  W.SH.afterEdit(L);
+  const w = W.writes[0].data;
+  assert.equal(w.title, 'Trasloco grande');
+  assert.deepEqual(['rewards', 'penalty', 'dueAt', 'nx', 'fromAt'].filter(k => k in w), [], 'le regole non si riscrivono');
+  assert.equal(w.ver, 1);
+});
+
+test('invitato: le regole nuove arrivano insieme per tutti, all\'istante del cambio', () => {
+  const later = { at: Date.now() + DAY, rewards: { Vigore: 20 }, penalty: { Vigore: 5 }, stars: null, dueAt: DUE + DAY, fromAt: null,
+    oDue: null, oDueTime: null, oFrom: null, oFromTime: null };
+  const W = fakeWorld('uG', baseDoc({ uG: guest('Io') }, { nx: later }), [myCopy('g')]);
+  W.SH.evaluate();
+  const L = W.S.missions[0];
+  assert.equal(L.rewards.Vigore, 10, 'prima del cambio: le regole di adesso');
+  assert.equal(W.SH.info(L).next, true, 'la scheda dice che da domani cambiano');
+  const now = { ...later, at: Date.now() - 1000 };
+  const W2 = fakeWorld('uG', baseDoc({ uG: guest('Io') }, { nx: now }), [myCopy('g')]);
+  W2.SH.evaluate();
+  const L2 = W2.S.missions[0];
+  assert.deepEqual([L2.rewards.Vigore, L2.due, L2.dueTime], [20, W2.SH.localDue(DUE + DAY).due, W2.SH.localDue(DUE + DAY).dueTime],
+    'dopo: XP e scadenza nuovi');
+  assert.equal(W2.SH.info(L2).next, false);
+});
+
+test('la scadenza che vale: rimandata dal cambio già arrivato; ma una missione scaduta prima del cambio resta scaduta', () => {
+  const W = fakeWorld('uG', baseDoc({ uG: guest('Io') }), [myCopy('g')]);
+  const nx = at => ({ at, rewards: { Vigore: 10 }, penalty: { Vigore: 5 }, stars: null, dueAt: Date.now() + DAY, fromAt: null });
+  const t0 = Date.now();
+  // scadeva un'ora fa, ma il cambio (arrivato due ore fa, prima della scadenza) l'ha rimandata a domani: è ancora aperta
+  const moved = baseDoc({ uG: guest('Io') }, { dueAt: t0 - 3600000, nx: nx(t0 - 7200000), _srv: t0 });
+  assert.equal(W.SH.outcome(W.SH.eff(moved)), 'open');
+  // scadeva prima che il cambio arrivasse: finisce con le regole di prima (qui: nessuno ha fatto la sua parte)
+  const late = baseDoc({ uG: guest('Io') }, { dueAt: t0 - 7200000, nx: nx(t0 - 3600000), _srv: t0 });
+  assert.equal(W.SH.eff(late).dueAt, t0 - 7200000, 'il cambio non arriva');
+  assert.equal(W.SH.outcome(W.SH.eff(late)), 'failed');
+});

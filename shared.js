@@ -14,7 +14,9 @@
  *   e gli altri la finiscono; gli inviti senza risposta restano (chi è invitato vede che chi l'ha creata si è
  *   ritirato, e sceglie) ma scadono dopo 24 ore, perché nessuno li potrebbe più togliere. Quando resta una persona
  *   sola, senza inviti in attesa, la missione diventa una sua missione normale (e il documento si elimina);
- * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla fino alla scadenza. La modifica vale
+ * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla fino alla scadenza. Titolo e descrizione
+ *   cambiano subito; XP, stelle, penalità e date dal giorno dopo, per tutti insieme (il cambio in attesa, nx, è nel
+ *   documento: vedi eff), come le missioni da sole (missions.js, "impegni"). La modifica vale
  *   solo se arriva nel documento: finché il server non la conferma la missione lo ricorda (shd) e riprova; se il
  *   server la rifiuta, la missione torna com'è nel documento (vedi afterEdit). Se cambia XP,
  *   penalità o scadenza, chi è dentro va "in sospeso" e sceglie "Accetta" oppure
@@ -44,7 +46,7 @@
       T, MISSIONS, $, mk, sfx, openModal, closeModal, touchMonth, tombMissions, lsSet, friendsList, loadFriendsList, fbConnect,
     } = D;
     const { STATS } = D.GAME;
-    const { isoDate, pad2, todayStr, startMs, dueEndMs, monthOf, normalizeRewards, normalizeStars } = MISSIONS;
+    const { isoDate, pad2, todayStr, startMs, dueEndMs, monthOf, normalizeRewards, normalizeStars, parseDate } = MISSIONS;
     const MUI = () => D.MUI;   // missions-ui.js nasce prima di questo file, ma lo si prende sempre al momento dell'uso
 
     const LS_SHARED = 'liferpg:shared:v1';
@@ -70,7 +72,8 @@
       uidOf = uid;
     }
     function saveCache() { lsSet(LS_SHARED, JSON.stringify({ uid: uidOf, docs })); }
-    const docOf = m => (m && m.sid && uidOf === me() ? docs[m.sid] || null : null);
+    // il documento come vale adesso: con il cambio in attesa (nx) già arrivato, se è arrivato (vedi eff)
+    const docOf = m => (m && m.sid && uidOf === me() ? eff(docs[m.sid] || null) : null);
 
     /* ---------- chi c'è nel documento ---------- */
     const isV2 = d => d && d.v === 2 && d.g && typeof d.g === 'object';
@@ -191,6 +194,42 @@
       return { from: isoDate(dt), fromTime: dt.getHours() === 0 && dt.getMinutes() === 0 ? null : hhmm(dt) };
     }
     const intMap = o => Object.fromEntries(STATS.map(s => [s.key, Math.floor(Number(o && o[s.key]) || 0)]));
+    /* ---------- il cambio in attesa (nx): le modifiche di chi l'ha creata valgono dal giorno dopo ---------- */
+    // Come per le missioni da sole (missions.js, "impegni"): XP, stelle, penalità e date nuove valgono dall'istante nx.at
+    // (la mezzanotte di domani nel fuso di chi l'ha creata), per tutti insieme; fino ad allora valgono quelle di adesso.
+    // Se la missione scade prima (per esempio la scadenza è oggi), il cambio non arriva mai: finisce con le regole di
+    // prima. Lo calcolano allo stesso modo le app (eff) e il server (firestore.rules: effDue), con l'ora del server.
+    // Gli amici accettano subito le regole nuove (come prima: la versione sale quando il cambio si scrive).
+    const NX_KEYS = ['rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'oDue', 'oDueTime', 'oFrom', 'oFromTime'];
+    const nxOn = (d, now = serverNow()) => !!d && !!d.nx && typeof d.nx.at === 'number' && now >= d.nx.at
+      && (d.dueAt == null || d.dueAt > d.nx.at);
+    // il documento come vale all'istante now: con il cambio in attesa al posto delle regole di prima, se è arrivato
+    function eff(d, now = serverNow()) {
+      if (!d || !nxOn(d, now)) return d;
+      const x = { ...d, nx: null };
+      NX_KEYS.forEach(k => { x[k] = d.nx[k] === undefined ? null : d.nx[k]; });
+      return x;
+    }
+    // il cambio in attesa della missione (m.nx, con i giorni) come va nel documento (con gli istanti)
+    function nxFields(x) {
+      return {
+        at: parseDate(x.at).getTime(), rewards: intMap(x.rewards), penalty: intMap(x.penalty),
+        stars: x.stars ? { d: x.stars.d, f: x.stars.f } : null,
+        dueAt: x.due ? dueEndMs({ due: x.due, dueTime: x.dueTime }) : null, fromAt: x.from ? startMs(x) : null,
+        oDue: x.due || null, oDueTime: x.due ? x.dueTime || null : null, oFrom: x.from || null, oFromTime: x.from ? x.fromTime || null : null,
+      };
+    }
+    // e al contrario: il cambio in attesa del documento come va nella missione (nel fuso di questo dispositivo)
+    function nxLocal(x, tz) {
+      const rewards = normalizeRewards(x.rewards);
+      const out = { at: isoDate(new Date(x.at)), rewards, penalty: normalizeRewards(x.penalty), stars: normalizeStars(rewards, x.stars),
+        ...localDue(x.dueAt), ...localFrom(x.fromAt) };
+      if (tz === myTz()) {   // le date come le avevi scritte tu
+        if (x.oDue !== undefined) Object.assign(out, { due: x.oDue || null, dueTime: x.oDueTime || null });
+        if (x.oFrom !== undefined) Object.assign(out, { from: x.oFrom || null, fromTime: x.oFromTime || null });
+      }
+      return out;
+    }
     // i campi della missione che finiscono nel documento (li scrive solo chi l'ha creata)
     function fieldsOf(m) {
       return {
@@ -199,6 +238,7 @@
         dueAt: m.due ? dueEndMs(m) : null, fromAt: m.from ? startMs(m) : null, tz: myTz(),
         oDue: m.due || null, oDueTime: m.due ? m.dueTime || null : null,
         oFrom: m.from || null, oFromTime: m.from ? m.fromTime || null : null,
+        nx: m.nx ? nxFields(m.nx) : null,   // il cambio in attesa (vale dal giorno dopo)
       };
     }
     // i campi della missione che arrivano dal documento (per gli invitati)
@@ -210,7 +250,7 @@
         ...localDue(d.dueAt), ...localFrom(d.fromAt),
       };
     }
-    const RULE_KEYS = ['rewards', 'penalty', 'dueAt'];   // cambiandoli, gli amici devono accettare di nuovo
+    const RULE_KEYS = ['rewards', 'penalty', 'dueAt', 'nx'];   // cambiandoli, gli amici devono accettare di nuovo
     // confronto che non dipende dall'ordine delle chiavi: Firebase restituisce le mappe (rewards, penalty...)
     // con le chiavi in ordine alfabetico, mentre qui sono nell'ordine delle statistiche
     const sortKeys = v => Array.isArray(v) ? v.map(sortKeys)
@@ -345,7 +385,8 @@
       if (!uidOf || uidOf !== me()) return;
       const now = serverNow();
       checkOrphans();
-      Object.entries(docs).forEach(([sid, d]) => {
+      Object.entries(docs).forEach(([sid, raw]) => {
+        const d = eff(raw, now);   // con il cambio in attesa, se è arrivato
         let L = S.missions.find(m => m.sid === sid);
         if (!isV2(d)) return;   // documento non riconosciuto: si ignora
         const role = roleOf(d);
@@ -432,7 +473,13 @@
     function scheduleDue() {
       clearTimeout(dueTimer);
       const now = serverNow();
-      const next = Object.values(docs).reduce((mn, d) => (d.dueAt != null && d.dueAt > now ? Math.min(mn, d.dueAt) : mn), Infinity);
+      // la prossima scadenza, o il prossimo cambio in attesa che arriva (le schede e la tua copia della missione cambiano)
+      const next = Object.values(docs).reduce((mn, raw) => {
+        const d = eff(raw, now);
+        if (d && d.dueAt != null && d.dueAt > now) mn = Math.min(mn, d.dueAt);
+        if (d && d.nx && d.nx.at > now) mn = Math.min(mn, d.nx.at);
+        return mn;
+      }, Infinity);
       if (next === Infinity) return;
       dueTimer = setTimeout(() => { evaluate(); MUI().renderMissionViews(); }, Math.min(next - now + 50, 3600000));
     }
@@ -473,7 +520,7 @@
     // scadenza (safeAfter), poi, se serve ancora, al massimo ogni 5 secondi per documento.
     const refetchT = {};
     function refetch(sid) {
-      const d = docs[sid];
+      const d = eff(docs[sid] || null);   // la scadenza che vale (con il cambio in attesa, se è arrivato)
       if (!online() || !d || refetchT[sid]) return;
       const at = Math.max(safeAfter(d), (fetching[sid] || 0) + 5000);
       refetchT[sid] = setTimeout(() => { delete refetchT[sid]; fetchNow(sid); }, Math.max(0, at - Date.now()));
@@ -515,6 +562,7 @@
       const doneOthers = others.filter(p => p.done && !p.pend).map(p => p.name);
       return {
         role, out, ownerWhen,
+        next: !!d.nx,   // c'è un cambio in attesa (vale dal giorno dopo)
         // role 'o': c'è almeno un amico dentro; role 'g': hai accettato
         joined: role === 'o' ? anyJ : !!(mine && mine.j),
         // role 'o': ci sono solo inviti senza risposta
@@ -592,7 +640,13 @@
     function push(m, d, loud) {
       if (pushing.has(m.id)) return;
       const f = fieldsOf(m);
-      const rulesChanged = RULE_KEYS.some(k => !same(f[k], d[k]));
+      const raw = docs[m.sid] || d;
+      const val = v => (v === undefined ? null : v);
+      // regole e date uguali a quelle che valgono adesso (anche con un cambio già arrivato nel documento e già fatto
+      // nella tua missione): si scrivono solo titolo e descrizione, e gli amici non devono riaccettare niente
+      if (!NX_KEYS.concat(['nx']).some(k => !same(val(f[k]), val(d[k])))) NX_KEYS.concat(['nx', 'tz']).forEach(k => { delete f[k]; });
+      // la versione sale se cambiano le regole del documento (quelle scritte, come le confronta il server)
+      const rulesChanged = RULE_KEYS.some(k => k in f && !same(val(f[k]), val(raw[k])));
       const sid = m.sid, id = m.id, sent = JSON.stringify(f);
       pushing.add(id); pushedAt[id] = Date.now();
       let again = false;
@@ -627,10 +681,13 @@
     }
     // il server ha rifiutato la modifica: la missione torna com'è nel documento (titolo, XP, penalità, date)
     function rollback(id, sid) {
-      const L = S.missions.find(x => x.id === id), d = docs[sid];
+      const L = S.missions.find(x => x.id === id), d = eff(docs[sid] || null);
       if (!L || L.sid !== sid) return;
       delete L.shd;
       if (d && isV2(d) && !L.done && !L.failed) {
+        // il cambio in attesa torna quello del documento (se c'è)
+        delete L.nx;
+        if (d.nx) L.nx = nxLocal(d.nx, d.tz);
         const f = missionFields(d);
         // le date come le avevi scritte tu (stesso fuso), altrimenti quelle del documento nella tua ora
         if (d.tz === myTz()) {
@@ -825,7 +882,7 @@
     function invites() {
       if (!uidOf || uidOf !== me()) return [];
       const now = serverNow();
-      return Object.entries(docs)
+      return Object.entries(docs).map(([sid, d]) => [sid, eff(d, now)])   // (con il cambio in attesa, se è arrivato)
         .filter(([, d]) => isV2(d) && roleOf(d) === 'g' && !d.g[me()].j && !d.left && !allDone(d) && !(d.dueAt != null && now >= d.dueAt)
           && !(ownerOut(d) && invitesExpired(d, now)))   // chi l'ha creata si è ritirato più di 24 ore fa: scaduto
         .map(([sid, d]) => ({
@@ -970,6 +1027,7 @@
           g: Object.fromEntries(chosen.map(f => [f.uid, guestEntry(f)])),
           ...fieldsOf(m), ver: 1, oDone: null, left: '', seenO: false, created: now, updated: now,
         };
+        if (!data.nx) delete data.nx;   // (i documenti senza cambio in attesa sono come prima)
         // la missione si collega al documento PRIMA di scriverlo: l'aggiornamento in diretta arriva già durante la scrittura
         m.sid = sid; m.sh = 'o';
         docs[sid] = { ...data, _pw: true, _srv: 0 };
@@ -992,7 +1050,7 @@
       // per shared-routines.js: la finestra "Invita amici" e l'amico come va scritto nel documento
       pickFriends, myName,
       // per le prove
-      outcome, localDue, localFrom, failInfo, canWithdrawIn, invitesExpired, notInvitable, sendMission,
+      outcome, localDue, localFrom, failInfo, canWithdrawIn, invitesExpired, notInvitable, sendMission, eff,
     };
   }
   window.LIFE_RPG_SHARED = { create, MAX_GUESTS };

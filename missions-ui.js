@@ -510,6 +510,8 @@
       if (m.del && !m.done && !m.failed) card.appendChild(mk('p', 'm-shared warn', T('m.deleting')));
       else if (m.del) card.appendChild(mk('p', 'm-shared', T('m.deleting.over')));
       else if (m.nx && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared', T('m.next')));
+      // condivisa da un amico: le sue modifiche valgono da domani
+      else if (shi && shi.role === 'g' && shi.next && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared', T('sh.next', { name: shi.ownerName })));
       // calendario, settimanale o mensile ancora da fare: quale periodo (il giorno mostrato è solo la scadenza)
       if (inCal && m.ps && rtn && !m.done && !failedNow) {
         const kind = perKind(rtn, m.ps);
@@ -1596,22 +1598,18 @@
         if (m.failed || isLate(m)) return fail(T('mf.err.late'), null);
         // stelle: se non le hai toccate restano quelle che c'erano (una missione di prima può non averle)
         const c = { rewards, penalty, stars: mfStarsTouched ? stars : (m.nx || m).stars || null, due, dueTime, from, fromTime };
-        if (m.sid) {
-          // condivisa: cambia subito, e gli amici accettano le regole nuove (shared.js)
-          const blk = SH().editBlock(m);
-          if (blk) return fail(blk, null);
-          Object.assign(m, { title, desc, ...c });
-          SH().afterEdit(m);   // anche l'amico vede la missione cambiata
-        } else {
-          // impegni (missions.js): XP, stelle, penalità e date valgono da domani; titolo e descrizione subito. Il giorno
-          // della scadenza ormai non cambiano più, e una scadenza nuova deve arrivare dopo che la modifica vale
-          if (MISSIONS.missionLocked(m) && !MISSIONS.missionSameRules(m, c)) {
-            if (m.due && m.due <= todayStr()) return fail(T('mf.mchange.today'), null);
-            if (due && due <= todayStr()) return fail(T('mf.err.duelater'), $('mf-date'));
-          }
-          Object.assign(m, { title, desc });
-          later = MISSIONS.planMissionChange(m, c) > todayStr();
+        // condivisa: serve il documento (e la connessione) perché la modifica arrivi agli amici
+        if (m.sid) { const blk = SH().editBlock(m); if (blk) return fail(blk, null); }
+        // impegni (missions.js): XP, stelle, penalità e date valgono da domani; titolo e descrizione subito. Il giorno
+        // della scadenza ormai non cambiano più, e una scadenza nuova deve arrivare dopo che la modifica vale.
+        // Vale anche per le condivise: il cambio in attesa va nel documento, per tutti insieme (shared.js)
+        if (MISSIONS.missionLocked(m) && !MISSIONS.missionSameRules(m, c)) {
+          if (m.due && m.due <= todayStr()) return fail(T('mf.mchange.today'), null);
+          if (due && due <= todayStr()) return fail(T('mf.err.duelater'), $('mf-date'));
         }
+        Object.assign(m, { title, desc });
+        later = MISSIONS.planMissionChange(m, c) > todayStr();
+        if (m.sid) SH().afterEdit(m);   // anche gli amici vedono la missione cambiata (e le regole di domani)
       } else {
         const created = todayStr();
         if (S.missions.filter(x => monthOf(x) === created.slice(0, 7)).length >= MAX_PER_MONTH) {
