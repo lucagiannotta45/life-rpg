@@ -1,5 +1,5 @@
 /*
- * Life RPG — test delle missioni condivise (shared.js): "Ritirati"
+ * Life RPG — test delle missioni condivise (shared.js): "Salta" (nel codice: withdraw)
  * Chi si ritira (prima della scadenza, senza aver fatto la sua parte) esce senza XP e senza penalità; la missione
  * continua per gli altri. Se si ritira chi l'ha creata la missione resta com'è (non la modifica più nessuno).
  * Quando resta una persona sola, la missione diventa una sua missione normale.
@@ -75,14 +75,20 @@ const myCopy = role => ({ id: SID, title: 'Trasloco', desc: '', rewards: { Vigor
   due: '2030-01-01', created: '2026-10-01', done: null, failed: null, sid: SID, sh: role });
 const flush = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r)); };
 
-test('invitato: si ritira, esce dal documento con il suo nome in wd, e la missione sparisce dal suo elenco', async () => {
+test('invitato: salta, esce dal documento con il suo nome in wd, e la missione resta nella sua cronologia come saltata', async () => {
   const doc = baseDoc({ uG: guest('Io'), uH: guest('Luca') });
   const W = fakeWorld('uG', doc, [myCopy('g')]);
   assert.equal(W.SH.info(W.S.missions[0]).canWithdraw, true);
   await W.SH.withdraw(SID);
   const w = W.writes.at(-1).data;
   assert.deepEqual([w['g.uG'], w.members, w['wd.uG']], ['TOGLI', { remove: ['uG'] }, 'Io']);
-  assert.equal(W.S.missions.length, 0, 'niente XP e niente penalità: la missione non c\'è più');
+  const m = W.S.missions[0];
+  assert.deepEqual([!!m.done, m.done.sk, m.done.applied.Vigore], [true, 1, 0], 'finita come saltata, niente XP');
+  assert.equal(m.sid, SID, 'con l\'etichetta della condivisione');
+  const cal = M.calendarMarks(W.S.missions);
+  assert.deepEqual([cal.skip[m.done.date], cal.done[m.done.date]], [1, undefined], 'nel calendario: saltata, non completata');
+  const day = M.dayLists(W.S.missions, m.done.date);
+  assert.deepEqual([day.skipped.length, day.done.length], [1, 0]);
 });
 
 test('invitato: dopo aver fatto la sua parte non si ritira più', () => {
@@ -99,7 +105,7 @@ test('chi l\'ha creata: si ritira, resta nel documento con ow; chi è dentro e g
   const w = W.writes.at(-1).data;
   assert.deepEqual(Object.keys(w).sort(), ['ow', 'updated'], 'solo ow: nessuno viene tolto');
   assert.equal(w.ow, 'ORA_DEL_SERVER', 'con l\'ora del server (da lì si contano le 24 ore degli inviti)');
-  assert.equal(W.S.missions.length, 0);
+  assert.equal(W.S.missions[0].done.sk, 1, 'nella sua cronologia: saltata');
 });
 
 test('invito a una missione da cui chi l\'ha creata si è ritirato: l\'invitato lo sa prima di scegliere', () => {
@@ -213,4 +219,25 @@ test('ritiro appena fatto (ora del server come arriva da Firebase): l\'invito va
   const doc = baseDoc({ uG: guest('Marco'), uL: guest('Io', { j: false, a: 0 }) }, { ow: { toMillis: () => Date.now() } });
   const W = fakeWorld('uL', doc, []);
   assert.equal(W.SH.invites().length, 1);
+});
+
+test('avviso: quando qualcuno salta, gli altri lo sanno una volta sola', () => {
+  const doc = baseDoc({ uG: guest('Io'), uH: guest('Luca') }, { wd: { uM: 'Marco' } });
+  const W = fakeWorld('uG', doc, [myCopy('g')]);
+  W.SH.evaluate();
+  W.SH.evaluate();
+  assert.deepEqual(W.msgs.filter(x => /Marco/.test(x)).length, 1);
+  assert.match(W.msgs[0], /Marco ha saltato Trasloco/);
+});
+
+test('avviso: se salta chi l\'ha creata, gli altri sanno che la missione resta com\'è', () => {
+  const doc = baseDoc({ uG: guest('Io'), uH: guest('Luca') }, { ow: Date.now() });
+  const W = fakeWorld('uG', doc, [myCopy('g')]);
+  W.SH.evaluate();
+  assert.ok(W.msgs.some(x => /Anna ha saltato Trasloco: la missione resta/.test(x)));
+});
+
+test('dati: una missione condivisa saltata resta saltata quando si salva e si rilegge', () => {
+  const m = M.normalizeMissions([{ ...myCopy('g'), done: { date: '2026-10-05', t: 1, applied: {}, sk: 1 } }])[0];
+  assert.equal(m.done.sk, 1);
 });

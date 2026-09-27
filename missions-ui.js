@@ -465,10 +465,12 @@
     // inCal: scheda del pannello "Giorno" del calendario, in sola lettura
     function missionCard(m, inCal) {
       const failedNow = !!m.failed && !m.done;
-      const card = mk('article', 'mission' + (m.done ? ' done' : '') + (failedNow ? ' failed' : ''));
+      const card = mk('article', 'mission' + (m.done ? (m.done.sk ? ' skipped' : ' done') : '') + (failedNow ? ' failed' : ''));
       card.dataset.id = m.id;
       const rtn = routineOf(m);
-      const shi = m.sid ? SH().info(m) : null;   // missione condivisa: con chi, a che punto
+      // missione condivisa: con chi, a che punto (una saltata è finita per te: niente più a che punto)
+      const skippedSh = !!(m.done && m.done.sk);
+      const shi = m.sid && !skippedSh ? SH().info(m) : null;
       // routine di gruppo: chi l'ha già fatta quel giorno, e se l'avete fatta tutti
       const sri = rtn && rtn.sr ? SR().occInfo(m) : null;
       // etichetta "Routine" (o "Condivisa con…") in cima, sopra il titolo
@@ -483,7 +485,7 @@
       else if (m.sid) card.appendChild(sharedTag(T('sh.tag.plain')));
       const head = mk('div', 'm-head');
       head.appendChild(mk('h3', 'm-title', m.title));
-      if (m.done) head.appendChild(mk('span', 'm-date', T('m.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
+      if (m.done) head.appendChild(mk('span', 'm-date', T(skippedSh ? 'm.skipped.on' : 'm.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
       else if (m.rid && m.re && !failedNow) {
         // volta recuperata: si completa entro la fine di quel giorno
         head.appendChild(mk('span', 'm-date', T(m.re === todayStr() ? 'm.rec.today' : 'm.rec.by', { when: fmtDay(m.re), day: fmtDay(m.due) })));
@@ -791,8 +793,9 @@
       const offset = MISSIONS.calOffset(calY, calM, first);
       const days = new Date(calY, calM + 1, 0).getDate();
       for (let i = 0; i < offset; i++) grid.appendChild(mk('div', 'cal-blank'));
-      const { todo, done, fail } = MISSIONS.calendarMarks(S.missions);
+      const { todo, done, fail, skip: skipM } = MISSIONS.calendarMarks(S.missions);
       const skip = MISSIONS.skipMarks(S.routines);
+      Object.entries(skipM).forEach(([d, n]) => { skip[d] = (skip[d] || 0) + n; });   // + le condivise saltate
       const today = todayStr();
       const ids = new Set(S.missions.map(m => m.id));
       for (let d = 1; d <= days; d++) {
@@ -960,10 +963,10 @@
       $('day-title').textContent = fmtDay(selDate, true) + (selDate === todayStr() ? T('day.today') : '');
       const box = $('day-list');
       box.textContent = '';
-      const { todo, failed, done } = MISSIONS.dayLists(S.missions, selDate);
+      const { todo, failed, done, skipped: skippedM } = MISSIONS.dayLists(S.missions, selDate);
       const planned = plannedRoutines(selDate, new Set(S.missions.map(m => m.id)));
       const skipped = MISSIONS.skippedOn(S.routines, selDate);
-      if (!todo.length && !failed.length && !done.length && !planned.length && !skipped.length) box.appendChild(mk('p', 'empty', T('day.empty')));
+      if (!todo.length && !failed.length && !done.length && !planned.length && !skipped.length && !skippedM.length) box.appendChild(mk('p', 'empty', T('day.empty')));
       if (planned.length) {
         box.appendChild(mk('h4', 'sub', T('day.routines') + ' (' + planned.length + ')'));
         planned.forEach(r => {
@@ -990,8 +993,10 @@
       if (todo.length) group(T('mis.todo'), todo);
       if (failed.length) group(T('mis.failed'), failed);
       if (done.length) group(T('mis.done'), done);
-      if (skipped.length) {
-        box.appendChild(mk('h4', 'sub', T('day.skipped') + ' (' + skipped.length + ')'));
+      // saltate: le volte delle routine e le missioni condivise saltate
+      if (skipped.length || skippedM.length) {
+        box.appendChild(mk('h4', 'sub', T('day.skipped') + ' (' + (skipped.length + skippedM.length) + ')'));
+        skippedM.forEach(m => box.appendChild(missionCard(m, true)));
         skipped.forEach(({ r, p }) => {
           const kind = perKind(r, p.s);
           const card = mk('article', 'mission skipped');

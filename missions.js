@@ -212,6 +212,8 @@
             t: Number.isFinite(Number(m.done.t)) ? Number(m.done.t) : 0,
             applied: normalizeRewards(m.done.applied),
           };
+          // sk: missione condivisa saltata ("Salta": niente XP e niente penalità): finita, ma non completata
+          if (m.done.sk) it.done.sk = 1;
           const rs = m.done.rs;
           if (rs && Number.isInteger(rs.prev) && rs.prev >= 0 && Number.isInteger(rs.n) && rs.n > 0) {
             it.done.rs = { prev: rs.prev, prevDate: validDate(rs.prevDate) ? rs.prevDate : '', n: rs.n };
@@ -409,21 +411,24 @@
       // (le routine settimanali e mensili stanno nel giorno della scadenza, l'ultimo del periodo, come le missioni)
       const todo = missions.filter(m => !m.done && !m.failed && (m.due || m.from) === ds).sort(byTime);
       const failed = missions.filter(m => !m.done && m.failed && m.due === ds).sort(byTime);
-      const done = missions.filter(m => m.done && m.done.date === ds).sort((a, b) => b.done.t - a.done.t || a.title.localeCompare(b.title));   // le più recenti in alto
-      return { todo, failed, done };
+      const byDone = (a, b) => b.done.t - a.done.t || a.title.localeCompare(b.title);   // le più recenti in alto
+      const done = missions.filter(m => m.done && !m.done.sk && m.done.date === ds).sort(byDone);
+      const skipped = missions.filter(m => m.done && m.done.sk && m.done.date === ds).sort(byDone);   // condivise saltate
+      return { todo, failed, done, skipped };
     }
     // i pallini del calendario: quante missioni da fare, fallite e completate per ogni giorno.
     // Una routine da più volte conta ogni volta segnata nel suo giorno; settimanali e mensili sono "da fare" (o
     // "fallita") nel giorno della scadenza, l'ultimo del periodo, come una missione con scadenza.
     function calendarMarks(missions) {
-      const todo = {}, done = {}, fail = {};
+      const todo = {}, done = {}, fail = {}, skip = {};
       missions.forEach(m => {
         if (m.p) m.p.forEach(d => { done[d] = (done[d] || 0) + 1; });
-        if (m.done) { if (!m.p) done[m.done.date] = (done[m.done.date] || 0) + 1; }
+        if (m.done && m.done.sk) skip[m.done.date] = (skip[m.done.date] || 0) + 1;   // condivisa saltata
+        else if (m.done) { if (!m.p) done[m.done.date] = (done[m.done.date] || 0) + 1; }
         else if (m.due && m.failed) fail[m.due] = (fail[m.due] || 0) + 1;
         else if (m.due || m.from) { const k = m.due || m.from; todo[k] = (todo[k] || 0) + 1; }
       });
-      return { todo, done, fail };
+      return { todo, done, fail, skip };
     }
     // le missioni scadute ma non ancora segnate come fallite, nell'ordine in cui si applicano le penalità
     const lateMissions = missions => missions

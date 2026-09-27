@@ -8,7 +8,7 @@
  *   nessuno, ma la penalità la paga solo chi non ha fatto la sua parte (chi l'aveva fatta non perde XP; lo decide
  *   missions-ui.js con il "perché" di failInfo). I documenti di prima possono avere left (qualcuno aveva
  *   "abbandonato": fallita per tutti), che si legge ancora;
- * - "Ritirati": chi non può fare la sua parte (prima della scadenza, se non l'ha già fatta) esce senza XP e senza
+ * - "Salta" (nel codice: withdraw, "ritirarsi"): chi non può fare la sua parte (prima della scadenza, se non l'ha già fatta) esce senza XP e senza
  *   penalità, e la missione continua per gli altri (wd: { uid: nome } di chi si è ritirato). Se si ritira chi l'ha
  *   creata (ow = l'ora del server in cui si è ritirato), la missione resta com'è (non la può più modificare nessuno)
  *   e gli altri la finiscono; gli inviti senza risposta restano (chi è invitato vede che chi l'ha creata si è
@@ -243,7 +243,7 @@
     function reset() {
       if (unsub) { try { unsub(); } catch (e) { /* ignora */ } }
       unsub = null; listening = false; serverSeen = false;
-      docs = {}; uidOf = ''; leaving.clear();
+      docs = {}; uidOf = ''; leaving.clear(); seenW = null;
       Object.values(refetchT).forEach(clearTimeout); Object.keys(refetchT).forEach(k => delete refetchT[k]);
       clockOff = null; clockErr = 0; clockAt = 0; clearTimeout(dueTimer);
       try { localStorage.removeItem(LS_SHARED); } catch (e) { /* ignora */ }
@@ -308,6 +308,30 @@
       touchMonth(monthOf(L));
     }
 
+    /* ---------- chi ha saltato: lo si dice una volta sola ---------- */
+    // seenW: { sid: [uid di chi ha saltato, già detto] } (chi l'ha creata: il suo uid), salvato a parte
+    const LS_SEENW = 'liferpg:sharedw:v1';
+    let seenW = null;
+    function loadSeenW() {
+      if (seenW) return seenW;
+      try { const raw = JSON.parse(localStorage.getItem(LS_SEENW) || 'null'); seenW = raw && raw.uid === me() && raw.s ? raw.s : {}; }
+      catch (e) { seenW = {}; }
+      return seenW;
+    }
+    function announceSkips(sid, d, L) {
+      const seen = loadSeenW(), was = seen[sid] || [];
+      const now = Object.keys(d.wd || {}).filter(u => u !== me()).concat(ownerOut(d) && d.owner !== me() ? [d.owner] : []);
+      const fresh = now.filter(u => !was.includes(u));
+      if (!fresh.length) return;
+      fresh.forEach(u => {
+        const name = u === d.owner ? noname(d.ownerName) : noname(d.wd[u]);
+        MUI().missionMsg(T(u === d.owner ? 'sh.msg.owner.skip' : 'sh.msg.friend.skip', { name, title: L.title }), '');
+      });
+      seen[sid] = was.concat(fresh);
+      Object.keys(seen).forEach(k => { if (!docs[k]) delete seen[k]; });   // documenti che non ci sono più: non servono
+      lsSet(LS_SEENW, JSON.stringify({ uid: me(), s: seen }));
+    }
+
     /* ---------- far combaciare le tue missioni con i documenti ---------- */
     // Si chiama a ogni aggiornamento e, con l'app aperta, di continuo (insieme alle penalità).
     // Gli esiti (XP dati o tolti) si applicano solo quando non c'è una finestra aperta: MUI lo controlla.
@@ -369,6 +393,7 @@
         if (!L && (out === 'open' || !seenMine)) L = addLocal(sid, d, role);
         if (!L) return;
         if (role === 'g' && openL(L)) syncContent(L, d);
+        if (openL(L) && out === 'open') announceSkips(sid, d, L);   // qualcuno ha saltato: una volta sola
         // i nomi degli altri restano nella missione: servono all'etichetta quando il documento non ci sarà più
         const names = otherNames(d);
         if (names.length && !same(L.shn, names)) { L.shn = names; touchMonth(monthOf(L)); }
@@ -638,7 +663,8 @@
         if (ok) { delete docs[sid]; saveCache(); }
       }
       if (!ok) return;
-      if (S.missions.includes(m)) dropLocal(m);
+      // resta nella tua cronologia come "saltata" (finita senza XP e senza penalità), con l'etichetta della condivisione
+      if (S.missions.includes(m)) { m.done = { date: todayStr(), t: Date.now(), applied: normalizeRewards(null), sk: 1 }; touchMonth(monthOf(m)); }
       sfx('leave');
       MUI().missionMsg(T('sh.msg.withdrawn', { title: m.title }), '');
       MUI().renderMissionViews();

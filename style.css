@@ -607,7 +607,7 @@
   .dot.todo { background: var(--gold); }
   .dot.done { background: var(--good); }
   .dot.fail { background: var(--bad); }
-  .dot.skip { background: var(--ink-soft); }   /* volta saltata: neutra, né fatta né fallita */
+  .dot.skip { background: var(--ink); }   /* saltata (routine o missione condivisa): bianco, né fatta né fallita */
   /* legenda: tutte e quattro in una riga se c'è posto, altrimenti due righe da due (mai tre più una da sola) */
   .cal-foot { container-type: inline-size; margin-top: 14px; font-size: var(--fs-s); color: var(--ink-soft); }
   .cal-legend { display: grid; grid-template-columns: repeat(2, auto); justify-content: center; align-items: center; gap: 10px 22px; }
