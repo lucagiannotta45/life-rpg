@@ -7,13 +7,15 @@
  * - in più c'è la SERIE DI GRUPPO: i periodi di fila (giorni, settimane o mesi) in cui l'avete completata tutti.
  *   Il bonus della routine, in una routine di gruppo, arriva ogni N periodi di fila "tutti insieme" (non con la serie
  *   personale). Con più volte per periodo, la tua parte è fatta quando le hai fatte tutte (come le ricompense);
- * - il giorno è uno solo per tutti: quello di chi l'ha creata (il suo fuso orario), e così i periodi (si contano dal
- *   primo giorno della routine, per tutti). Chi è altrove vede la scadenza nella sua ora. Chi entra a metà di una
- *   settimana o di un mese conta dal periodo successivo;
- * - chi l'ha creata decide tutto (titolo, frequenza, volte, giorni, ora, XP, penalità, bonus). Frequenza, volte e
- *   giorni cambiano dal periodo successivo, per tutti insieme (il cambio in attesa, nx, è nel documento). Se cambia
- *   XP, penalità, frequenza, volte, giorni o ora, gli amici vanno "in sospeso": continuano con le regole di prima,
- *   non contano per il gruppo finché non scelgono "Accetta" oppure "Esci";
+ * - il giorno è uno solo per tutti: quello di chi l'ha creata (il suo fuso orario), e così i periodi (le settimane e i
+ *   mesi del calendario di chi l'ha creata; nelle routine di prima, contati dal primo giorno della routine). Chi è
+ *   altrove vede la scadenza nella sua ora. Chi entra a metà di una settimana o di un mese conta dal periodo successivo;
+ * - chi l'ha creata decide tutto (titolo, descrizione, frequenza, volte, giorni, ora, XP, penalità, bonus). Titolo e
+ *   descrizione cambiano subito; tutto il resto dal periodo successivo, per tutti insieme (il cambio in attesa, nx, è nel
+ *   documento). Se cambiano le regole (XP, penalità, bonus, frequenza, volte, giorni, ora), gli amici vanno "in sospeso":
+ *   continuano con le regole di prima, non contano per il gruppo finché non scelgono "Accetta" oppure "Esci";
+ * - la modifica di chi l'ha creata vale solo se arriva nel documento: finché il server non la conferma la routine lo
+ *   ricorda (srd) e riprova; se il server la rifiuta, la routine torna com'è nel documento (vedi afterEdit);
  * - si può uscire quando si vuole, senza penalità: la routine resta tua, come routine normale. Se chi l'ha creata
  *   scioglie il gruppo (o elimina la routine), anche agli amici la routine resta, come routine normale.
  *
@@ -43,7 +45,7 @@
     const { T, MISSIONS, sfx, touchMonth, lsSet, saveRoutinesLocal } = D;   // (e D.tombMissions, per le volte saltate altrove)
     const {
       todayStr, addDaysStr, monthOf, normalizeRoutines, zoneDay, groupDueMs, localDue, hereTz, occId,
-      groupStep, MAX_ROUTINES, KEEP_DAYS, nextPeriod, occKey, occEnd, shapeOf, groupPeriods, foldedCopy,
+      groupStep, MAX_ROUTINES, KEEP_DAYS, nextPeriod, occKey, occEnd, shapeOf, groupPeriods, foldedCopy, anchorOf,
     } = MISSIONS;
     const MUI = () => D.MUI, SH = () => D.SH;
 
@@ -187,7 +189,7 @@
     // (serie e record personali restano: sono tuoi)
     function unlink(r) {
       delete r.sr; delete r.sh; delete r.shn; delete r.tz;
-      delete r.gs; delete r.gsd; delete r.gbest; delete r.gx;
+      delete r.gs; delete r.gsd; delete r.gbest; delete r.gx; delete r.srd;
       saveRoutinesLocal();
     }
     // il documento non c'è più (gruppo sciolto, oppure non ne fai più parte): la routine resta tua
@@ -246,6 +248,7 @@
           // nel gruppo non è rimasto nessuno (hanno rifiutato o sono usciti tutti, e non ci sono inviti in attesa):
           // il gruppo non serve più e la routine torna normale (come fanno le missioni condivise)
           if (!guests(d).length && !d._pw) { alone(r, id); return; }
+          retryPush(r, d);   // una tua modifica non ancora confermata dal server
         } else {
           const mine = d.g[me()];
           if (!mine.j) return;   // invito: lo mostra invites()
@@ -275,7 +278,9 @@
       Object.assign(r, { title: t.title, desc: t.desc, rewards: t.rewards, penalty: t.penalty, bonus: t.bonus, stars: t.stars,
         start, sr: id, sh: 'g', tz: t.tz });
       takeShape(r, t);
-      if (r.made && r.made >= todayStr()) r.made = addDaysStr(todayStr(), -1);   // se oggi è un giorno previsto, compare subito
+      // se oggi (il giorno del gruppo) è un giorno previsto, compare subito (una volta eliminata non torna: vedi routineDay)
+      const today = zoneDay(Date.now(), t.tz);
+      if (r.made && r.made >= today) r.made = addDaysStr(today, -1);
       return r;
     }
     // il primo giorno dell'invitato: dal giorno in cui è entrato (o dall'inizio della routine, se è dopo); in una routine
@@ -299,31 +304,40 @@
     // l'invitato (con le regole attuali) prende il modello del documento; le volte ancora da fare si aggiornano
     // (frequenza, volte, giorni e ora si confrontano con shapeOf: un cambio già arrivato conta come fatto, così non
     // si riassegna di continuo tra chi l'ha già applicato e un documento che lo ha ancora "in attesa")
-    const TPL_KEYS = ['title', 'desc', 'rewards', 'penalty', 'bonus', 'stars', 'tz'];
+    // (ricompense, penalità, stelle e bonus sono regole come i giorni: si confrontano con shapeOf, cambio in attesa
+    // compreso; titolo, descrizione e fuso si prendono così come sono)
+    const META_KEYS = ['title', 'desc', 'tz'];
+    const VAL_KEYS = ['rewards', 'penalty', 'stars', 'bonus'];
     function syncTemplate(r, d) {
       const t = tplOf(d);
       if (!t) return false;
       const start = guestStart(t, d.g[me()].since || r.start);
       const today = zoneDay(Date.now(), t.tz);
       const sameShape = shapeOf({ ...r, start }, today) === shapeOf(t, today);
-      if (TPL_KEYS.every(k => same(r[k] === undefined ? null : r[k], t[k])) && r.start === start && sameShape) return false;
-      TPL_KEYS.forEach(k => { r[k] = t[k]; });
+      if (META_KEYS.every(k => same(r[k] === undefined ? null : r[k], t[k])) && r.start === start && sameShape) return false;
+      META_KEYS.forEach(k => { r[k] = t[k]; });
       if (r.start !== start) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); r.brks = []; }
       if (!sameShape) {
+        VAL_KEYS.forEach(k => { r[k] = t[k]; });
         takeShape(r, t);
-        if (r.made && r.made >= todayStr()) r.made = addDaysStr(todayStr(), -1);
+        // se oggi (il giorno del gruppo) ora è un giorno previsto, compare subito. Una volta già fatta ed eliminata non
+        // torna: routineDay non ricrea le volte eliminate
+        if (r.made && r.made >= today) r.made = addDaysStr(today, -1);
       }
       refreshOpen(r);
       return true;
     }
-    // le volte ancora da fare prendono i valori nuovi della routine (ora compresa, dal giorno del gruppo di oggi)
+    // le volte ancora da fare prendono i valori nuovi della routine (ora compresa, dal giorno del gruppo di oggi).
+    // Ricompense, penalità e stelle solo nelle volte dei periodi con le regole di adesso (da anchorOf): una volta nata prima di
+    // un cambio resta con le regole con cui è nata
     function refreshOpen(r) {
       const months = new Set();
       const today = zoneDay(Date.now(), r.tz || hereTz());
       const here = hereTz();
       S.missions.forEach(m => {
         if (m.rid !== r.id || m.done || m.failed) return;
-        Object.assign(m, { title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty }, stars: r.stars });
+        Object.assign(m, { title: r.title, desc: r.desc });
+        if (occKey(m) >= anchorOf(r)) Object.assign(m, { rewards: { ...r.rewards }, penalty: { ...r.penalty }, stars: r.stars });
         const day = m.gd || m.due;   // l'ultimo giorno del periodo, nel fuso del gruppo
         const time = m.n || m.ps ? null : r.time;   // l'ora vale solo per le volte da una volta al giorno
         if (day >= today) Object.assign(m, !r.tz || r.tz === here ? { due: day, dueTime: time } : localDue(groupDueMs({ ...r, time }, day)));
@@ -331,8 +345,8 @@
       });
       months.forEach(touchMonth);
     }
-    // serie di gruppo: i periodi \"tutti insieme\" dopo l'ultimo già contato, uno alla volta; true se è cambiata.
-    // (Si parte dal periodo dell'ultimo già contato, gsd, che serve solo da \"periodo prima\"; anche a cavallo di un cambio
+    // serie di gruppo: i periodi "tutti insieme" dopo l'ultimo già contato, uno alla volta; true se è cambiata.
+    // (Si parte dal periodo dell'ultimo già contato, gsd, che serve solo da "periodo prima"; anche a cavallo di un cambio
     // di frequenza: groupPeriods usa le regole giuste per ogni periodo.)
     function groupEval(r, d) {
       const t = tplOf(d);
@@ -462,6 +476,11 @@
       const nx = r.nx ? { at: r.nx.at, freq: r.nx.freq, n: r.nx.n, days: r.nx.days.slice(), time: r.nx.time || null } : null;
       if (nx && r.nx.pk) nx.pk = r.nx.pk;
       if (nx && r.nx.cal) { nx.cal = 1; if (Number.isInteger(r.nx.wk)) nx.wk = r.nx.wk; }
+      // ricompense, penalità, stelle e bonus nuovi (anche loro dal primo giorno del cambio)
+      if (nx && r.nx.rewards) {
+        Object.assign(nx, { rewards: { ...r.nx.rewards }, penalty: { ...r.nx.penalty }, stars: r.nx.stars ? { d: r.nx.stars.d, f: r.nx.stars.f } : null,
+          bonus: r.nx.bonus ? { every: r.nx.bonus.every, xp: r.nx.bonus.xp } : null });
+      }
       return {
         title: r.title, desc: r.desc || '', rewards: { ...r.rewards }, penalty: { ...r.penalty },
         stars: r.stars ? { d: r.stars.d, f: r.stars.f } : null, days: r.days.slice(), time: r.time || null,
@@ -472,8 +491,10 @@
         cal: r.cal ? 1 : null, wk: r.cal && Number.isInteger(r.wk) ? r.wk : null,
       };
     }
-    // le regole della routine: cambiandole, gli amici devono accettare di nuovo (le regole di Firebase lo controllano)
-    const SHAPE_KEYS = ['days', 'time', 'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk'];
+    // le regole della routine: cambiandole, gli amici devono accettare di nuovo (le regole di Firebase lo controllano).
+    // SHAPE_KEYS: quelle che shapeOf confronta (con ricompense, penalità, stelle e bonus). Stelle e bonus cambiano
+    // insieme al cambio in attesa (nx), quindi fanno riaccettare anche loro
+    const SHAPE_KEYS = ['days', 'time', 'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk', 'rewards', 'penalty', 'stars', 'bonus'];
     const RULE_KEYS = ['rewards', 'penalty'].concat(SHAPE_KEYS);
     const sortKeys = v => Array.isArray(v) ? v.map(sortKeys)
       : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sortKeys(v[k])])) : v;
@@ -548,7 +569,7 @@
       const d = docOfR(r);
       if (!d || !isDoc(d) || !online()) return;
       const day = occKey(m);   // il primo giorno del periodo
-      // volta ripresa dopo "Annulla penalità": vale solo per te (XP e serie personale); per il gruppo quel periodo
+      // volta ripresa con "Annulla penalità" (versioni di prima): vale solo per te (XP e serie personale); per il gruppo quel periodo
       // resta mancato, quindi nel documento non si scrive niente (gli amici non la vedono come fatta)
       if (on && m.re) return;
       if (!partsOf(d, day).includes(me())) return;   // in sospeso, o non ancora dentro quel giorno: non conta per il gruppo
@@ -561,20 +582,83 @@
           if (on) msg('sr.msg.notcounted', { title: m.title }, 'bad', true);
         });
     }
-    // chi l'ha creata cambia la routine: il documento prende i valori nuovi (e, se cambiano le regole, una versione nuova)
+    // Chi l'ha creata cambia la routine: il documento prende i valori nuovi (e, se cambiano le regole, una versione nuova).
+    // La tua routine cambia subito, il documento solo quando il server conferma. Perché le due copie non restino
+    // diverse (tu con le regole nuove, gli amici con quelle vecchie):
+    // - finché il server non conferma, la routine ha srd = 1 (salvato: vale anche se chiudi l'app prima). evaluate
+    //   riprova a mandarla (al massimo ogni 30 secondi). Riprovare è innocuo: se era già arrivata non cambia niente;
+    // - se il server la rifiuta (per esempio le regole di Firebase, o il gruppo non c'è più), la routine torna com'è nel
+    //   documento e un messaggio lo dice: meglio una modifica persa (da rifare) che due routine diverse senza saperlo;
+    // - con un errore di rete (temporaneo) si tiene la modifica e si riprova.
+    const pushing = new Set(), pushedAt = {};
+    const RETRY_MS = 30000;
+    const transient = e => !!e && ['unavailable', 'deadline-exceeded', 'aborted', 'resource-exhausted', 'internal', 'cancelled'].includes(e.code);
     function afterEdit(r) {
       if (r.tz) refreshOpen(r);   // le tue volte ancora da fare: scadenza del gruppo, nella tua ora
       const d = docOfR(r);
       if (!d || !isDoc(d) || roleOf(d) !== 'o' || !online()) return;
+      r.srd = 1;
+      saveRoutinesLocal();
+      push(r, d, true);
+    }
+    // manda la routine al documento (loud: dopo una tua modifica, con il messaggio per gli amici in sospeso)
+    function push(r, d, loud) {
+      if (pushing.has(r.id)) return;
       const f = fieldsOf(r);
-      // frequenza, volte e giorni uguali a quelli del documento (anche se lì il cambio è ancora "in attesa" e qui è già
-      // fatto): non si riscrivono, così gli amici non devono riaccettare niente
+      // regole uguali a quelle del documento (anche se lì il cambio è ancora "in attesa" e qui è già fatto): non si
+      // riscrivono, così gli amici non devono riaccettare niente
       const t = tplOf(d), today = zoneDay(Date.now(), f.tz);
       if (t && shapeOf(r, today) === shapeOf(t, today)) SHAPE_KEYS.forEach(k => { delete f[k]; });
       const rulesChanged = RULE_KEYS.some(k => k in f && !sameK(f[k], d[k] === undefined ? null : d[k]));
-      write(() => update(r.sr, { ...f, ownerName: myName(), ver: rulesChanged ? d.ver + 1 : d.ver }));
-      const j = joinedOf(d);
-      if (rulesChanged && j.length) msg('sh.msg.changed', { name: joinNames(j.map(x => noname(x.n))) });
+      const id = r.sr, rid = r.id, sent = JSON.stringify(fieldsOf(r));
+      pushing.add(rid); pushedAt[rid] = Date.now();
+      let again = false;
+      update(id, { ...f, ownerName: myName(), ver: rulesChanged ? d.ver + 1 : d.ver })
+        .then(() => {
+          const now = S.routines.find(x => x.id === rid);
+          if (!now || now.sr !== id) return;
+          // confermata. Se nel frattempo l'hai cambiata di nuovo, si manda subito anche quella; altrimenti è tutto arrivato
+          if (JSON.stringify(fieldsOf(now)) === sent) { delete now.srd; saveRoutinesLocal(); } else again = true;
+          if (loud && rulesChanged) {
+            const j = joinedOf(d);
+            if (j.length) msg('sh.msg.changed', { name: joinNames(j.map(x => noname(x.n))) });
+          }
+        })
+        .catch(e => {
+          console.warn('sroutines edit', e && e.code, e);
+          if (transient(e)) return;   // si riprova da evaluate
+          rollback(rid, id);
+        })
+        .then(() => {
+          pushing.delete(rid);
+          const now = again ? S.routines.find(x => x.id === rid) : null;
+          const dd = now && docOfR(now);
+          if (dd && isDoc(dd)) push(now, dd, true);
+        });
+    }
+    // una modifica rimasta da mandare (srd): si riprova, se non c'è già una scrittura in corso
+    function retryPush(r, d) {
+      if (!r.srd || pushing.has(r.id) || d._pw || !online()) return;
+      if (pushedAt[r.id] && Date.now() - pushedAt[r.id] < RETRY_MS) return;
+      push(r, d, false);
+    }
+    // il server ha rifiutato la modifica: la routine torna com'è nel documento (titolo, regole, cambio in attesa)
+    function rollback(rid, id) {
+      const r = S.routines.find(x => x.id === rid), d = docs[id];
+      if (!r || r.sr !== id) return;
+      delete r.srd;
+      const t = d && isDoc(d) ? tplOf(d) : null;
+      if (t) {
+        META_KEYS.concat(VAL_KEYS).forEach(k => { r[k] = t[k]; });
+        if (r.start !== t.start) { r.start = t.start; r.streak = 0; r.streakDate = addDaysStr(t.start, -1); r.brks = []; }
+        takeShape(r, t);
+        refreshOpen(r);
+      }
+      saveRoutinesLocal();
+      MUI().syncRoutines();
+      paint();
+      msg('sr.msg.editfail', { title: r.title }, 'bad', true);
+      sfx('err');
     }
 
     /* ---------- inviti ---------- */

@@ -262,7 +262,8 @@ service cloud.firestore {
     //   lk: il periodo toccato dall'ultima scrittura
     //   freq, n: ogni giorno / settimana / mese ('d', 'w', 'm'), quante volte per periodo (senza: ogni giorno, una volta);
     //   at: da dove si contano i periodi (dopo un cambio), pk: l'ultimo periodo prima di at, nx: il cambio in attesa
-    //   (frequenza, volte, giorni e ora dal giorno nx.at; nx.pk come pk)
+    //   (frequenza, volte, giorni e ora dal giorno nx.at; nx.pk come pk; nx.rewards, nx.penalty, nx.stars, nx.bonus:
+    //   ricompense, penalità, stelle e bonus dal giorno nx.at. I cambi scritti dalle versioni di prima non li hanno)
     //   cal, wk: periodi del calendario (settimane dal giorno wk, 0-6 come Date.getDay; mesi dal 1°); senza, dall'inizio
     // Ognuno segna solo la propria parte, con l'ora del server, e solo vicino a quel periodo (il fuso del gruppo lo conosce
     // l'app: qui si accetta da 14 ore prima della mezzanotte UTC del primo giorno a 38 ore dopo quella dell'ultimo, che
@@ -290,10 +291,20 @@ service cloud.firestore {
         && (f == 'd' ? days.size() >= 1 : days.size() == 0)
         && okClockOrNull(time) && (time == null || (f == 'd' && times == 1));
     }
+    // bonus della serie: niente, oppure ogni quanti periodi e quanti XP
+    function srBonus(b) {
+      return b == null || (b is map && b.keys().hasOnly(['every', 'xp'])
+        && b.every is int && b.every >= 2 && b.every <= 100000
+        && b.xp is int && b.xp >= 1 && b.xp <= 100000);
+    }
     function srNx(x) {
-      return x == null || (x is map && x.keys().hasOnly(['at', 'freq', 'n', 'days', 'time', 'pk', 'cal', 'wk']) && x.keys().hasAll(['at', 'freq', 'n', 'days'])
+      return x == null || (x is map
+        && x.keys().hasOnly(['at', 'freq', 'n', 'days', 'time', 'pk', 'cal', 'wk', 'rewards', 'penalty', 'stars', 'bonus'])
+        && x.keys().hasAll(['at', 'freq', 'n', 'days'])
         && okDay10(x.at) && srShape(x.freq, x.n, x.days, x.get('time', null)) && (x.get('pk', null) == null || okDay10(x.pk))
-        && srCal(x.get('cal', null), x.get('wk', null)));
+        && srCal(x.get('cal', null), x.get('wk', null))
+        && (x.get('rewards', null) == null || okStats(x.rewards)) && (x.get('penalty', null) == null || okStats(x.penalty))
+        && okStars(x.get('stars', null)) && srBonus(x.get('bonus', null)));
     }
     // il modello della routine (lo decide chi l'ha creata)
     function srTpl(n) {
@@ -305,9 +316,7 @@ service cloud.firestore {
         && n.start is string && n.start.size() == 10 && shortStr(n.tz, 64)
         && (n.get('pause', null) == null || (n.pause is map && n.pause.keys().hasOnly(['from', 'until'])
             && n.pause.from is string && n.pause.from.size() == 10 && n.pause.until is string && n.pause.until.size() == 10))
-        && (n.bonus == null || (n.bonus is map && n.bonus.keys().hasOnly(['every', 'xp'])
-            && n.bonus.every is int && n.bonus.every >= 2 && n.bonus.every <= 100000
-            && n.bonus.xp is int && n.bonus.xp >= 1 && n.bonus.xp <= 100000));
+        && srBonus(n.bonus);
     }
     function okNewSrGuest(e) {
       return e is map && e.keys().hasOnly(['n', 'j', 'a', 'since']) && e.keys().size() == 4
@@ -378,7 +387,8 @@ service cloud.firestore {
     }
     function srOwnerUpdate(o, n, k) {
       return me() == o.owner && (
-        // modificare la routine; se cambiano le regole (XP, penalità, frequenza, volte, giorni, ora) la versione sale di uno
+        // modificare la routine; se cambiano le regole (XP, penalità, frequenza, volte, giorni, ora, o il cambio in attesa,
+        // che porta anche stelle e bonus) la versione sale di uno
         (k.hasOnly(srTplKeys()) && srTpl(n)
           && (k.hasAny(srRuleKeys()) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
         // invitare altri amici (chi è già dentro non deve riaccettare: per lui non cambia niente)

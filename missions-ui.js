@@ -79,7 +79,7 @@
     // completare e annullare ("non ancora completabile" è notYet, in missions.js)
     function completeMission(id) {
       const m = S.missions.find(x => x.id === id);
-      if (!m || m.done || m.failed) return;   // scaduta: non si completa più (si può solo riprogrammare)
+      if (!m || m.done || m.failed) return;   // fallita: l'esito resta, non si completa più
       if (isLate(m)) {   // scaduta da poco ma non ancora segnata come fallita: non si completa, e diventa fallita adesso
         missionMsg(T('msg.expired', { title: m.title }), 'bad', true);
         sfx('err');
@@ -293,11 +293,18 @@
     const routineOf = m => MISSIONS.routineOf(S.routines, m);
     // crea le volte di oggi, aggiorna la serie e pulisce le volte saltate; true se qualcosa è cambiato
     let routinesDay = '';
+    // gli id delle missioni eliminate (lapidi, 90 giorni): una volta di routine eliminata non si ricrea
+    function goneIds() {
+      const out = new Set();
+      const del = (S.sync && S.sync.mDel) || {};
+      Object.values(del).forEach(month => Object.keys(month || {}).forEach(id => out.add(id)));
+      return out;
+    }
     function syncRoutines() {
       routinesDay = todayStr();
       // settimanali e mensili di prima: passano ai periodi del calendario alla fine del periodo in corso (missions.js)
       if (S.routines.map(r => MISSIONS.calMigrate(r, firstDay())).some(Boolean)) saveRoutinesLocal();
-      const res = MISSIONS.routineDay(S.routines, S.missions, todayStr());
+      const res = MISSIONS.routineDay(S.routines, S.missions, todayStr(), Date.now(), goneIds());
       S.missions = res.missions;
       if (res.routinesChanged) saveRoutinesLocal();
       if (res.changed) res.months.forEach(touchMonth);
@@ -455,8 +462,8 @@
       head.appendChild(mk('h3', 'm-title', m.title));
       if (m.done) head.appendChild(mk('span', 'm-date', T(skippedSh ? 'm.skipped.on' : 'm.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
       else if (m.rid && m.re && !failedNow) {
-        // volta ripresa ("Annulla penalità"): si completa entro la fine di quel giorno (l'ora della routine non conta più:
-        // la fine del giorno viene sempre dopo). Vale anche per settimanali e mensili
+        // volta ripresa con "Annulla penalità" (c'era nelle versioni di prima: solo dati vecchi): si completa entro la fine
+        // di quel giorno (l'ora della routine non conta più). Vale anche per settimanali e mensili
         head.appendChild(mk('span', 'm-date', T(m.re === todayStr() ? 'm.rec.today' : 'm.rec.by', { when: fmtDay(m.re) })));
       } else if (m.due) {
         const late = isLate(m);
@@ -486,7 +493,7 @@
         if (shi.frozen && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.frozen', { name: shi.ownerName })));
         if (shi.role === 'o' && shi.invitedCount && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.invited.wait', { name: shi.invitedNames })));
       }
-      // routine di gruppo ripresa dopo "Annulla penalità": vale solo per te, per il gruppo è andata
+      // routine di gruppo ripresa con "Annulla penalità" (versioni di prima): vale solo per te, per il gruppo è andata
       if (sri && !failedNow && m.re) card.appendChild(mk('p', 'm-shared', T(m.done ? 'sr.rec.solo.done' : 'sr.rec.solo')));
       else if (sri && !failedNow) {
         if (sri.pending && !m.done) card.appendChild(mk('p', 'm-shared warn', T('sr.changed', { name: (SR().info(rtn) || {}).ownerName || '' })));
@@ -554,7 +561,7 @@
             act.appendChild(cb);
           }
           if (shi.role === 'o' && !shi.frozen) {
-            act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+            if (!isLate(m)) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));   // scaduta: come "Completa"
             // altri amici (fino a 3) e inviti senza risposta
             if (SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
             // togliere chi non ha risposto (inviti senza risposta e chi è in sospeso): chiede conferma
@@ -576,8 +583,10 @@
         // routine di gruppo in sospeso (chi l'ha creata l'ha cambiata): prima si sceglie Accetta o Esci, niente Completa.
         // Da più volte: "Completa" compare solo con tutte le volte fatte
         if (!(sri && sri.pending) && MISSIONS.fullCount(m)) act.append(cb);
-        // una routine di gruppo la modifica solo chi l'ha creata; chi è in sospeso sceglie qui (o nell'elenco delle routine)
-        if (!(rtn && rtn.sh === 'g')) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
+        // "Modifica": non su una missione scaduta (come "Completa": la scadenza non si sposta più), non su una volta di una
+        // routine che non c'è più; una routine di gruppo la modifica solo chi l'ha creata (chi è in sospeso sceglie qui,
+        // o nell'elenco delle routine)
+        if (!isLate(m) && !(m.rid && !rtn) && !(rtn && rtn.sh === 'g')) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
         // routine: "Invita" anche qui (come "Modifica"), per tutta la routine; solo chi l'ha creata, finché c'è posto
         if (rtn && SR().canInvite(rtn)) act.appendChild(btn('', T('sh.invite'), T('sr.invite.aria'), () => SR().openInvite(rtn.id)));
         if (sri && sri.pending) act.append(btn(' add', T('sh.accept.change'), T('sh.accept.change'), () => SR().acceptChange(rtn.id)), exitBtn(rtn));
@@ -937,16 +946,17 @@
         box.appendChild(mk('h4', 'sub', T('day.routines') + ' (' + planned.length + ')'));
         planned.forEach(r => {
           const p = MISSIONS.plannedPeriod(r, selDate), kind = perKind(r, p.s);
+          const y = MISSIONS.rulesOn(r, p.s);   // le regole di quel periodo (con il cambio in attesa, se ormai è arrivato)
           const card = mk('article', 'mission');
           card.appendChild(routineTag(T('m.routine')));
           const head = mk('div', 'm-head');
           head.appendChild(mk('h3', 'm-title', r.title));
-          if (kind === 'd' && r.time) head.appendChild(mk('span', 'm-date', T('r.at', { time: r.time })));
+          if (kind === 'd' && y.time) head.appendChild(mk('span', 'm-date', T('r.at', { time: y.time })));
           card.appendChild(head);
           // settimanali e mensili: quale periodo (il giorno mostrato è solo la scadenza)
           if (kind !== 'd') card.appendChild(mk('p', 'm-routine', periodText('skip.per', kind, p)));
           if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
-          card.appendChild(chips(r.rewards));
+          card.appendChild(chips(y.rewards));
           const act = mk('div', 'm-actions');
           const gu = kind === 'd' ? gcalRoutineUrl(r) : null;
           if (gu) act.appendChild(gcalLink(gu, T('aria.gcal.routine') + ' ' + r.title, { r }));
@@ -1020,7 +1030,7 @@
     const mform = $('mform');
     const xpInputs = {}, penInputs = {};
     let editingId = null;
-    let formRepeat = false, editingRid = null, routinesBack = false, editingDue = null, editingFrom = null, editingFromTime = null;
+    let formRepeat = false, editingRid = null, routinesBack = false, editingFrom = null;
     const dayBtns = [];
     const formLabels = [];   // etichette dei nomi delle statistiche, da aggiornare cambiando lingua
     const formRows = [];     // righe ricompensa e penalità: prendono i colori scelti nelle impostazioni
@@ -1051,9 +1061,13 @@
       formLabels.push([s, label, plabel]);
       $('mf-pen').appendChild(prow);
       penInputs[s.key] = pinp;
-      inp.addEventListener('input', paintXpCounter);
+      inp.addEventListener('input', () => { paintXpCounter(); paintChangeNote(); });
+      pinp.addEventListener('input', paintChangeNote);
     });
     let mfDur = 0, mfDif = 0, mfLegacyTotal = null;   // 0 = nessuna stella scelta; mfLegacyTotal: missione com'era prima di questo sistema
+    // hai toccato le stelle nel modulo? Una routine di prima non ha le stelle salvate: il modulo le ricava dal totale, ma
+    // se non le tocchi restano come sono (niente stelle), così cambiare solo il titolo non cambia le regole
+    let mfStarsTouched = false;
     // stella a pixel 9×9 (usata nella finestra e nei riepiloghi); si disegna sempre a pixel interi
     const starRows = ['....X....', '....X....', '...XXX...', 'XXXXXXXXX', '.XXXXXXX.', '..XXXXX..', '..XXXXX..', '.XXX.XXX.', '.X.....X.'];
     function buildStars(box, onSet) {
@@ -1071,8 +1085,8 @@
     function paintStarRow(btns, n) {
       btns.forEach((b, i) => { b.classList.toggle('filled', i < n); b.setAttribute('aria-checked', String(i === n - 1)); });
     }
-    const durBtns = buildStars($('mf-dur'), n => { mfDur = n; mfLegacyTotal = null; paintStarRow(durBtns, mfDur); paintXpCounter(); });
-    const difBtns = buildStars($('mf-dif'), n => { mfDif = n; mfLegacyTotal = null; paintStarRow(difBtns, mfDif); paintXpCounter(); });
+    const durBtns = buildStars($('mf-dur'), n => { mfDur = n; mfLegacyTotal = null; mfStarsTouched = true; paintStarRow(durBtns, mfDur); paintXpCounter(); paintChangeNote(); });
+    const difBtns = buildStars($('mf-dif'), n => { mfDif = n; mfLegacyTotal = null; mfStarsTouched = true; paintStarRow(difBtns, mfDif); paintXpCounter(); paintChangeNote(); });
     const rewardTargetNow = () => (mfDur && mfDif) ? rewardTotal(mfDur, mfDif) : (mfLegacyTotal != null ? mfLegacyTotal : null);
     const xpSumNow = () => STATS.reduce((t, s) => t + (Number(xpInputs[s.key].value) || 0), 0);
     function paintXpCounter() {
@@ -1090,7 +1104,7 @@
     }
     // imposta le stelle aprendo il modulo: con una missione/routine esistente riconosce il totale, se possibile
     function setRewardStars(d, f, legacyTotal) {
-      mfDur = d || 0; mfDif = f || 0; mfLegacyTotal = legacyTotal != null ? legacyTotal : null;
+      mfDur = d || 0; mfDif = f || 0; mfLegacyTotal = legacyTotal != null ? legacyTotal : null; mfStarsTouched = false;
       paintStarRow(durBtns, mfDur); paintStarRow(difBtns, mfDif);
       paintXpCounter();
     }
@@ -1151,18 +1165,32 @@
       syncTime();
       paintChangeNote();
     }
-    // modificando una routine già iniziata: frequenza, volte e giorni nuovi valgono dal periodo successivo
+    // la data a metà frase: senza la maiuscola che fmtDay mette all'inizio ("dal sabato 3 ottobre")
+    const midDay = ds => parseDate(ds).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
+    // le regole della routine che stai modificando come si vedono nel modulo aprendolo: quelle del cambio in attesa, se
+    // ne ha uno con le ricompense, altrimenti quelle di adesso
+    const formSource = r => (r ? (r.nx && r.nx.rewards ? r.nx : r) : null);
+    // le stelle da salvare: quelle scelte; se non le hai toccate, quelle che c'erano (una routine di prima: nessuna)
+    const formStars = r => (mfStarsTouched || !r ? (mfDur && mfDif ? { d: mfDur, f: mfDif } : null) : formSource(r).stars || null);
+    // ricompense, penalità, stelle e bonus scritti nel modulo, come li salva una routine (per confrontarli con quelli di adesso)
+    function formValsKey(r) {
+      const num = el => { const v = el.value.trim(); return v === '' ? 0 : Number(v); };
+      const rewards = {}, penalty = {};
+      STATS.forEach(s => { rewards[s.key] = num(xpInputs[s.key]); penalty[s.key] = penOn ? num(penInputs[s.key]) : 0; });
+      const ev = $('mf-bonus-every').value.trim(), bx = $('mf-bonus-xp').value.trim();
+      return JSON.stringify([rewards, penalty, formStars(r), ev || bx ? { every: Number(ev), xp: Number(bx) } : null]);
+    }
+    const routineValsKey = r => JSON.stringify([r.rewards, r.penalty, r.stars || null, r.bonus || null]);
+    // modificando una routine già iniziata: le regole nuove (tutto tranne titolo e descrizione) valgono dal periodo successivo
     function paintChangeNote() {
       const note = $('mf-change-note');
       const r = editingRoutine();
       const today = r ? routineToday(r) : '';
       const days = formFreq === 'd' ? pickedDays() : [];
-      const same = r && formFreq === (r.freq || 'd') && timesNow() === (r.n || 1) && days.join() === r.days.join();
-      // stesse regole, ma l'ora nuova di oggi è già passata: anche lei vale da domani (missions.js, planChange)
-      const t = $('mf-time').value;
-      const timeLater = !!r && same && formFreq === 'd' && timesNow() === 1 && validTime(t) && t !== r.time && MISSIONS.timePassedToday(r, t, today);
-      note.hidden = !r || r.start > today || (!!same && !timeLater);
-      // la data a metà frase: senza la maiuscola che fmtDay mette all'inizio ("dal sabato 3 ottobre")
+      const t = routineTimeOk() && validTime($('mf-time').value) ? $('mf-time').value : null;
+      const same = r && formFreq === (r.freq || 'd') && timesNow() === (r.n || 1) && days.join() === r.days.join()
+        && t === (r.time || null) && formValsKey(r) === routineValsKey(r);
+      note.hidden = !r || r.start > today || !!same;
       if (note.hidden) return;
       let when = changeAt(r, today);
       // settimane e mesi del calendario: dal primo periodo intero dopo quel giorno
@@ -1170,10 +1198,12 @@
         const p = MISSIONS.firstCalPeriod(formFreq, wkFor(r, formFreq), when);
         if (p) when = p.s;
       }
-      note.textContent = T('mf.change.at', { when: parseDate(when).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' }) });
+      note.textContent = T('mf.change.at', { when: midDay(when) });
     }
     $('mf-times').addEventListener('input', paintFreq);
-    $('mf-time').addEventListener('input', paintChangeNote);   // un'ora già passata oggi vale da domani
+    $('mf-time').addEventListener('input', paintChangeNote);   // anche l'ora nuova vale dal periodo successivo
+    $('mf-bonus-every').addEventListener('input', paintChangeNote);
+    $('mf-bonus-xp').addEventListener('input', paintChangeNote);
     function paintDayChips() {
       const box = $('mf-days');
       MISSIONS.weekOrder(firstDay()).forEach(d => {
@@ -1224,6 +1254,7 @@
       $('mf-pen-box').hidden = !on;
       if (on && fromUser && !formRepeat && !$('mf-date').value) mfMsg(T('mf.err.pendate'));   // promemoria subito, non al salvataggio
       else if (fromUser) mfMsg('');
+      if (fromUser) paintChangeNote();
     }
     // descrizione: si apre quando serve (aperta già se la missione ne ha una)
     function setDescOpen(open) {
@@ -1232,12 +1263,16 @@
     }
     function openMissionForm(id, dateStr) {
       const m0 = id ? S.missions.find(x => x.id === id) : null;
-      if (m0 && m0.rid && routineOf(m0)) { openRoutineForm(m0.rid); return; }   // le volte di una routine si modificano dalla routine
+      // le volte di una routine si modificano dalla routine; una volta di una routine che non c'è più non si modifica
+      // (ha i campi di una routine: con il modulo delle missioni verrebbe fuori una missione a metà)
+      if (m0 && m0.rid) { if (routineOf(m0)) openRoutineForm(m0.rid); return; }
       if (m0 && m0.sid && m0.sh === 'g') return;   // una missione condivisa la modifica solo chi l'ha creata
+      // condivisa: la modifica deve arrivare agli amici (documento, connessione, prima della scadenza). Lo si dice subito,
+      // non dopo aver compilato il modulo
+      const blk = m0 && m0.sid ? SH().editBlock(m0) : '';
+      if (blk) { missionMsg(blk, 'bad', true); sfx('err'); return; }
       editingId = id; editingRid = null; routinesBack = false;
-      editingDue = m0 ? m0.due : null;
       editingFrom = m0 ? m0.from : null;
-      editingFromTime = m0 ? m0.fromTime : null;
       $('mf-rep-field').hidden = !!m0;          // una missione già creata non diventa routine
       $('mf-rep-toggle').hidden = false;
       // se la fai diventare una routine: parte da oggi, ogni giorno, una volta
@@ -1272,6 +1307,14 @@
     function openRoutineForm(rid) {
       const r = rid ? S.routines.find(x => x.id === rid) : null;
       if (r && r.sh === 'g') { missionMsg(T('sr.err.guest'), 'bad', true); sfx('err'); return; }   // la modifica solo chi l'ha creata
+      // routine di gruppo: la modifica deve arrivare agli amici, quindi servono il documento e la connessione. Lo si dice
+      // subito, non dopo aver compilato il modulo
+      const blk = r ? SR().editBlock(r) : '';
+      if (blk) {
+        if (routinesBack) { routinesBack = false; openRoutines({ silentOpen: true }); }
+        missionMsg(blk, 'bad', true); sfx('err');
+        return;
+      }
       editingId = null; editingRid = r ? r.id : null;
       $('mf-rep-field').hidden = false;
       $('mf-rep-toggle').hidden = true;
@@ -1279,20 +1322,22 @@
       $('t-mform').textContent = r ? T('mf.edit.routine') : T('mf.new.routine');
       $('mf-title').value = r ? r.title : '';
       $('mf-desc').value = r ? r.desc : '';
-      STATS.forEach(s => {
-        xpInputs[s.key].value = r && r.rewards[s.key] ? String(r.rewards[s.key]) : '';
-        penInputs[s.key].value = r && r.penalty[s.key] ? String(r.penalty[s.key]) : '';
-      });
-      initRewardStars(r ? r.rewards : null, r ? r.stars : null);
-      $('mf-date').value = '';
-      // con un cambio già programmato, il modulo mostra le regole che arriveranno (sono quelle da modificare)
+      // con un cambio già programmato, il modulo mostra le regole che arriveranno (sono quelle da modificare): giorni e ora
+      // (sh) e, se il cambio li ha, ricompense, penalità, stelle e bonus (v)
       const sh = r ? r.nx || r : null;
+      const v = r ? (r.nx && r.nx.rewards ? r.nx : r) : null;
+      STATS.forEach(s => {
+        xpInputs[s.key].value = v && v.rewards[s.key] ? String(v.rewards[s.key]) : '';
+        penInputs[s.key].value = v && v.penalty[s.key] ? String(v.penalty[s.key]) : '';
+      });
+      initRewardStars(v ? v.rewards : null, v ? v.stars : null);
+      $('mf-date').value = '';
       formFreq = sh ? sh.freq || 'd' : 'd';
       $('mf-times').value = sh && (sh.n || 1) > 1 ? String(sh.n) : '';
       $('mf-time').value = sh && sh.time ? sh.time : '';
       setDays(sh && formFreq === 'd' ? sh.days : WD_ALL);
-      $('mf-bonus-every').value = r && r.bonus ? String(r.bonus.every) : '';
-      $('mf-bonus-xp').value = r && r.bonus ? String(r.bonus.xp) : '';
+      $('mf-bonus-every').value = v && v.bonus ? String(v.bonus.every) : '';
+      $('mf-bonus-xp').value = v && v.bonus ? String(v.bonus.xp) : '';
       // la data di inizio si cambia solo finché la routine non è iniziata (poi servirebbe solo a rimandarla)
       const started = !!r && r.start <= todayStr();
       $('mf-start').disabled = started;
@@ -1300,8 +1345,8 @@
       $('mf-start').min = started ? r.start : todayStr();
       $('mf-start').max = addDaysStr(todayStr(), 365);
       $('mf-start').value = r ? r.start : todayStr();
+      setPenOn(!!(v && v.penalty && STATS.some(s => v.penalty[s.key] > 0)));
       paintFreq();
-      setPenOn(!!(r && r.penalty && STATS.some(s => r.penalty[s.key] > 0)));
       setDescOpen(!!(r && r.desc));
       $('mf-del').hidden = !r;
       mfDelArm(false);
@@ -1352,18 +1397,20 @@
         && MISSIONS.timePassedToday({ freq, n: 1, days, start, streakDate: '' }, time, today)) { start = addDaysStr(today, 1); movedStart = true; }
       const newStart = !r || start !== r.start;
       if (r) {
-        Object.assign(r, { title, desc, rewards, penalty, bonus, stars });
+        // titolo e descrizione cambiano subito (anche nelle volte ancora da fare, qui sotto)
+        Object.assign(r, { title, desc });
         // non ancora iniziata: la nuova data di inizio vale subito (la serie non c'è ancora)
         if (newStart) { r.start = start; r.streak = 0; r.streakDate = addDaysStr(start, -1); r.brks = []; delete r.at; }
-        // frequenza, volte e giorni: dal periodo successivo (se non è ancora iniziata, subito); le regole sono in missions.js.
-        // Routine di gruppo: il cambio in attesa va nel documento, così vale per tutti dallo stesso giorno
-        // settimane e mesi del calendario; una routine di gruppo di prima ci passa solo cambiando frequenza (altrimenti
+        // tutto il resto (frequenza, volte, giorni, ora, ricompense, penalità, stelle, bonus) dal periodo successivo,
+        // anche le stelle da sole;
+        // se non è ancora iniziata, subito. Le regole sono in missions.js (planChange). Non si torna indietro con "made":
+        // i periodi già creati restano quelli, e il cambio arriva sempre in un periodo nuovo.
+        // Routine di gruppo: il cambio in attesa va nel documento, così vale per tutti dallo stesso giorno.
+        // Settimane e mesi del calendario; una routine di gruppo di prima ci passa solo cambiando frequenza (altrimenti
         // gli amici dovrebbero riaccettare le regole per una modifica al titolo)
         const cal = freq !== 'd' && (!r.sr || r.cal || freq !== (r.freq || 'd'));
-        MISSIONS.planChange(r, { freq, n: times, days, time, ...(cal ? { cal: 1, wk: wkFor(r, freq) } : {}) }, routineToday(r));
-        if (!r.nx && isDaily(r) && (r.n || 1) === 1) r.time = time;   // stesse regole: l'ora nuova vale subito
-        // se oggi ora è un giorno previsto, compare subito (ma non se la sua ora è già passata: nascerebbe già fallita)
-        if (r.made && r.made >= today && !(r.time && MISSIONS.timePassedToday(r, r.time, today))) r.made = addDaysStr(today, -1);
+        MISSIONS.planChange(r, { freq, n: times, days, time, ...(cal ? { cal: 1, wk: wkFor(r, freq) } : {}), rewards, penalty, stars: formStars(r), bonus },
+          routineToday(r), !started);
       } else {
         if (S.routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
         r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty,
@@ -1371,12 +1418,12 @@
           ...MISSIONS.calOf(freq, { cal: 1, wk: firstDay() }) };   // settimane e mesi del calendario
         S.routines.push(r);
       }
-      // le volte ancora da fare prendono i valori nuovi (l'ora solo quelle da una volta al giorno)
+      // le volte ancora da fare prendono il titolo e la descrizione nuovi (le regole restano quelle con cui sono nate;
+      // una routine non ancora iniziata non ne ha)
       const months = new Set();
       S.missions.forEach(m => {
         if (m.rid === r.id && !m.done && !m.failed) {
-          Object.assign(m, { title, desc, rewards: { ...rewards }, penalty: { ...penalty }, stars });
-          if (!m.n && !m.ps) m.dueTime = r.time;   // (routine di gruppo: poi afterEdit la mette nella tua ora, se sei in un altro fuso)
+          Object.assign(m, { title, desc });
           months.add(monthOf(m));
         }
       });
@@ -1388,7 +1435,9 @@
       sfx('save');
       finishForm();
       renderMissionViews();
-      missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }) + (movedStart ? ' ' + T('msg.routine.tomorrow', { time }) : ''), 'good', movedStart);
+      // con un cambio in attesa si dice da quando valgono le regole nuove
+      const later = wasEdit && r.nx ? ' ' + T('msg.routine.from', { when: midDay(r.nx.at) }) : '';
+      missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }) + later + (movedStart ? ' ' + T('msg.routine.tomorrow', { time }) : ''), 'good', movedStart || !!later);
     }
     async function deleteRoutine() {
       const r = S.routines.find(x => x.id === editingRid);
@@ -1445,7 +1494,7 @@
       if (formRepeat) return submitRoutine(title, rewards, penalty, stars);
       const dueRaw = $('mf-date').value;
       if (dueRaw && !validDate(dueRaw)) return fail(T('mf.err.date'), $('mf-date'));
-      if (dueRaw && dueRaw < todayStr() && !(editingId && dueRaw === editingDue)) return fail(T('mf.err.past'), $('mf-date'));
+      if (dueRaw && dueRaw < todayStr()) return fail(T('mf.err.past'), $('mf-date'));
       if (anyPen && !dueRaw) return fail(T('mf.err.pendate'), $('mf-date'));
       const timeRaw = dueRaw ? $('mf-time').value : '';
       if (timeRaw && !validTime(timeRaw)) return fail(T('mf.err.time'), $('mf-time'));
@@ -1468,6 +1517,8 @@
       let m = editingId ? S.missions.find(x => x.id === editingId) : null;
       if (m) {
         if (m.done) return fail(T('mf.err.done'), null);
+        // fallita (o scaduta) mentre il modulo era aperto: l'esito resta, la scadenza non si sposta più
+        if (m.failed || isLate(m)) return fail(T('mf.err.late'), null);
         if (m.sid) { const blk = SH().editBlock(m); if (blk) return fail(blk, null); }
         Object.assign(m, { title, desc, rewards, penalty, due, dueTime, from, fromTime, stars });
         if (m.sid) SH().afterEdit(m);   // anche l'amico vede la missione cambiata
@@ -1596,7 +1647,13 @@
       head.appendChild(mk('h3', 'm-title', r.title));
       head.appendChild(mk('span', 'm-date', freqText(r)));
       card.appendChild(head);
-      if (r.nx) card.appendChild(mk('p', 'm-routine', T('r.next', { when: fmtDay(r.nx.at), what: freqText(r.nx) })));
+      // il cambio in attesa: che cosa cambia e da quando (frequenza e giorni; ricompense, penalità e bonus)
+      const nxp = MISSIONS.nxParts(r);
+      if (nxp && (nxp.shape || !nxp.vals)) card.appendChild(mk('p', 'm-routine', T('r.next', { when: fmtDay(r.nx.at), what: freqText(r.nx) })));
+      if (nxp && nxp.vals) {
+        card.appendChild(mk('p', 'm-routine', T('r.next.vals', { when: fmtDay(r.nx.at) })));
+        card.appendChild(chips(r.nx.rewards));
+      }
       if (r.desc) card.appendChild(mk('p', 'm-desc', r.desc));
       const rsl = starsLine(r.stars);
       if (rsl) card.appendChild(rsl);

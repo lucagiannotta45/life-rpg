@@ -1198,6 +1198,7 @@
     p(b, T('info.fr.p1'));
     p(b, T('info.fr.p2'));
     p(b, T('info.fr.p3'));
+    p(b, T('info.fr.p4'));   // routine di gruppo
 
     // dati
     b = section('data', T('info.data.h'));

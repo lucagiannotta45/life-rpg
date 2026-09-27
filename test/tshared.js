@@ -43,8 +43,12 @@ function fakeWorld(uid, doc, missions) {
   };
   Object.defineProperty(globalThis, 'navigator', { value: { onLine: true }, configurable: true, writable: true });
   const writes = [], msgs = [], deleted = [];
+  const ctl = { fail: null };   // ctl.fail = { code }: la prossima scrittura il server la rifiuta con quell'errore
   const ref = id => ({
-    update: data => { writes.push({ id, data }); return Promise.resolve(); },
+    update: data => {
+      if (ctl.fail) { const e = ctl.fail; ctl.fail = null; return Promise.reject(e); }
+      writes.push({ id, data }); return Promise.resolve();
+    },
     set: data => { writes.push({ id, set: data }); return Promise.resolve(); },
     delete: () => { deleted.push(id); return Promise.resolve(); },
     get: () => Promise.resolve({ exists: true, data: () => doc }),
@@ -66,7 +70,7 @@ function fakeWorld(uid, doc, missions) {
   };
   const SH = window.LIFE_RPG_SHARED.create(D, S);
   SH.start();
-  const W = { SH, S, writes, msgs, deleted };
+  const W = { SH, S, writes, msgs, deleted, ctl };
   worlds.push(W);
   return W;
 }
@@ -267,4 +271,48 @@ test('invitare altri amici non fa riaccettare niente a chi è già dentro', asyn
   assert.equal('ver' in w, false, 'la versione non cambia: Marco resta dentro con le regole di prima');
   assert.deepEqual(w.members, { union: ['uL'] });
   assert.equal(w['g.uL'].j, false);
+});
+
+/* ---------- la modifica di chi l'ha creata vale solo se arriva nel documento ---------- */
+test('chi l\'ha creata: la modifica resta "da mandare" finché il server non la conferma', async () => {
+  const W = fakeWorld('uO', baseDoc({ uG: guest('Io') }), [myCopy('o')]);
+  const L = W.S.missions[0];
+  Object.assign(L, { title: 'Trasloco grande', rewards: M.normalizeRewards({ Vigore: 20 }) });
+  W.SH.afterEdit(L);
+  assert.equal(L.shd, 1);
+  assert.deepEqual([W.writes[0].data.title, W.writes[0].data.ver], ['Trasloco grande', 2], 'XP cambiati: versione nuova');
+  await flush();
+  assert.equal(L.shd, undefined, 'confermata');
+  // riletta dal salvataggio, una modifica ancora da mandare resta tale
+  const [again] = M.normalizeMissions([{ ...L, shd: 1 }]);
+  assert.equal(again.shd, 1);
+});
+
+test('chi l\'ha creata: se il server rifiuta la modifica, la missione torna com\'è nel documento', async () => {
+  const W = fakeWorld('uO', baseDoc({ uG: guest('Io') }), [myCopy('o')]);
+  const L = W.S.missions[0];
+  Object.assign(L, { title: 'Trasloco grande', rewards: M.normalizeRewards({ Vigore: 20 }) });
+  W.ctl.fail = { code: 'permission-denied' };
+  W.SH.afterEdit(L);
+  await flush();
+  assert.deepEqual([L.title, L.rewards.Vigore, L.shd], ['Trasloco', 10, undefined]);
+  assert.ok(W.msgs.some(x => x.includes('Trasloco') && x.includes('com\'era')), 'un messaggio lo dice');
+});
+
+test('chi l\'ha creata: con un errore di rete la modifica resta e si riprova (non prima di 30 secondi)', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const W = fakeWorld('uO', baseDoc({ uG: guest('Io') }), [myCopy('o')]);
+  const L = W.S.missions[0];
+  L.title = 'Trasloco grande';
+  W.ctl.fail = { code: 'unavailable' };
+  W.SH.afterEdit(L);
+  await flush();
+  assert.deepEqual([L.title, L.shd, W.writes.length], ['Trasloco grande', 1, 0], 'la modifica resta, da mandare');
+  W.SH.evaluate();
+  await flush();
+  assert.equal(W.writes.length, 0, 'troppo presto per riprovare');
+  t.mock.timers.tick(31000);
+  W.SH.evaluate();
+  await flush();
+  assert.deepEqual([W.writes.length, W.writes[0].data.title, L.shd], [1, 'Trasloco grande', undefined], 'riprovata e confermata');
 });

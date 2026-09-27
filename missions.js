@@ -12,9 +12,10 @@
  * - controllo dei dati salvati (missioni e routine arrivate da localStorage, dall'account o da un backup);
  * - quando una missione è disponibile, quando scade, in che ordine e in che gruppo compare;
  * - XP guadagnati, tolti e persi (completare, annullare, penalità);
- * - le azioni su una missione: completare, annullare, fallire, annullare la penalità (XP, serie e record insieme);
+ * - le azioni su una missione: completare, annullare il completamento, fallire (XP, serie e record insieme);
  * - routine: ogni giorno (in certi giorni della settimana), ogni settimana o ogni mese, N volte per periodo;
- *   creazione delle "volte" di ogni periodo, contatore, serie e bonus, cambi che valgono dal periodo successivo;
+ *   creazione delle "volte" di ogni periodo, contatore, serie e bonus, saltare una volta;
+ *   cambi delle regole (tutto tranne titolo e descrizione) che valgono dal periodo successivo;
  * - calendario: pallini dei giorni e routine previste; primo giorno della settimana (secondo la lingua dell'app);
  * - collegamenti "Aggiungi a Google Calendar".
  *
@@ -185,6 +186,8 @@
         // missione condivisa con un amico (vedi shared.js): sid = il documento condiviso, sh = il tuo ruolo
         // ('o' = l'hai creata tu, 'g' = sei stato invitato)
         if (!it.rid && typeof m.sid === 'string' && /^[\w-]{1,40}$/.test(m.sid)) { it.sid = m.sid; it.sh = m.sh === 'g' ? 'g' : 'o'; }
+        // shd = una tua modifica (l'hai creata tu) che il documento condiviso non ha ancora confermato: si riprova (shared.js)
+        if (it.sid && it.sh === 'o' && m.shd) it.shd = 1;
         // shn = i nomi degli altri partecipanti, salvati nella missione: il documento condiviso a un certo punto si elimina
         // (prima c'era un solo nome, come testo: lo si accetta ancora)
         if (it.sid) {
@@ -262,6 +265,9 @@
     }
     const normDays = a => [...new Set((Array.isArray(a) ? a : []).map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
     const normTimes = v => { const n = Number(v); return Number.isInteger(n) && n >= 1 ? Math.min(n, MAX_TIMES) : 1; };
+    // bonus della serie: { every, xp } oppure null
+    const normBonus = b => (b && Number.isInteger(b.every) && b.every >= 2 && b.every <= MAX_EVERY && Number.isInteger(b.xp) && b.xp >= 1 && b.xp <= MAX_XP
+      ? { every: b.every, xp: b.xp } : null);
     function normalizeRoutines(arr) {
       if (!Array.isArray(arr)) return [];
       const out = [], seen = new Set();
@@ -278,9 +284,7 @@
         // i giorni della settimana valgono solo per le routine di ogni giorno
         const days = freq === 'd' ? normDays(r.days) : [];
         if (freq === 'd' && !days.length) continue;
-        const b = r.bonus;
-        const bonus = b && Number.isInteger(b.every) && b.every >= 2 && b.every <= MAX_EVERY && Number.isInteger(b.xp) && b.xp >= 1 && b.xp <= MAX_XP
-          ? { every: b.every, xp: b.xp } : null;
+        const bonus = normBonus(r.bonus);
         seen.add(id);
         out.push({
           id, title,
@@ -309,7 +313,9 @@
         Object.assign(it, calOf(freq, r));
         if (validDate(r.at) && r.at !== r.start) it.at = r.at;
         if (it.at && validDate(r.pk) && r.pk < it.at) it.pk = r.pk;
-        // nx = un cambio di frequenza, volte o giorni che vale dal periodo successivo (at = il suo primo giorno)
+        // nx = un cambio delle regole che vale dal periodo successivo (at = il suo primo giorno): frequenza, volte, giorni,
+        // ora e periodi del calendario e, se ci sono, ricompense, penalità, stelle e bonus nuovi (i cambi di prima non li
+        // hanno: per loro restano quelli di adesso)
         const nx = r.nx;
         if (nx && validDate(nx.at) && nx.at > (it.at || r.start) && FREQS.includes(nx.freq)) {
           const nd = nx.freq === 'd' ? normDays(nx.days) : [];
@@ -317,6 +323,10 @@
           if (nx.freq !== 'd' || nd.length) {
             it.nx = { at: nx.at, freq: nx.freq, n: nn, days: nd, time: nx.freq === 'd' && nn === 1 && validTime(nx.time) ? nx.time : null, ...calOf(nx.freq, nx) };
             if (validDate(nx.pk) && nx.pk < nx.at) it.nx.pk = nx.pk;
+            const nrw = normalizeRewards(nx.rewards);
+            if (nx.rewards && Object.values(nrw).some(v => v > 0)) {
+              Object.assign(it.nx, { rewards: nrw, penalty: normalizeRewards(nx.penalty), stars: normalizeStars(nrw, nx.stars), bonus: normBonus(nx.bonus) });
+            }
           }
         }
         if (typeof r.sr === 'string' && /^q[a-z0-9]{6,11}$/.test(r.sr)) {
@@ -324,6 +334,8 @@
           const names = (Array.isArray(r.shn) ? r.shn : []).filter(x => typeof x === 'string' && x.trim()).map(x => x.trim().slice(0, 30)).slice(0, 3);
           if (names.length) it.shn = names;
           if (typeof r.tz === 'string' && r.tz && r.tz.length <= 64) it.tz = r.tz;
+          // srd = una tua modifica che il documento del gruppo non ha ancora confermato (si riprova, vedi shared-routines.js)
+          if (it.sh === 'o' && r.srd) it.srd = 1;
         }
         // serie e record di gruppo: solo finché la routine è di gruppo. Finito il gruppo si tolgono (la routine torna
         // normale; un gruppo nuovo riparte da zero, senza ereditare la serie di quello di prima)
@@ -472,10 +484,12 @@
 
     /* ---------- routine ---------- */
     // Una routine si ripete per PERIODI: ogni giorno (freq 'd', solo nei giorni della settimana scelti), ogni settimana
-    // ('w', 7 giorni) oppure ogni mese ('m', da un giorno allo stesso giorno del mese dopo). Settimane e mesi si contano
-    // dal primo giorno della routine (o dall'ultimo cambio di frequenza, \"at\"), non dal calendario. In ogni periodo c'è
-    // una \"volta\" (una missione), da fare n volte: le ricompense arrivano solo quando le hai fatte tutte, la penalità si
-    // paga per ogni volta mancante. La serie conta i periodi completati di fila.
+    // ('w') oppure ogni mese ('m'). Settimane e mesi sono quelli del calendario (cal: la settimana dal giorno wk, il mese
+    // dal 1° all'ultimo giorno; si parte dal primo periodo intero). Le routine di prima, senza cal, contano 7 giorni o un
+    // mese dal loro primo giorno (o dall'ultimo cambio, "at"), finché calMigrate non le porta al calendario. In ogni
+    // periodo c'è una "volta" (una missione), da fare n volte: le ricompense arrivano solo quando le hai fatte tutte, la
+    // penalità si paga per ogni volta mancante. La serie conta i periodi completati di fila.
+    // Le regole (tutto tranne titolo e descrizione) cambiano solo dal periodo successivo: vedi planChange.
     const WD_ALL = [1, 2, 3, 4, 5, 6, 0];   // giorni nel modulo, lunedì per primo (numeri di Date.getDay)
     const isDaily = r => !r.freq || r.freq === 'd';
     const anchorOf = r => r.at || r.start;   // da qui si contano i periodi
@@ -510,7 +524,7 @@
       }
       return dayCounts(r, ds) ? { s: ds, e: ds } : null;
     }
-    // il primo periodo che inizia da ds in poi (senza andare oltre il giorno \"until\"); null se non c'è
+    // il primo periodo che inizia da ds in poi (senza andare oltre il giorno "until"); null se non c'è
     function nextPeriod(r, ds, until) {
       if (ds < anchorOf(r)) ds = anchorOf(r);
       if (isDaily(r)) {
@@ -532,7 +546,7 @@
     // gd = il giorno del gruppo (routine di gruppo, nel fuso di chi l'ha creata): per settimanali e mensili è l'ultimo.
     const occKey = m => m.ps || m.gd || m.due;
     const occEnd = m => m.gd || m.due;
-    const occId = (r, d) => r.id + '-' + d.replace(/-/g, '');   // id della \"volta\" di una routine nel periodo che inizia il giorno d
+    const occId = (r, d) => r.id + '-' + d.replace(/-/g, '');   // id della "volta" di una routine nel periodo che inizia il giorno d
     const routineOf = (routines, m) => (m && m.rid ? routines.find(r => r.id === m.rid) || null : null);
     // quante volte mancano per completarla (0 = fatta)
     const missingOf = m => (m.done ? 0 : Math.max(1, (m.n || 1) - (m.p ? m.p.length : 0)));
@@ -543,32 +557,54 @@
       const p = isDaily(r) ? null : periodAt(r, today);   // (del calendario, prima del primo periodo intero: nessuno in corso)
       return addDaysStr(p ? p.e : today, 1);
     }
+    // le regole di una routine (o di un cambio in attesa) che non riguardano i giorni: ricompense, penalità, stelle e bonus.
+    // Un cambio di prima (senza ricompense) lascia quelle della routine (fb)
+    const valsOf = (x, fb) => {
+      const v = x && x.rewards ? x : fb;
+      return { rewards: v.rewards, penalty: v.penalty, stars: v.stars || null, bonus: v.bonus || null };
+    };
+    const valKey = v => JSON.stringify([v.rewards, v.penalty, v.stars || null, v.bonus || null]);
     const sameShape = (a, b) => (a.freq || 'd') === (b.freq || 'd') && (a.n || 1) === (b.n || 1) && a.days.join() === b.days.join()
+      && (a.time || null) === (b.time || null)
       && (a.cal || 0) === (b.cal || 0) && (Number.isInteger(a.wk) ? a.wk : null) === (Number.isInteger(b.wk) ? b.wk : null);
-    // mette frequenza, volte, giorni, ora e periodi del calendario (to = la routine o una sua copia)
+    // mette le regole (to = la routine o una sua copia): frequenza, volte, giorni, ora, periodi del calendario e, se x le
+    // ha, ricompense, penalità, stelle e bonus
     function applyShape(to, x) {
       Object.assign(to, { freq: x.freq, n: x.n, days: x.days, time: x.freq === 'd' && x.n === 1 ? x.time || null : null });
       delete to.cal; delete to.wk;
       Object.assign(to, calOf(x.freq, x));
+      if (x.rewards) {
+        Object.assign(to, { rewards: { ...x.rewards }, penalty: { ...x.penalty }, stars: x.stars ? { ...x.stars } : null,
+          bonus: x.bonus ? { ...x.bonus } : null });
+      }
     }
-    // Cambiare frequenza, volte o giorni: vale dal giorno dopo la fine del periodo in corso (per una routine di ogni giorno:
-    // da domani), così nessuna volta cambia regole a metà. La serie resta. Una routine non ancora iniziata cambia subito.
-    // c = { freq, n, days, time }; today = il giorno di oggi della routine (routineToday). L'ora va con il cambio (vale
-    // solo per una volta al giorno). Se frequenza, volte e giorni restano gli stessi non c'è nessun cambio in attesa: l'ora,
-    // se è cambiata, la mette chi chiama. Cambia la routine; restituisce il giorno da cui vale il cambio.
-    function planChange(r, c, today) {
+    // Il cambio in attesa di r cosa cambia: shape = frequenza, volte, giorni, ora o periodi; vals = ricompense, penalità,
+    // stelle o bonus. (Per le schede: dire che cosa cambierà.)
+    const nxParts = r => (r && r.nx ? { shape: !sameShape(r.nx, r), vals: valKey(valsOf(r.nx, r)) !== valKey(valsOf(r, r)) } : null);
+    // Cambiare le regole (tutto tranne titolo e descrizione): vale dal giorno dopo la fine del periodo in corso (per una
+    // routine di ogni giorno: da domani), così nessuna volta cambia regole a metà: né i giorni, né l'ora, né quanto vale o
+    // quanto costa mancarla. La serie resta. Una routine non ancora iniziata (o now = true) cambia subito.
+    // c = { freq, n, days, time, cal, wk, rewards, penalty, stars, bonus }: ricompense, penalità, stelle e bonus che
+    // mancano restano quelli di adesso. today = il giorno di oggi della routine (routineToday). L'ora vale solo per una
+    // volta al giorno. Se le regole restano le stesse non c'è nessun cambio in attesa (uno di prima si toglie). Anche le
+    // stelle sono regole: cambiano dal periodo successivo con tutto il resto, anche da sole.
+    // Cambia la routine; restituisce il giorno da cui vale il cambio.
+    function planChange(r, c, today, now = false) {
       const next = { freq: FREQS.includes(c.freq) ? c.freq : 'd', n: normTimes(c.n) };
       next.days = next.freq === 'd' ? normDays(c.days) : [];
       next.time = next.freq === 'd' && next.n === 1 && validTime(c.time) ? c.time : null;
       Object.assign(next, calOf(next.freq, c));
+      const rewards = c.rewards !== undefined ? normalizeRewards(c.rewards) : { ...r.rewards };
+      next.rewards = Object.values(rewards).some(v => v > 0) ? rewards : { ...r.rewards };
+      next.penalty = c.penalty !== undefined ? normalizeRewards(c.penalty) : { ...r.penalty };
+      next.stars = normalizeStars(next.rewards, c.stars !== undefined ? c.stars : r.stars);
+      next.bonus = normBonus(c.bonus !== undefined ? c.bonus : r.bonus);
       delete r.nx;
-      if (r.start > today) {
+      if (now || r.start > today) {
         applyShape(r, next);
-        return r.start;
+        return now && r.start <= today ? today : r.start;
       }
-      // Stesse regole: nessun cambio in attesa (l'ora, se cambia, la mette chi chiama), a meno che la nuova ora di oggi sia
-      // già passata: la volta di oggi scadrebbe all'istante, quindi l'ora nuova vale da domani (come un cambio)
-      if (sameShape(next, r) && !(next.time && next.time !== r.time && timePassedToday(r, next.time, today))) return today;
+      if (sameShape(next, r) && valKey(next) === valKey(valsOf(r, r))) return today;
       r.nx = { at: changeAt(r, today), ...next };
       // l'ultimo periodo con le regole di adesso (per la serie di gruppo: il periodo nuovo viene subito dopo di lui)
       const pc = isDaily(r) ? null : periodAt(r, today);
@@ -591,15 +627,16 @@
       return c;
     }
     // Le regole di una routine in quel giorno, per confrontare due copie (la tua e quella del gruppo): frequenza, volte,
-    // giorni, ora, da dove si contano i periodi e il cambio in attesa. Un cambio già arrivato conta come fatto, così
-    // una copia che l'ha già applicato e una che non ancora risultano uguali.
+    // giorni, ora, da dove si contano i periodi, ricompense, penalità, stelle, bonus e il cambio in attesa. Un cambio già
+    // arrivato conta come fatto, così una copia che l'ha già applicato e una che non ancora risultano uguali.
     function shapeOf(r, day) {
       const y = r.nx && r.nx.at <= day ? foldedCopy(r) : r;
       const cw = z => ({ c: z.cal || 0, w: Number.isInteger(z.wk) ? z.wk : null });
-      const x = y.nx ? { at: y.nx.at, f: y.nx.freq, n: y.nx.n, d: y.nx.days.join(), t: y.nx.time || null, ...cw(y.nx) } : null;
-      return JSON.stringify({ f: y.freq || 'd', n: y.n || 1, d: y.days.join(), t: y.time || null, a: anchorOf(y), ...cw(y), x });
+      const x = y.nx ? { at: y.nx.at, f: y.nx.freq, n: y.nx.n, d: y.nx.days.join(), t: y.nx.time || null, ...cw(y.nx), v: valKey(valsOf(y.nx, y)) } : null;
+      return JSON.stringify({ f: y.freq || 'd', n: y.n || 1, d: y.days.join(), t: y.time || null, a: anchorOf(y), ...cw(y), v: valKey(valsOf(y, y)), x });
     }
-    // il cambio arriva al suo primo giorno: da lì si contano i periodi nuovi
+    // il cambio arriva al suo primo giorno: da lì si contano i periodi nuovi, con le regole nuove (le volte già create
+    // restano con quelle di prima)
     function foldChange(r) {
       const { at, pk } = r.nx;
       r.at = at;
@@ -608,7 +645,7 @@
       delete r.nx;
     }
     // completando una volta di una routine: la serie cresce solo se la completi entro la fine del suo periodo;
-    // ogni \"every\" periodi di fila arriva il bonus. Non cambia niente: restituisce la serie nuova (rs) e il bonus.
+    // ogni "every" periodi di fila arriva il bonus. Non cambia niente: restituisce la serie nuova (rs) e il bonus.
     // Volta recuperata con la serie ridata (rj): la serie si allunga di 1 dove si trovava quel periodo (join = true).
     function streakStep(rt, m, today) {
       let rs = null;
@@ -637,9 +674,9 @@
       return true;
     }
     // La serie è fatta di pezzi separati dai periodi mancati (rt.brks, con il primo giorno del periodo). Aggiunge delta al
-    // pezzo che viene dopo \"day\": il prossimo periodo mancato (la sua n) oppure, se non ce ne sono, la serie di adesso.
+    // pezzo che viene dopo "day": il prossimo periodo mancato (la sua n) oppure, se non ce ne sono, la serie di adesso.
     // Cambia la routine; restituisce true se è cambiata la serie di adesso.
-    // Il record (best) sale solo con upBest: cioè completando, non recuperando (la serie ridata non è ancora \"guadagnata\").
+    // Il record (best) sale solo con upBest: cioè completando, non recuperando (la serie ridata non è ancora "guadagnata").
     function streakShift(rt, day, delta, upBest) {
       if (!rt || !delta) return false;
       const next = (rt.brks || []).find(b => b.d > day);
@@ -728,13 +765,11 @@
       }
       return { removed, routineChanged, missing };
     }
-    // Annullare la penalità (o riprogrammare, se non c'era): gli XP persi tornano.
-    // Missione: resta senza scadenza (se ne sceglie una nuova). Volta di una routine: resta legata al suo periodo ed è
-    // da fare fino alla fine di oggi (con le volte già segnate); se quel periodo aveva interrotto la serie, la serie di
-    // prima si riattacca. Restituisce { restored, routineChanged }.
-    // ("Annulla penalità" e "Riprogramma" non ci sono più: le volte già riprese prima, con re e rj, si leggono ancora:
-    // valgono fino alla fine del loro giorno, e completarle riattacca la serie come allora)
-    // la volta di una routine nel periodo p ({ s, e }); here = il fuso di questo dispositivo
+    // (Le versioni di prima avevano "Annulla penalità" e "Riprogramma", che riprendevano una volta fallita: non ci sono
+    // più. Le volte già riprese allora, con re e rj, si leggono ancora: valgono fino alla fine del loro giorno, e
+    // completarle riattacca la serie come allora; vedi streakStep e applyFail.)
+
+    // la volta di una routine nel periodo p ({ s, e }), con le regole della routine r; here = il fuso di questo dispositivo
     function makeOcc(r, p, here = hereTz()) {
       const occ = { id: occId(r, p.s), title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
         due: p.e, dueTime: r.time, created: p.s, done: null, failed: null, rid: r.id, stars: r.stars };
@@ -749,7 +784,8 @@
     /* ---------- saltare una volta ---------- */
     // Saltare una volta di una routine (la lezione non c'è, sei in trasferta…), dal Calendario: quel periodo non conta,
     // come un giorno non scelto. Niente XP, niente penalità, la serie resta com'è (non cresce e non si interrompe).
-    // Si salta la volta in corso (finché non è scaduta) o una futura; non le routine di gruppo (il giorno è di tutti).
+    // Si salta la volta in corso (finché non è scaduta) o una futura. Anche nelle routine di gruppo: lì il salto va anche
+    // nel documento del gruppo (lo scrive shared-routines.js) e per quel periodo non conti per la serie di gruppo.
     // Ogni volta si indica con il primo giorno del suo periodo (s): per le routine di ogni giorno è il giorno stesso.
     // La routine si ricorda i salti in r.skip; dayCounts e nextPeriod li trattano come periodi che non ci sono.
 
@@ -817,11 +853,14 @@
       routines.forEach(r => (r.skip || []).forEach(x => { const p = periodStarting(r, x.d); if (p) out[p.e] = (out[p.e] || 0) + 1; }));
       return out;
     }
-    // Il \"giro di oggi\" delle routine: crea le volte dei periodi iniziati (anche quelli saltati dall'ultima apertura),
+    // Il "giro di oggi" delle routine: crea le volte dei periodi iniziati (anche quelli saltati dall'ultima apertura),
     // interrompe le serie non rispettate, applica i cambi arrivati al loro primo giorno e pulisce le volte che non servono più.
     // Cambia le routine ricevute e aggiunge le volte nuove all'elenco delle missioni; restituisce:
     //   missions (l'elenco dopo la pulizia), changed (missioni cambiate), routinesChanged, months (mesi da salvare).
-    function routineDay(routines, missions, today0, nowMs = Date.now()) {
+    // gone = gli id delle missioni eliminate (le lapidi): una volta eliminata non si ricrea mai, anche se "made" è tornato
+    // indietro (per esempio entrando di nuovo in un gruppo). Così una volta completata, eliminata e ricreata non dà gli XP
+    // due volte.
+    function routineDay(routines, missions, today0, nowMs = Date.now(), gone = null) {
       const months = new Set();
       if (!routines.length && !missions.some(m => m.rid)) return { missions, changed: false, routinesChanged: false, months };
       let changed = false, routinesChanged = false;
@@ -861,15 +900,15 @@
             routinesChanged = true;
           }
           // le volte dei periodi iniziati dall'ultima apertura: ogni periodo conta, con o senza penalità (chi non ha
-          // messo una penalità perde comunque la serie, ma non XP). Si parte dal giorno dopo \"made\": un periodo già
+          // messo una penalità perde comunque la serie, ma non XP). Si parte dal giorno dopo "made": un periodo già
           // fatto non si ricrea mai, anche se la sua missione è stata tolta (dalla pulizia dei 60 giorni o eliminata
-          // da te). Senza \"made\" (routine di prima): al massimo gli ultimi 60 giorni, così le volte vecchie già tolte
+          // da te). Senza "made" (routine di prima): al massimo gli ultimi 60 giorni, così le volte vecchie già tolte
           // non tornano a fallire.
           const from = r.made ? addDaysStr(r.made, 1) : (r.start > oldest ? r.start : oldest);
           let p = nextPeriod(r, from, createUntil);
           for (let guard = 0; p && guard < 3660; guard++, p = nextPeriod(r, addDaysStr(p.e, 1), createUntil)) {
             const id = occId(r, p.s);
-            if (existing.has(id) || missions.length >= MAX_MISSIONS) continue;
+            if (existing.has(id) || (gone && gone.has(id)) || missions.length >= MAX_MISSIONS) continue;
             const occ = makeOcc(r, p, here);
             missions.push(occ);
             existing.add(id);
@@ -908,7 +947,7 @@
       return { missions, changed, routinesChanged, months };
     }
     /* ---------- serie di gruppo ---------- */
-    // I periodi \"tutti insieme\" di fila. Il periodo prima di uno è quello che finisce il giorno prima; subito dopo un
+    // I periodi "tutti insieme" di fila. Il periodo prima di uno è quello che finisce il giorno prima; subito dopo un
     // cambio di frequenza (at) è l'ultimo con le regole di prima (pk).
     // il periodo previsto più vicino prima di ds (dopo l'inizio); '' se non c'è
     // (i periodi saltati da tutti, gx, non ci sono; i tuoi salti personali sì: per il gruppo il periodo c'era)
@@ -936,13 +975,13 @@
       for (let i = 0; i < 400 && d >= r.start && d >= anchorOf(r); i++, d = addDaysStr(d, -1)) if (dayPlanned(r, d) && !groupSkipped(r, d) && groupDueMs(r, d) <= now) return d;
       return r.at && r.pk && today >= r.at && r.pk >= r.start ? r.pk : '';
     }
-    // la serie di gruppo che si vede adesso: 0 se dopo l'ultimo periodo \"tutti insieme\" un periodo previsto è finito senza
+    // la serie di gruppo che si vede adesso: 0 se dopo l'ultimo periodo "tutti insieme" un periodo previsto è finito senza
     function groupStreakNow(r, now = Date.now()) {
       if (!r.gsd || !r.gs) return 0;
       const last = r.tz ? lastClosedDay(r, now) : '';
       return !last || r.gsd >= last ? r.gs : 0;
     }
-    // un periodo \"tutti insieme\" in più (quello che inizia il giorno ds): serie nuova e bonus (se la serie arriva a un
+    // un periodo "tutti insieme" in più (quello che inizia il giorno ds): serie nuova e bonus (se la serie arriva a un
     // multiplo di bonus.every). Non cambia niente: restituisce { n, bonus }.
     function groupStep(r, ds) {
       const n = r.gsd && r.gsd === prevDay(r, ds) ? (r.gs || 0) + 1 : 1;
@@ -1076,7 +1115,7 @@
       timePassedToday, MAX_SKIPS, rulesOn, isSkipped, dayPlanned, makeOcc, periodStarting, plannedPeriod, canSkipRoutine, canSkipOcc, applySkip,
       unskipPlan, applyUnskip, skippedOn, skipMarks,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
-      foldedCopy, shapeOf, groupPeriods,
+      foldedCopy, shapeOf, groupPeriods, nxParts,
       gcalUrl, gcalRoutineUrl,
       regionFirstDay, localeFirstDay, WEEK_PREFS, firstDayOf, weekOrder, weekStart, calOffset,
     };

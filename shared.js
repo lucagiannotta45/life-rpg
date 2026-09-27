@@ -14,7 +14,9 @@
  *   e gli altri la finiscono; gli inviti senza risposta restano (chi è invitato vede che chi l'ha creata si è
  *   ritirato, e sceglie) ma scadono dopo 24 ore, perché nessuno li potrebbe più togliere. Quando resta una persona
  *   sola, senza inviti in attesa, la missione diventa una sua missione normale (e il documento si elimina);
- * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla quando vuole. Se cambia XP,
+ * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla fino alla scadenza. La modifica vale
+ *   solo se arriva nel documento: finché il server non la conferma la missione lo ricorda (shd) e riprova; se il
+ *   server la rifiuta, la missione torna com'è nel documento (vedi afterEdit). Se cambia XP,
  *   penalità o scadenza, chi è dentro va "in sospeso" e sceglie "Accetta" oppure
  *   "Esci" (uscire così non è un fallimento); in sospeso non può fare la sua parte né abbandonare.
  *   Chi è ancora in sospeso quando la missione finisce (scadenza o abbandono di un altro) esce senza penalità;
@@ -272,7 +274,7 @@
       MUI().renderMissionViews();
     }
     // la missione non è più collegata a un documento condiviso: torna solo tua
-    function unlink(L) { delete L.sid; delete L.sh; delete L.shn; touchMonth(monthOf(L)); }
+    function unlink(L) { delete L.sid; delete L.sh; delete L.shn; delete L.shd; touchMonth(monthOf(L)); }
     // il documento non c'è più: la missione torna solo tua (se l'avevi creata tu) oppure sparisce (se eri invitato)
     function gone(sid) {
       const L = S.missions.find(m => m.sid === sid);
@@ -354,6 +356,7 @@
         // Chi ha creata la missione ce l'ha già nel suo elenco: se qui non c'è ancora (per esempio su un altro
         // dispositivo, prima che arrivi la sincronizzazione) non si fa niente e si aspetta.
         if (role === 'o' && !L) return;
+        if (role === 'o' && L.shd) retryPush(L, d);   // una tua modifica non ancora confermata dal server
         // gli altri si sono ritirati tutti (anche chi l'ha creata): la missione diventa una tua missione normale
         if (aloneIn(d) && openL(L) && out === 'open') {
           MUI().missionMsg(T('sh.msg.solo', { title: L.title }), '');
@@ -566,17 +569,80 @@
       if (!online()) return T('sh.err.offline');
       return '';
     }
-    // dopo una modifica di chi l'ha creata: il documento prende i valori nuovi (e, se cambiano le regole, una versione nuova)
+    // Dopo una modifica di chi l'ha creata: il documento prende i valori nuovi (e, se cambiano le regole, una versione
+    // nuova). La tua missione cambia subito, il documento solo quando il server conferma. Perché le due copie non restino
+    // diverse (tu con la scadenza nuova, gli amici con quella vecchia), come per le routine di gruppo:
+    // - finché il server non conferma, la missione ha shd = 1 (salvato: vale anche se chiudi l'app prima). evaluate
+    //   riprova a mandarla (al massimo ogni 30 secondi). Riprovare è innocuo: se era già arrivata non cambia niente;
+    // - se il server la rifiuta (per esempio la scadenza è passata, o le regole di Firebase), la missione torna com'è
+    //   nel documento e un messaggio lo dice: meglio una modifica persa (da rifare) che due missioni diverse;
+    // - con un errore di rete (temporaneo) si tiene la modifica e si riprova.
+    const pushing = new Set(), pushedAt = {};
+    const RETRY_MS = 30000;
+    const transient = e => !!e && ['unavailable', 'deadline-exceeded', 'aborted', 'resource-exhausted', 'internal', 'cancelled'].includes(e.code);
     function afterEdit(m) {
       const d = docOf(m);
       if (!d || !isV2(d) || roleOf(d) !== 'o' || !online()) return;
       if (d.dueAt != null && serverNow() >= d.dueAt) return;   // inviti scaduti: si annullano da soli, non serve aggiornarli
+      m.shd = 1;
+      touchMonth(monthOf(m));
+      push(m, d, true);
+    }
+    // manda la missione al documento (loud: dopo una tua modifica, con il messaggio per gli amici in sospeso)
+    function push(m, d, loud) {
+      if (pushing.has(m.id)) return;
       const f = fieldsOf(m);
       const rulesChanged = RULE_KEYS.some(k => !same(f[k], d[k]));
-      const data = { ...f, ownerName: myName(), ver: rulesChanged ? d.ver + 1 : d.ver };
-      write(() => update(m.sid, data));
-      const j = joinedOf(d);
-      if (rulesChanged && j.length) MUI().missionMsg(T('sh.msg.changed', { name: joinNames(j.map(x => noname(x.n))) }), '');
+      const sid = m.sid, id = m.id, sent = JSON.stringify(f);
+      pushing.add(id); pushedAt[id] = Date.now();
+      let again = false;
+      update(sid, { ...f, ownerName: myName(), ver: rulesChanged ? d.ver + 1 : d.ver })
+        .then(() => {
+          const now = S.missions.find(x => x.id === id);
+          if (!now || now.sid !== sid) return;
+          // confermata. Se nel frattempo l'hai cambiata di nuovo, si manda subito anche quella; altrimenti è tutto arrivato
+          if (JSON.stringify(fieldsOf(now)) === sent) { delete now.shd; touchMonth(monthOf(now)); } else again = true;
+          const j = joinedOf(d);
+          if (loud && rulesChanged && j.length) MUI().missionMsg(T('sh.msg.changed', { name: joinNames(j.map(x => noname(x.n))) }), '');
+        })
+        .catch(e => {
+          console.warn('shared edit', e && e.code, e);
+          if (transient(e)) return;   // si riprova da evaluate
+          rollback(id, sid);
+        })
+        .then(() => {
+          pushing.delete(id);
+          const now = again ? S.missions.find(x => x.id === id) : null;
+          const dd = now && docOf(now);
+          if (dd && isV2(dd)) push(now, dd, true);
+        });
+    }
+    // una modifica rimasta da mandare (shd): si riprova, se non c'è già una scrittura in corso. Se intanto la missione è
+    // finita o è scaduta, non la si può più mandare: torna com'è nel documento (lì c'è quello che vale per tutti)
+    function retryPush(L, d) {
+      if (!L.shd || pushing.has(L.id) || d._pw || !online()) return;
+      if (isFinal(d) || ownerOut(d) || (d.dueAt != null && serverNow() >= d.dueAt)) { rollback(L.id, L.sid); return; }
+      if (pushedAt[L.id] && Date.now() - pushedAt[L.id] < RETRY_MS) return;
+      push(L, d, false);
+    }
+    // il server ha rifiutato la modifica: la missione torna com'è nel documento (titolo, XP, penalità, date)
+    function rollback(id, sid) {
+      const L = S.missions.find(x => x.id === id), d = docs[sid];
+      if (!L || L.sid !== sid) return;
+      delete L.shd;
+      if (d && isV2(d) && !L.done && !L.failed) {
+        const f = missionFields(d);
+        // le date come le avevi scritte tu (stesso fuso), altrimenti quelle del documento nella tua ora
+        if (d.tz === myTz()) {
+          if (d.oDue !== undefined) Object.assign(f, { due: d.oDue || null, dueTime: d.oDueTime || null });
+          if (d.oFrom !== undefined) Object.assign(f, { from: d.oFrom || null, fromTime: d.oFromTime || null });
+        }
+        Object.assign(L, f);
+      }
+      touchMonth(monthOf(L));
+      MUI().renderMissionViews();
+      MUI().missionMsg(T('sh.msg.editfail', { title: L.title }), 'bad', true);
+      sfx('err');
     }
     // eliminare una missione condivisa: se qualcuno ha già accettato, si può solo abbandonare.
     // Gli inviti ancora in attesa li annulla release(), prima di togliere la missione (vedi missions-ui.js)
@@ -796,9 +862,9 @@
     }
 
     /* ---------- finestra "Invita amici" (per le missioni e, con shared-routines.js, per le routine) ---------- */
-    // pickFriends(t) apre la finestra per un \"bersaglio\" t:
+    // pickFriends(t) apre la finestra per un "bersaglio" t:
     //   t.id: che cosa (serve solo a capire se nel frattempo è stata aperta per altro)
-    //   t.text: il testo in cima; t.full / t.allin: i messaggi \"già pieno\" e \"già tutti dentro\"
+    //   t.text: il testo in cima; t.full / t.allin: i messaggi "già pieno" e "già tutti dentro"
     //   t.inside(): gli uid già dentro (o invitati); t.slots(): i posti ancora liberi
     //   t.canSend(): si può ancora invitare?; t.send(chosen): invia, true se è andata bene
     const shmodal = $('shmodal');
@@ -872,7 +938,7 @@
     // l'amico appena invitato, come lo vuole il documento
     const guestEntry = f => ({ n: String(f.name || '').slice(0, 30), j: false, a: 0, d: null, s: false });
 
-    // \"Invita\" su una missione
+    // "Invita" su una missione
     const slotsFor = m => MAX_GUESTS - (m && m.sid && docOf(m) && isV2(docOf(m)) ? guests(docOf(m)).length : 0);
     // chi non si può invitare in questa missione: chi c'è già (dentro o invitato). Chi l'ha saltata sì: se accetta,
     // il salto si annulla e la missione gli torna da fare (vedi evaluate)

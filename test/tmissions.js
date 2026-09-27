@@ -556,7 +556,7 @@ test('serie di gruppo: a cavallo di un cambio di frequenza resta di fila', () =>
 test('regole a confronto: un cambio già arrivato conta come fatto', () => {
   const r = rouP({ n: 1 });
   M.planChange(r, { freq: 'm', n: 2 }, '2026-09-28');
-  const doc = JSON.parse(JSON.stringify(r));   // come nel documento del gruppo: il cambio ancora \"in attesa\"
+  const doc = JSON.parse(JSON.stringify(r));   // come nel documento del gruppo: il cambio ancora "in attesa"
   assert.equal(M.shapeOf(r, '2026-09-28'), M.shapeOf(doc, '2026-09-28'));
   openApp([r], [], '2026-10-02');   // qui il cambio arriva
   assert.equal(r.nx, undefined);
@@ -720,16 +720,110 @@ test('calendario: una volta ripresa con "Annulla penalità" (dati di prima) sta 
 });
 
 
-/* ---------- un'ora già passata oggi non fa nascere volte già scadute ---------- */
-test('ora già passata oggi: il cambio d\'ora vale da domani, altrimenti subito', t => {
+/* ---------- l'ora cambia dal periodo successivo, come le altre regole ---------- */
+test('cambio d\'ora: vale da domani, come ogni altra regola (anche se l\'ora nuova di oggi non è ancora passata)', t => {
   now(t, '2026-03-05', '15:00');
   const r = rou({ time: '18:00' });
   assert.equal(M.timePassedToday(r, '10:00', '2026-03-05'), true);
   assert.equal(M.timePassedToday(r, '20:00', '2026-03-05'), false);
-  assert.equal(M.planChange(r, { freq: 'd', n: 1, days: r.days, time: '20:00' }, '2026-03-05'), '2026-03-05', 'più tardi: subito');
-  assert.equal(r.nx, undefined);
+  assert.equal(M.planChange(r, { freq: 'd', n: 1, days: r.days, time: '20:00' }, '2026-03-05'), '2026-03-06', 'più tardi: da domani');
+  assert.deepEqual([r.time, r.nx.time], ['18:00', '20:00']);
   assert.equal(M.planChange(r, { freq: 'd', n: 1, days: r.days, time: '10:00' }, '2026-03-05'), '2026-03-06', 'già passata: da domani');
   assert.deepEqual([r.time, r.nx.time, r.nx.at], ['18:00', '10:00', '2026-03-06'], 'oggi resta l\'ora di prima');
   const d = rou({ days: [1], time: '18:00' });   // solo lunedì: giovedì 5 non conta
   assert.equal(M.timePassedToday(d, '10:00', '2026-03-05'), false);
+});
+
+/* ---------- una volta già fatta non si rifà (neanche eliminandola) ---------- */
+test('volta completata ed eliminata: modificando la routine non torna, e non dà gli XP due volte', () => {
+  const r = rou();
+  const x = xp({});
+  let list = openApp([r], [], '2026-03-05');
+  complete(r, occ(list, r, '2026-03-05'), '2026-03-05', x);
+  assert.equal(x.Vigore, 10);
+  // eliminata dalla lista delle completate (gli XP restano), poi "Modifica" e salva senza cambiare niente
+  const gone = new Set([M.occId(r, '2026-03-05')]);
+  list = list.filter(m => m.id !== M.occId(r, '2026-03-05'));
+  assert.equal(M.planChange(r, { freq: 'd', n: 1, days: r.days, time: null }, '2026-03-05'), '2026-03-05', 'nessun cambio');
+  list = M.routineDay([r], list, '2026-03-05', at('2026-03-05', '12:00'), gone).missions;
+  assert.equal(occ(list, r, '2026-03-05'), undefined, 'non ricreata');
+  // anche se "made" tornasse indietro (per esempio entrando di nuovo in un gruppo), le lapidi la tengono fuori
+  r.made = '2026-03-04';
+  list = M.routineDay([r], list, '2026-03-05', at('2026-03-05', '12:00'), gone).missions;
+  assert.equal(occ(list, r, '2026-03-05'), undefined, 'eliminata: non si ricrea');
+  list = M.routineDay([r], list, '2026-03-06', at('2026-03-06', '00:05'), gone).missions;
+  assert.ok(occ(list, r, '2026-03-06'), 'il giorno dopo la volta nuova arriva normalmente');
+});
+
+/* ---------- tutte le regole (tranne titolo e descrizione) cambiano dal periodo successivo ---------- */
+test('ricompense, penalità, stelle e bonus nuovi: la volta di oggi resta com\'è, valgono da domani', () => {
+  const r = rou({ stars: null, bonus: { every: 3, xp: 5 } });
+  let list = openApp([r], [], '2026-03-05');
+  const today = occ(list, r, '2026-03-05');
+  const rewards = M.normalizeRewards({ Vigore: 20, Animo: 4 });   // 24 XP = 2 × 3 stelle × 4
+  const at6 = M.planChange(r, { freq: 'd', n: 1, days: r.days, time: null, rewards, penalty: { Vigore: 1 }, stars: { d: 2, f: 3 },
+    bonus: { every: 2, xp: 7 } }, '2026-03-05');
+  assert.equal(at6, '2026-03-06');
+  assert.deepEqual([r.rewards.Vigore, r.penalty.Vigore, r.stars, r.bonus.every], [10, 5, null, 3], 'oggi valgono ancora le regole di prima');
+  assert.deepEqual([r.nx.rewards.Animo, r.nx.penalty.Vigore, r.nx.stars, r.nx.bonus], [4, 1, { d: 2, f: 3 }, { every: 2, xp: 7 }]);
+  assert.deepEqual(M.nxParts(r), { shape: false, vals: true }, 'cambiano i valori, non i giorni');
+  assert.equal(today.rewards.Vigore, 10, 'la volta di oggi resta com\'è');
+  // il cambio va anche nella copia salvata
+  const [saved] = M.normalizeRoutines([JSON.parse(JSON.stringify(r))]);
+  assert.deepEqual(saved.nx.rewards, r.nx.rewards);
+  assert.deepEqual([saved.nx.stars, saved.nx.bonus], [{ d: 2, f: 3 }, { every: 2, xp: 7 }]);
+  // il periodo prima del cambio si chiude con le regole di prima: la penalità di oggi è quella vecchia
+  const x = xp({ Vigore: 50 });
+  M.applyFail(x, today, r, '2026-03-05', 1);
+  assert.equal(x.Vigore, 45);
+  list = openApp([r], list, '2026-03-06');
+  const next = occ(list, r, '2026-03-06');
+  assert.deepEqual([r.rewards.Vigore, r.rewards.Animo, r.penalty.Vigore, r.nx], [20, 4, 1, undefined], 'da domani: le regole nuove');
+  assert.deepEqual([next.rewards.Vigore, next.penalty.Vigore, next.stars], [20, 1, { d: 2, f: 3 }]);
+});
+
+test('anche le stelle da sole cambiano dal periodo successivo', () => {
+  const r = rou({ rewards: { Vigore: 24 }, stars: { d: 2, f: 3 } });   // 24 XP: 2 e 3 stelle oppure 3 e 2
+  assert.deepEqual(r.stars, { d: 2, f: 3 });
+  assert.equal(M.planChange(r, { freq: 'd', n: 1, days: r.days, stars: { d: 3, f: 2 } }, '2026-03-05'), '2026-03-06');
+  assert.deepEqual([r.stars, r.nx.stars], [{ d: 2, f: 3 }, { d: 3, f: 2 }]);
+  assert.deepEqual(M.nxParts(r), { shape: false, vals: true });
+  // tornare alle stelle di adesso: nessun cambio
+  assert.equal(M.planChange(r, { freq: 'd', n: 1, days: r.days, stars: { d: 2, f: 3 } }, '2026-03-05'), '2026-03-05');
+  assert.equal(r.nx, undefined);
+});
+
+test('routine non ancora iniziata: tutto cambia subito, ricompense comprese', () => {
+  const r = rou({ start: '2026-03-10', streakDate: '2026-03-09' });
+  assert.equal(M.planChange(r, { freq: 'd', n: 1, days: r.days, rewards: { Vigore: 4 }, penalty: {}, stars: { d: 1, f: 1 } }, '2026-03-05'), '2026-03-10');
+  assert.deepEqual([r.rewards.Vigore, r.penalty.Vigore, r.stars, r.nx], [4, 0, { d: 1, f: 1 }, undefined]);
+  // "subito" anche se il primo giorno è oggi (now = true: il modulo sa che non era ancora iniziata)
+  const t = rou({ start: '2026-03-05', streakDate: '2026-03-04' });
+  assert.equal(M.planChange(t, { freq: 'd', n: 1, days: t.days, rewards: { Vigore: 4 }, penalty: {} }, '2026-03-05', true), '2026-03-05');
+  assert.deepEqual([t.rewards.Vigore, t.nx], [4, undefined]);
+});
+
+test('cambi di prima (senza ricompense): le ricompense restano quelle della routine', () => {
+  const [r] = M.normalizeRoutines([{ id: 'r1', title: 'Corsa', rewards: { Vigore: 10 }, days: [0, 1, 2, 3, 4, 5, 6], start: '2026-03-01',
+    nx: { at: '2026-03-06', freq: 'd', n: 2, days: [1, 3] } }]);
+  assert.equal(r.nx.rewards, undefined);
+  assert.deepEqual(M.nxParts(r), { shape: true, vals: false });
+  openApp([r], [], '2026-03-06');
+  assert.deepEqual([r.n, r.rewards.Vigore], [2, 10]);
+  // calMigrate (settimanali di prima → calendario) non tocca le ricompense
+  const w = rouP({ n: 1 });
+  delete w.cal; delete w.wk;
+  M.calMigrate(w, 1, '2026-09-28');
+  assert.deepEqual(M.nxParts(w), { shape: true, vals: false });
+});
+
+test('regole a confronto (routine di gruppo): anche ricompense e penalità, cambio in attesa compreso', () => {
+  const r = rouP({ n: 1 });
+  const doc = JSON.parse(JSON.stringify(r));
+  M.planChange(r, { freq: 'w', n: 1, rewards: { Vigore: 12 }, penalty: { Vigore: 2 } }, '2026-09-28');
+  assert.notEqual(M.shapeOf(r, '2026-09-28'), M.shapeOf(doc, '2026-09-28'), 'ricompense nuove in attesa: regole diverse');
+  const copy = JSON.parse(JSON.stringify(r));   // il documento con il cambio ancora "in attesa"
+  openApp([r], [], '2026-10-02');   // qui il cambio arriva
+  assert.equal(r.rewards.Vigore, 12);
+  assert.equal(M.shapeOf(r, '2026-10-02'), M.shapeOf(copy, '2026-10-02'), 'uguali: niente da riassegnare');
 });

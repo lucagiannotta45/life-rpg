@@ -17,7 +17,7 @@ require(path.join(__dirname, '..', 'shared-routines.js'));
 const LS = 'liferpg:sroutines:v1';
 const ID = 'qabc1234';
 
-// un Firebase finto: niente ascolto dal server, le scritture finiscono in \"writes\"
+// un Firebase finto: niente ascolto dal server, le scritture finiscono in "writes"
 function fakeWorld(uid, doc) {
   const store = {};
   global.localStorage = {
@@ -27,8 +27,12 @@ function fakeWorld(uid, doc) {
   };
   store[LS] = JSON.stringify({ uid, docs: { [ID]: doc } });
   const writes = [];
+  const ctl = { fail: null };   // ctl.fail = { code }: la prossima scrittura il server la rifiuta con quell'errore
   const ref = id => ({
-    update: data => { writes.push({ id, data }); return Promise.resolve(); },
+    update: data => {
+      if (ctl.fail) { const e = ctl.fail; ctl.fail = null; return Promise.reject(e); }
+      writes.push({ id, data }); return Promise.resolve();
+    },
     set: data => { writes.push({ id, set: data }); return Promise.resolve(); },
     delete: () => Promise.resolve(),
     get: () => Promise.resolve({ exists: true, data: () => doc }),
@@ -53,7 +57,7 @@ function fakeWorld(uid, doc) {
   };
   const SR = window.LIFE_RPG_SHARED_ROUTINES.create(D, S);
   SR.start();
-  return { SR, S, writes, bonuses, saves };
+  return { SR, S, writes, bonuses, saves, ctl };
 }
 
 // una routine di gruppo da 3 volte a settimana, creata da Anna (uO) venerdì 25 settembre 2026; io sono uG
@@ -82,7 +86,7 @@ test('invitato: entrando a metà settimana conta dalla settimana dopo, con le se
   // la scadenza è la fine della settimana del gruppo (Roma), scritta nell'ora di questo dispositivo
   assert.equal(M.dueEndMs(m), M.groupDueMs(r, '2026-10-08'));
 });
-// il \"giro di oggi\" come lo fa l'app
+// il "giro di oggi" come lo fa l'app
 function D_sync(S) { const res = M.routineDay(S.routines, S.missions, M.todayStr()); S.missions = res.missions; }
 
 test('invitato: la mia parte si segna solo con "Completa", sul primo giorno della settimana', t => {
@@ -158,12 +162,12 @@ test('cambio di frequenza del gruppo: arriva a tutti lo stesso giorno, senza ria
   const before = JSON.stringify(r), saved = saves.n;
   SR.evaluate();
   SR.evaluate();
-  assert.equal(JSON.stringify(r), before, 'il documento ha ancora il cambio \"in attesa\": per me è già fatto, niente cambia');
+  assert.equal(JSON.stringify(r), before, 'il documento ha ancora il cambio "in attesa": per me è già fatto, niente cambia');
   assert.equal(saves.n, saved, 'e niente da salvare');
   assert.ok(S.missions.some(m => m.id === ID + '-20261002' && m.gd === '2026-11-01'), 'il primo mese (giorni del gruppo)');
 });
 
-test('chi l\'ha creata: cambiare il titolo non fa riaccettare niente, cambiare la frequenza sì', t => {
+test('chi l\'ha creata: cambiare il titolo non fa riaccettare niente, cambiare la frequenza sì', async t => {
   now(t, '2026-10-05');
   const nx = { at: '2026-10-02', freq: 'm', n: 1, days: [], time: null, pk: '2026-09-25' };
   const doc = baseDoc({ nx, ver: 2, g: { uG: { n: 'Io', j: true, a: 2, since: '2026-09-25' } } });
@@ -179,8 +183,12 @@ test('chi l\'ha creata: cambiare il titolo non fa riaccettare niente, cambiare l
   assert.equal(w.title, 'Palestra e piscina');
   assert.deepEqual(['freq', 'n', 'days', 'time', 'at', 'pk', 'nx'].filter(k => k in w), [], 'le regole uguali non si riscrivono');
   assert.equal(w.ver, 2, 'nessuna versione nuova');
+  // la seconda modifica parte quando il server ha confermato la prima (così le versioni non si accavallano)
   M.planChange(r, { freq: 'w', n: 2 }, '2026-10-05');
   SR.afterEdit(r);
+  assert.equal(writes.length, 1, 'aspetta la conferma della prima');
+  await new Promise(res => setImmediate(res));
+  assert.equal(writes.length, 2);
   const w2 = writes[1].data;
   assert.deepEqual([w2.freq, w2.at, w2.nx.freq, w2.nx.at, w2.ver], ['m', '2026-10-02', 'w', '2026-11-02', 3]);
 });
@@ -458,4 +466,78 @@ test('invitato: accettando dopo l\'ora di oggi del gruppo, parte da domani (non 
   assert.equal(SR.joinDay(tpl, at('2026-10-05', '09:00')), '2026-10-05', 'alle 9: da oggi');
   const w = SR.tplOf(baseDoc());
   assert.equal(SR.joinDay(w, at('2026-10-05', '23:00')), '2026-10-05', 'settimanale: il giorno di oggi (poi guestStart va alla settimana dopo)');
+});
+
+/* ---------- regole nuove (ricompense e penalità comprese) dal periodo successivo; modifiche confermate dal server ---------- */
+// la routine di chi l'ha creata, uguale al documento di baseDoc
+const ownerRoutine = () => M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { Vigore: 10 }, penalty: { Vigore: 2 }, freq: 'w', n: 3,
+  start: '2026-09-25', bonus: { every: 2, xp: 5 }, sr: ID, sh: 'o', tz: 'Europe/Rome' }])[0];
+const tick = () => new Promise(res => setImmediate(res));
+
+test('chi l\'ha creata: ricompense nuove nel cambio in attesa (le attuali restano), gli amici riaccettano', async t => {
+  now(t, '2026-09-28');
+  const { SR, S, writes } = fakeWorld('uO', baseDoc());
+  const r = ownerRoutine();
+  S.routines.push(r);
+  M.planChange(r, { freq: 'w', n: 3, rewards: { Vigore: 20 }, penalty: { Vigore: 2 }, bonus: { every: 2, xp: 5 } }, '2026-09-28');
+  SR.afterEdit(r);
+  assert.equal(r.srd, 1, 'in attesa della conferma del server');
+  const w = writes[0].data;
+  assert.deepEqual([w.rewards.Vigore, w.nx.rewards.Vigore, w.nx.at, w.ver], [10, 20, '2026-10-02', 2]);
+  await tick();
+  assert.equal(r.srd, undefined, 'confermata');
+});
+
+test('invitato: le ricompense nuove arrivano con il periodo nuovo, la volta di prima resta com\'era', t => {
+  now(t, '2026-09-28');
+  const nx = { at: '2026-10-02', freq: 'w', n: 3, days: [], time: null, pk: '2026-09-25',
+    rewards: M.normalizeRewards({ Vigore: 20 }), penalty: M.normalizeRewards({ Vigore: 2 }), stars: null, bonus: { every: 2, xp: 5 } };
+  const { SR, S } = fakeWorld('uG', baseDoc({ nx, ver: 2, g: { uG: { n: 'Io', j: true, a: 2, since: '2026-09-25' } } }));
+  SR.evaluate();
+  D_sync(S);
+  const r = S.routines[0];
+  assert.deepEqual([r.rewards.Vigore, r.nx.rewards.Vigore], [10, 20]);
+  const old = S.missions.find(m => m.id === ID + '-20260925');
+  assert.equal(old.rewards.Vigore, 10);
+  t.mock.timers.setTime(at('2026-10-02', '08:00'));
+  D_sync(S);
+  SR.evaluate();
+  assert.equal(r.rewards.Vigore, 20);
+  assert.equal(S.missions.find(m => m.id === ID + '-20261002').rewards.Vigore, 20, 'la settimana nuova: le ricompense nuove');
+  assert.equal(old.rewards.Vigore, 10, 'la settimana di prima resta com\'era');
+  const before = JSON.stringify(r);
+  SR.evaluate();
+  assert.equal(JSON.stringify(r), before, 'niente da riassegnare (il documento ha ancora il cambio "in attesa")');
+});
+
+test('chi l\'ha creata: se il server rifiuta la modifica, la routine torna com\'è nel documento', async t => {
+  now(t, '2026-09-28');
+  const { SR, S, ctl } = fakeWorld('uO', baseDoc());
+  const r = ownerRoutine();
+  S.routines.push(r);
+  r.title = 'Palestra e piscina';
+  M.planChange(r, { freq: 'w', n: 3, rewards: { Vigore: 20 }, penalty: { Vigore: 2 }, bonus: { every: 2, xp: 5 } }, '2026-09-28');
+  ctl.fail = { code: 'permission-denied' };
+  SR.afterEdit(r);
+  await tick();
+  assert.deepEqual([r.title, r.rewards.Vigore, r.nx, r.srd], ['Palestra', 10, undefined, undefined]);
+});
+
+test('chi l\'ha creata: con un errore di rete la modifica resta e si riprova (non prima di 30 secondi)', async t => {
+  now(t, '2026-09-28');
+  const { SR, S, writes, ctl } = fakeWorld('uO', baseDoc());
+  const r = ownerRoutine();
+  S.routines.push(r);
+  r.title = 'Palestra e piscina';
+  ctl.fail = { code: 'unavailable' };
+  SR.afterEdit(r);
+  await tick();
+  assert.deepEqual([r.title, r.srd, writes.length], ['Palestra e piscina', 1, 0], 'la modifica resta, da mandare');
+  SR.evaluate();
+  await tick();
+  assert.equal(writes.length, 0, 'troppo presto per riprovare');
+  t.mock.timers.setTime(at('2026-09-28', '12:01'));
+  SR.evaluate();
+  await tick();
+  assert.deepEqual([writes.length, writes[0].data.title, r.srd], [1, 'Palestra e piscina', undefined], 'riprovata e confermata');
 });
