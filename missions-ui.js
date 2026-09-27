@@ -510,6 +510,9 @@
         else if (!shi.myDone && shi.doneCount) card.appendChild(mk('p', 'm-shared', TN('sh.partner.done', shi.doneCount, { name: shi.doneNames })));
         // chi deve ancora accettare le modifiche, e gli inviti senza risposta
         if (!shi.pending && shi.pendNames && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.pend.others', { name: shi.pendNames })));
+        // chi si è ritirato; se è chi l'ha creata, la missione resta com'è
+        if (shi.withdrawnCount && shi.out === 'open') card.appendChild(mk('p', 'm-shared', TN('sh.withdrawn', shi.withdrawnCount, { name: shi.withdrawnNames })));
+        if (shi.frozen && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.frozen', { name: shi.ownerName })));
         if (shi.role === 'o' && shi.invitedCount && shi.out === 'open') card.appendChild(mk('p', 'm-shared', T('sh.invited.wait', { name: shi.invitedNames })));
       }
       // routine di gruppo ripresa dopo "Annulla penalità": vale solo per te, per il gruppo è andata
@@ -582,15 +585,16 @@
             if (notYet(m) || isLate(m)) { cb.disabled = true; cb.classList.add('locked'); }
             act.appendChild(cb);
           }
-          if (shi.role === 'o') {
+          if (shi.role === 'o' && !shi.frozen) {
             act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
             // altri amici (fino a 3) e inviti senza risposta
             if (SH().canInvite(m)) act.appendChild(btn('', T('sh.invite'), T('sh.invite.aria'), () => SH().openInvite(m.id)));
             // togliere chi non ha risposto (inviti senza risposta e chi è in sospeso): chiede conferma
             if (shi.removable) act.appendChild(armedBtn('', T('sh.remove.waiting'), T('sh.remove.waiting') + ' ' + m.title, T('sh.remove.confirm'), null, () => SH().cancelInvite(m.id)));
           }
-          // con una modifica da accettare ci sono solo "Accetta" ed "Esci": "Abbandona" torna dopo aver accettato
-          if (!shi.pending) act.appendChild(abandonBtn(m));
+          // "Ritirati" (niente XP e niente penalità, la missione continua per gli altri): con una modifica da accettare
+          // ci sono solo "Accetta" ed "Esci"; dopo aver fatto la tua parte non serve più
+          if (!shi.pending && shi.canWithdraw) act.appendChild(withdrawBtn(m));
         }
       } else if (m.sid && m.sh === 'g') {
         // sei l'invitato, ma le informazioni sulla missione non sono ancora arrivate: niente pulsanti per ora
@@ -637,7 +641,7 @@
     // "Esci" da una routine di gruppo: nessuna penalità, la routine resta tua (chiede conferma)
     const exitBtn = r => armedBtn('', T('sh.exit'), T('sr.exit.aria') + ' ' + r.title, T('sr.exit.confirm'), null, () => SR().exit(r.id));
     // "Abbandona": fa fallire la missione per entrambi, quindi chiede conferma
-    const abandonBtn = m => armedBtn(' sub', T('sh.abandon'), T('sh.abandon') + ' ' + m.title, T('sh.abandon.confirm'), null, () => SH().abandon(m.id));
+    const withdrawBtn = m => armedBtn(' sub', T('sh.withdraw'), T('sh.withdraw') + ' ' + m.title, T('sh.withdraw.confirm'), null, () => SH().withdraw(m.id));
     // invito ricevuto a una routine di gruppo: la routine come la vedresti, con "Accetta" e "Rifiuta"
     function routineInviteCard(x) {
       const r = x.r;
@@ -684,6 +688,8 @@
       card.appendChild(chips(m.rewards));
       if (m.due && hasAny(m.penalty)) card.appendChild(mk('p', 'm-pen', T('m.pen.warn', { loss: lossText(m.penalty) })));
       card.appendChild(mk('p', 'm-shared', T('sh.inv.rule')));
+      // chi ti ha invitato si è ritirato: lo sai prima di scegliere (la missione resta com'è, con chi è dentro)
+      if (x.frozen && x.inside) card.appendChild(mk('p', 'm-shared', T('sh.inv.frozen', { name: x.from, inside: x.inside })));
       if (x.others) card.appendChild(mk('p', 'm-shared', T('sh.inv.others', { name: x.others })));
       const act = mk('div', 'm-actions');
       const b1 = mk('button', 'btn small add', T('sh.inv.accept')); b1.type = 'button';

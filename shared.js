@@ -4,9 +4,15 @@
  * Chi crea una missione può invitare fino a 3 amici. Ognuno sceglie da solo se accettare o rifiutare.
  * - La missione è superata quando tutti quelli che l'hanno accettata hanno fatto la loro parte
  *   (gli XP arrivano a tutti in quel momento);
- * - fallisce per tutti se uno abbandona, oppure se alla scadenza anche uno solo non ha fatto la sua parte:
- *   la ricompensa non arriva a nessuno, ma la penalità la paga solo chi ha abbandonato o non ha fatto la sua parte
- *   (chi l'aveva fatta non perde XP; lo decide missions-ui.js con il "perché" di failInfo);
+ * - fallisce per tutti se alla scadenza anche uno solo non ha fatto la sua parte: la ricompensa non arriva a
+ *   nessuno, ma la penalità la paga solo chi non ha fatto la sua parte (chi l'aveva fatta non perde XP; lo decide
+ *   missions-ui.js con il "perché" di failInfo). I documenti di prima possono avere left (qualcuno aveva
+ *   "abbandonato": fallita per tutti), che si legge ancora;
+ * - "Ritirati": chi non può fare la sua parte (prima della scadenza, se non l'ha già fatta) esce senza XP e senza
+ *   penalità, e la missione continua per gli altri (wd: { uid: nome } di chi si è ritirato). Se si ritira chi l'ha
+ *   creata (ow), la missione resta com'è (non la può più modificare nessuno) e gli altri la finiscono; gli inviti
+ *   senza risposta restano (chi è invitato vede che chi l'ha creata si è ritirato, e sceglie). Quando resta una
+ *   persona sola, senza inviti in attesa, la missione diventa una sua missione normale (e il documento si elimina);
  * - XP, penalità e scadenza li decide solo chi l'ha creata, che può modificarla quando vuole. Se cambia XP,
  *   penalità o scadenza, oppure invita altri amici, chi è dentro va "in sospeso" e sceglie "Accetta" oppure
  *   "Esci" (uscire così non è un fallimento); in sospeso non può fare la sua parte né abbandonare.
@@ -74,9 +80,16 @@
     const isActive = (d, x) => !!x && x.j && x.a === d.ver;         // dentro, con le regole attuali
     const joinedOf = d => guests(d).filter(x => x.j);
     // tutti i partecipanti attivi (chi l'ha creata + gli amici dentro con le regole attuali), con "ha fatto la sua parte"
-    const actives = d => [{ uid: d.owner, name: noname(d.ownerName), done: d.oDone != null }]
+    // chi l'ha creata si è ritirato ("Ritirati"): non conta più, e la missione non la modifica più nessuno
+    const ownerOut = d => !!d.ow;
+    const actives = d => (ownerOut(d) ? [] : [{ uid: d.owner, name: noname(d.ownerName), done: d.oDone != null }])
       .concat(guests(d).filter(x => isActive(d, x)).map(x => ({ uid: x.uid, name: noname(x.n), done: x.d != null })));
-    const allDone = d => { const j = joinedOf(d); return j.length > 0 && d.oDone != null && j.every(x => x.a === d.ver && x.d != null); };
+    const allDone = d => { const j = joinedOf(d); return j.length > 0 && (d.oDone != null || ownerOut(d)) && j.every(x => x.a === d.ver && x.d != null); };
+    // chi si è ritirato (per la scheda): gli amici (wd) e chi l'ha creata (ow)
+    const withdrawnNames = d => (ownerOut(d) ? [noname(d.ownerName)] : [])
+      .concat(Object.entries(d.wd || {}).filter(([u]) => u !== me()).map(([, n]) => noname(n)));
+    // resti solo tu (chi l'ha creata si è ritirato, gli altri anche) e non ci sono inviti in attesa: la missione diventa tua
+    const aloneIn = d => ownerOut(d) && roleOf(d) === 'g' && guests(d).length === 1 && guests(d)[0].uid === me() && guests(d)[0].j;
     const nameOf = (d, uid) => (uid === d.owner ? noname(d.ownerName) : noname(d.g[uid] && d.g[uid].n));
     // "Anna, Marco e Luca" (sep: la congiunzione, " e " oppure " né ")
     function joinNames(list, sep) {
@@ -133,7 +146,7 @@
         if ((d._srv || 0) < safeAfter(d) || d._pw) return 'wait';
         const act = joined.filter(x => x.a === d.ver);
         if (!act.length) return 'release';   // gli amici erano tutti in sospeso: la missione torna di chi l'ha creata
-        return d.oDone != null && act.every(x => x.d != null) ? 'done' : 'failed';
+        return (d.oDone != null || ownerOut(d)) && act.every(x => x.d != null) ? 'done' : 'failed';
       }
       return 'open';
     }
@@ -196,7 +209,7 @@
     const same = (a, b) => JSON.stringify(sortKeys(a)) === JSON.stringify(sortKeys(b));
     // i nomi degli altri partecipanti (dentro la missione), da salvare nella missione: servono all'etichetta
     // "Condivisa con…" quando il documento non ci sarà più
-    const otherNames = d => [d.owner].concat(joinedOf(d).map(x => x.uid)).filter(u => u !== me())
+    const otherNames = d => (ownerOut(d) ? [] : [d.owner]).concat(joinedOf(d).map(x => x.uid)).filter(u => u !== me())
       .map(u => nameOf(d, u).slice(0, 30)).slice(0, MAX_GUESTS);
 
     /* ---------- scritture ---------- */
@@ -303,9 +316,18 @@
         const role = roleOf(d);
         if (!role) return;
         const out = outcome(d, now);
+        // chi l'ha creata e si è ritirato non ha più la missione: il documento lo elimina solo se non è rimasto nessuno
+        if (role === 'o' && ownerOut(d)) { if (!joinedOf(d).length) deleteDoc(sid); return; }
         // Chi ha creata la missione ce l'ha già nel suo elenco: se qui non c'è ancora (per esempio su un altro
         // dispositivo, prima che arrivi la sincronizzazione) non si fa niente e si aspetta.
         if (role === 'o' && !L) return;
+        // gli altri si sono ritirati tutti (anche chi l'ha creata): la missione diventa una tua missione normale
+        if (aloneIn(d) && openL(L) && out === 'open') {
+          MUI().missionMsg(T('sh.msg.solo', { title: L.title }), '');
+          if (L.sid === sid) unlink(L);
+          deleteDoc(sid);
+          return;
+        }
         if (out === 'invite') {
           if (role === 'o') {
             // nessun amico dentro: se non c'è più nessuno invitato (tutti usciti o hanno rifiutato), l'invito è scaduto,
@@ -355,7 +377,7 @@
         if ((out === 'done' || out === 'failed') && !d._pw) {
           if (!seenMine) {
             if (online()) update(sid, role === 'o' ? { seenO: true } : { [gPath('s')]: true }).catch(e => console.warn('shared seen', e && e.code, e));
-          } else if (d.seenO && guests(d).filter(x => isActive(d, x)).every(x => x.s)) deleteDoc(sid);
+          } else if ((d.seenO || ownerOut(d)) && guests(d).filter(x => isActive(d, x)).every(x => x.s)) deleteDoc(sid);
         }
       });
       scheduleDue();
@@ -437,9 +459,10 @@
       const u = me(), mine = role === 'g' ? d.g[u] : null;
       const joined = joinedOf(d);
       const anyJ = joined.length > 0;
-      const others = [{ uid: d.owner, name: noname(d.ownerName), done: d.oDone != null, pend: false }]
+      const others = (ownerOut(d) ? [] : [{ uid: d.owner, name: noname(d.ownerName), done: d.oDone != null, pend: false }])
         .concat(joined.map(x => ({ uid: x.uid, name: noname(x.n), done: x.d != null, pend: isPend(d, x) })))
         .filter(p => p.uid !== u);
+      const wn = withdrawnNames(d);
       const invitedNames = guests(d).filter(x => !x.j).map(x => noname(x.n));
       let ownerWhen = '';
       if (role === 'g' && d.oDue && d.tz && d.tz !== myTz()) {
@@ -463,6 +486,10 @@
         // role 'o': quanti si possono togliere (inviti senza risposta + in sospeso)
         removable: role === 'o' ? guests(d).filter(x => !isActive(d, x)).length : 0,
         ownerName: noname(d.ownerName),
+        // chi si è ritirato; frozen: chi l'ha creata si è ritirato (nessuno la può più modificare)
+        withdrawnNames: joinNames(wn), withdrawnCount: wn.length, frozen: ownerOut(d),
+        // puoi ritirarti: sei dentro (con le regole attuali, o in sospeso), non hai ancora fatto la tua parte, è aperta
+        canWithdraw: canWithdrawIn(d),
       };
     }
     // la missione è "tenuta" dalla condivisione: le penalità normali non la toccano (decide l'esito condiviso).
@@ -484,13 +511,14 @@
       if (!S.fbUser || m.rid || m.done || m.failed || MISSIONS.isLate(m)) return false;
       if (!m.sid) return true;
       const d = docOf(m);
-      return !!(d && isV2(d) && roleOf(d) === 'o' && ['invite', 'open'].includes(outcome(d)) && guests(d).length < MAX_GUESTS);
+      return !!(d && isV2(d) && roleOf(d) === 'o' && !ownerOut(d) && ['invite', 'open'].includes(outcome(d)) && guests(d).length < MAX_GUESTS);
     }
     // chi l'ha creata può modificarla, ma non dopo la scadenza (se è già condivisa) né quando è finita
     function editBlock(m) {
       if (!m.sid) return '';
       if (m.sh === 'g') return T('sh.err.guest');
       const d = docOf(m);
+      if (d && isV2(d) && ownerOut(d)) return T('sh.err.final');
       if (!d || !isV2(d)) return T('sh.err.offline');   // senza il documento la modifica non arriverebbe agli amici
       if (isFinal(d)) return T('sh.err.final');
       if (joinedOf(d).length && d.dueAt != null && serverNow() >= d.dueAt) return T('sh.err.late');
@@ -579,10 +607,34 @@
       if (!ready(m, d)) return;
       if (await write(() => update(m.sid, partData(d, null)))) { sfx('sub'); MUI().missionMsg(T('sh.msg.unpart', { title: m.title }), ''); }
     }
-    async function abandon(id) {
+    // "Ritirati": prima della scadenza, se non hai ancora fatto la tua parte. Niente XP e niente penalità; la missione
+    // continua per gli altri. Chi l'ha creata resta nel documento (segnato con ow): la missione non la modifica più nessuno
+    // (gli inviti senza risposta restano); un amico esce dal documento e lascia il suo nome in wd.
+    function canWithdrawIn(d) {
+      if (!d || !isV2(d) || d.left || outcome(d) !== 'open') return false;
+      if (roleOf(d) === 'o') return !ownerOut(d) && d.oDone == null && joinedOf(d).length > 0;
+      const mine = d.g[me()];
+      return !!(mine && mine.j && mine.d == null);
+    }
+    async function withdraw(id) {
       const m = byId(id), d = docOf(m);
-      if (!ready(m, d)) return;
-      if (await write(() => update(m.sid, { left: me() }))) sfx('del');
+      if (!navigator.onLine || !ready(m, d)) { if (!navigator.onLine) { MUI().missionMsg(T('sh.err.offline'), 'bad', true); sfx('err'); } return; }
+      if (!canWithdrawIn(d)) { sfx('err'); MUI().renderMissionViews(); return; }
+      const sid = m.sid;
+      let ok;
+      if (roleOf(d) === 'o') {
+        ok = await write(() => update(sid, { ow: true }));
+      } else {
+        leaving.add(sid);
+        ok = await guestWrite(sid, { ...leaveData(), ['wd.' + me()]: myName() || noname('') }, d.ver);
+        leaving.delete(sid);
+        if (ok) { delete docs[sid]; saveCache(); }
+      }
+      if (!ok) return;
+      if (S.missions.includes(m)) dropLocal(m);
+      sfx('leave');
+      MUI().missionMsg(T('sh.msg.withdrawn', { title: m.title }), '');
+      MUI().renderMissionViews();
     }
     async function acceptChange(id) {
       const m = byId(id), d = docOf(m);
@@ -671,6 +723,8 @@
           sid, from: noname(d.ownerName),
           // gli altri invitati (dentro o in attesa), per sapere con chi sarà la missione
           others: joinNames(guests(d).filter(x => x.uid !== me()).map(x => noname(x.n))),
+          // chi l'ha creata si è ritirato: la missione resta com'è, con chi è dentro
+          frozen: ownerOut(d), inside: joinNames(joinedOf(d).filter(x => x.uid !== me()).map(x => noname(x.n))),
           m: { id: sid, ...missionFields(d), created: todayStr(), done: null, failed: null },
         }));
     }
@@ -822,12 +876,12 @@
 
     return {
       start, reset, evaluate, info, holds, joined, canInvite, editBlock, afterEdit, beforeDelete,
-      completePart, undoPart, abandon, acceptChange, exitChange, cancelInvite, openInvite, completeSolo, release,
+      completePart, undoPart, withdraw, acceptChange, exitChange, cancelInvite, openInvite, completeSolo, release,
       invites, acceptInvite, declineInvite, joinNames,
       // per shared-routines.js: la finestra "Invita amici" e l'amico come va scritto nel documento
       pickFriends, myName,
       // per le prove
-      outcome, localDue, localFrom, failInfo,
+      outcome, localDue, localFrom, failInfo, canWithdrawIn,
     };
   }
   window.LIFE_RPG_SHARED = { create, MAX_GUESTS };

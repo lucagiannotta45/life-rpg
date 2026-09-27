@@ -100,6 +100,9 @@ service cloud.firestore {
     // Un documento per missione. Lo leggono e scrivono solo chi l'ha creata (owner) e gli amici invitati.
     //   members: [owner, amico1, amico2, amico3] (serve per la ricerca e per la lettura)
     //   g: { uid: { n: nome, j: ha accettato, a: versione delle regole accettata, d: quando ha fatto la sua parte, s: ha visto l'esito } }
+    //   ow: chi l'ha creata si è ritirato ("Ritirati"): non conta più e la missione non la modifica più nessuno
+    //   wd: { uid: nome } degli amici che si sono ritirati (per mostrarlo agli altri)
+    //   (left: nei documenti di prima, chi aveva "abbandonato": la missione era fallita per tutti)
     // Ognuno può cambiare solo la sua parte; nessuno può completare dopo la scadenza (conta l'ora del server).
     // ATTENZIONE: Firebase ha un tetto al numero di espressioni valutate per richiesta. Qui ogni operazione
     // controlla prima quali campi cambiano (il controllo più economico) e poi solo quelli: il resto del documento
@@ -119,7 +122,8 @@ service cloud.firestore {
     function anyJoined(o) { return gIn(o, 1) || gIn(o, 2) || gIn(o, 3); }
     // superata: c'è almeno un amico dentro, e tutti (chi l'ha creata e ogni amico dentro) hanno fatto la loro parte, senza modifiche in sospeso
     function gDoneOk(o, i) { return !gIn(o, i) || (gAt(o, i).a == o.ver && gAt(o, i).d != null); }
-    function allDone(o) { return anyJoined(o) && o.oDone != null && gDoneOk(o, 1) && gDoneOk(o, 2) && gDoneOk(o, 3); }
+    function ownerOut(o) { return o.get('ow', false) == true; }
+    function allDone(o) { return anyJoined(o) && (o.oDone != null || ownerOut(o)) && gDoneOk(o, 1) && gDoneOk(o, 2) && gDoneOk(o, 3); }
     // ancora aperta: nessuno ha abbandonato e non è già superata
     function shOpen(o) { return o.left == '' && !allDone(o); }
     // prima della scadenza (se c'è), con l'ora del server
@@ -146,7 +150,8 @@ service cloud.firestore {
     }
     function sharedKeys() {
       return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars',
-              'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime', 'ver', 'oDone', 'left', 'seenO', 'created', 'updated'];
+              'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime', 'ver', 'oDone', 'left', 'seenO', 'created', 'updated',
+              'ow', 'wd'];
     }
     // il contenuto della missione (lo decide chi l'ha creata)
     function okContent(n) {
@@ -167,11 +172,12 @@ service cloud.firestore {
 
     // ----- modifiche di chi l'ha creata -----
     function shOwnerUpdate(o, n, k) {
-      return me() == o.owner && (
+      return me() == o.owner && !ownerOut(o) && (
         // completare (o annullare) la propria parte
         (k.hasOnly(['oDone', 'updated']) && shOpen(o) && shInTime(o) && okTimeOrNull(n.oDone))
-        // abbandonare (solo se almeno un amico è dentro): la missione fallisce per tutti
-        || (k.hasOnly(['left', 'updated']) && anyJoined(o) && shOpen(o) && shInTime(o) && n.left == me())
+        // ritirarsi (solo se almeno un amico è dentro, prima della scadenza, senza aver fatto la propria parte):
+        // resta nel documento con ow; chi è dentro e gli inviti senza risposta restano
+        || (k.hasOnly(['ow', 'updated']) && anyJoined(o) && shOpen(o) && shInTime(o) && o.oDone == null && n.ow == true)
         // segnare di aver visto l'esito
         || (k.hasOnly(['seenO', 'updated']) && n.seenO == true && shFinal(o))
         // modificare la missione; se cambiano XP, penalità o scadenza la versione sale di uno (gli amici dovranno riaccettare)
@@ -201,8 +207,11 @@ service cloud.firestore {
         // uscire senza fallire: rifiutando l'invito, oppure dopo una modifica non ancora accettata
         (k.hasOnly(['g', 'members', 'updated']) && shOpen(o) && (!o.g[me()].j || o.g[me()].a != o.ver)
           && !(me() in n.g) && n.g.diff(o.g).affectedKeys().hasOnly([me()]) && n.members == o.members.removeAll([me()]))
-        // abbandonare: solo dopo aver accettato le regole attuali; la missione fallisce per tutti
-        || (k.hasOnly(['left', 'updated']) && o.g[me()].j && o.g[me()].a == o.ver && shOpen(o) && shInTime(o) && n.left == me())
+        // ritirarsi: dopo aver accettato, prima della scadenza, senza aver fatto la propria parte. Esce dal documento
+        // (come uscire) e lascia il suo nome in wd; la missione continua per gli altri
+        || (k.hasOnly(['g', 'members', 'wd', 'updated']) && o.g[me()].j && o.g[me()].d == null && shOpen(o) && shInTime(o)
+          && !(me() in n.g) && n.g.diff(o.g).affectedKeys().hasOnly([me()]) && n.members == o.members.removeAll([me()])
+          && n.wd is map && n.wd.diff(o.get('wd', {})).affectedKeys().hasOnly([me()]) && shortStr(n.wd[me()], 30))
         // tutto il resto cambia solo la propria voce in g
         || (k.hasOnly(['g', 'updated']) && me() in n.g && n.g.diff(o.g).affectedKeys().hasOnly([me()])
             && shGuestEntry(o, o.g[me()], n.g[me()], n.g[me()].diff(o.g[me()]).affectedKeys()))
@@ -227,10 +236,13 @@ service cloud.firestore {
     }
     // eliminare il documento
     function shDelete(o) {
-      // chi l'ha creata, finché nessun amico ha accettato (inviti annullati, rifiutati o scaduti)
+      // chi l'ha creata, finché nessun amico ha accettato (inviti annullati, rifiutati o scaduti), oppure se si sono
+      // ritirati tutti
       return (me() == o.owner && !anyJoined(o))
-        // finita, e l'esito l'hanno visto tutti quelli che dovevano vederlo
-        || (me() in o.members && shFinal(o) && (me() == o.owner || o.seenO) && allSeen(o));
+        // finita, e l'esito l'hanno visto tutti quelli che dovevano vederlo (chi l'ha creata e si è ritirato non serve)
+        || (me() in o.members && shFinal(o) && (me() == o.owner || o.seenO || ownerOut(o)) && allSeen(o))
+        // chi l'ha creata si è ritirato ed è rimasto un solo amico (senza inviti in attesa): la missione è diventata sua
+        || (ownerOut(o) && o.members.size() == 2 && o.members[1] == me());
     }
 
     // ---------- routine di gruppo con fino a 3 amici (shared-routines.js) ----------
