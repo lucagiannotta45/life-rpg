@@ -30,7 +30,6 @@ const occ = (missions, r, ds) => missions.find(m => m.id === M.occId(r, ds));
 const complete = (rt, m, ds, x = xp({})) => M.applyComplete(x, m, rt, 1, at(ds)).bonus;   // completata quel giorno
 const undo = (rt, m, x = xp({})) => M.applyUndo(x, m, rt);
 const fail = (rt, m, ds, x = xp({})) => M.applyFail(x, m, rt, ds, 1);                     // scaduta
-const recover = (rt, m, ds, x = xp({})) => M.applyRevert(x, m, rt, at(ds));               // "Annulla penalità" / "Riprogramma"
 // giorni di fila dal 1° marzo: 'd' = completata in tempo, 'x' = saltata. Restituisce routine, missioni e il giorno dopo.
 function play(plan, extra) {
   const r = rou(extra);
@@ -148,7 +147,7 @@ test('scadenza: alla fine del minuto scelto, oppure a fine giornata', t => {
   assert.equal(M.isLate(m), true);
 });
 
-test('scadenza: una routine recuperata vale fino alla fine del giorno del recupero', t => {
+test('scadenza: una routine recuperata (dati di prima) vale fino alla fine del giorno del recupero', t => {
   const m = mis({ rid: 'r1', due: '2026-03-05', dueTime: '08:00', re: '2026-03-07' });
   assert.equal(M.dueEndMs(m), at('2026-03-08', '00:00'));
   now(t, '2026-03-07', '23:59');
@@ -292,16 +291,12 @@ test('azioni: completare e annullare, con gli XP', () => {
   assert.deepEqual([u.removed.Vigore, x.Vigore, m.done, r.streak, r.best], [13, 100, null, 1, 1]);
 });
 
-test('azioni: missione normale completata, fallita e riprogrammata', () => {
+test('azioni: missione normale fallita', () => {
   const x = xp({ Vigore: 3 });
   const m = mis({ due: '2026-03-05', dueTime: '18:00', penalty: { Vigore: 8 } });
   const f = M.applyFail(x, m, null, '2026-03-06', 7);
   assert.deepEqual([f.removed.Vigore, x.Vigore, m.failed.date], [3, 0, '2026-03-06'], 'si perde al massimo quello che si ha');
-  const back = M.applyRevert(x, m, null);
-  assert.deepEqual([back.restored.Vigore, x.Vigore, m.failed, m.due, m.dueTime, m.re], [3, 3, null, null, null, undefined],
-    'tornano gli XP persi davvero; resta senza scadenza');
-  assert.equal(M.applyComplete(x, m, null, 1, at('2026-03-07')).n, 0, 'nessuna serie per le missioni normali');
-  assert.equal(x.Vigore, 13);
+  assert.equal(M.lateMissions([m]).length, 0, 'fallita: l\'esito resta (niente più penalità da applicare)');
 });
 
 test('azioni: fallire senza perdere XP (per esempio se abbandona un amico)', () => {
@@ -311,82 +306,7 @@ test('azioni: fallire senza perdere XP (per esempio se abbandona un amico)', () 
   assert.deepEqual([removed.Vigore, x.Vigore, !!m.failed], [0, 50, true]);
 });
 
-test('azioni: recuperare una routine ridà gli XP e la rende da fare fino a fine giornata', () => {
-  const x = xp({ Vigore: 20 });
-  const { r, missions, ds } = play('dx');
-  const m = occ(missions, r, '2026-03-02');
-  m.failed.applied = xp({ Vigore: 5 });   // la penalità che aveva tolto
-  const res = M.applyRevert(x, m, r, at(ds, '10:00'));
-  assert.deepEqual([res.restored.Vigore, x.Vigore, m.re, m.rj, res.routineChanged], [5, 25, ds, 1, true]);
-});
-
 /* ---------- recupero delle routine fallite ---------- */
-test('recupero: la serie torna subito, e cresce completando', () => {
-  const { r, missions, ds } = play('dddddx');
-  assert.equal(r.streak, 0);
-  const m = occ(missions, r, '2026-03-06');
-  recover(r, m, ds);
-  assert.deepEqual([r.streak, r.best, m.rj], [5, 5, 5]);
-  complete(r, m, ds);
-  assert.deepEqual([r.streak, r.best], [6, 6]);
-});
-
-test('recupero: se fallisce di nuovo, la serie torna a zero (e il giorno si può ancora recuperare)', () => {
-  const { r, missions, ds } = play('dddddx');
-  const m = occ(missions, r, '2026-03-06');
-  recover(r, m, ds);
-  fail(r, m, ds);
-  assert.deepEqual([r.streak, r.best], [0, 5]);
-  assert.deepEqual(r.brks, [{ d: '2026-03-06', n: 5 }]);
-  assert.equal(m.re, undefined);
-  recover(r, m, ds);
-  assert.equal(r.streak, 5);
-});
-
-test('recupero: due giorni saltati di fila, in qualunque ordine', () => {
-  for (const order of [['2026-03-06', '2026-03-07'], ['2026-03-07', '2026-03-06']]) {
-    const { r, missions, ds } = play('dddddxx');
-    for (const d of order) { const m = occ(missions, r, d); recover(r, m, ds); complete(r, m, ds); }
-    assert.equal(r.streak, 7, 'ordine ' + order.join(' poi '));
-  }
-});
-
-test('recupero: si riattacca alla serie nuova già iniziata', () => {
-  const { r, missions, ds } = play('dddddxdd');
-  assert.equal(r.streak, 2);
-  const m = occ(missions, r, '2026-03-06');
-  recover(r, m, ds);
-  assert.deepEqual([r.streak, r.best], [7, 5], 'il record sale solo completando');
-  complete(r, m, ds);
-  assert.deepEqual([r.streak, r.best], [8, 8]);
-  undo(r, m);
-  assert.deepEqual([r.streak, r.best], [7, 5], 'annullando torna tutto com\'era');
-});
-
-test('recupero: lo stesso giorno, prima che la serie si interrompa', () => {
-  const r = rou();
-  let list = openApp([r], [], '2026-03-01');
-  complete(r, occ(list, r, '2026-03-01'), '2026-03-01');
-  list = openApp([r], list, '2026-03-02');
-  const m = occ(list, r, '2026-03-02');
-  fail(r, m, '2026-03-02');
-  recover(r, m, '2026-03-02');
-  assert.equal(m.rj, undefined, 'niente da ridare: la serie non si era ancora interrotta');
-  complete(r, m, '2026-03-02');
-  assert.equal(r.streak, 2);
-});
-
-test('recupero: dopo un recupero completato la serie continua normalmente', () => {
-  let { r, missions, ds } = play('dddddx');
-  const m = occ(missions, r, '2026-03-06');
-  recover(r, m, ds);
-  complete(r, m, ds);
-  complete(r, occ(missions, r, ds), ds);   // la volta di oggi
-  assert.equal(r.streak, 7);
-  missions = openApp([r], missions, M.addDaysStr(ds, 1));
-  assert.deepEqual([r.streak, r.brks], [7, []], 'il giorno dopo non si interrompe niente');
-});
-
 /* ---------- routine settimanali, mensili e da più volte ---------- */
 test('routine salvate: frequenza, volte, giorni e ora', () => {
   const [w, d3, big, bad] = M.normalizeRoutines([
@@ -555,26 +475,6 @@ test('mensile: nel calendario il giorno della scadenza, e le volte fatte nel lor
   M.applySetCount(m, 2, at('2026-09-20'));
   M.applyComplete(xp({}), m, r, 2, at('2026-09-20'));
   assert.equal(M.calendarMarks(list).done['2026-09-20'], 2, 'completata: ogni volta nel suo giorno, non una in più');
-});
-
-test('più volte: recuperare un periodo fallito ridà la serie e tiene le volte già segnate', () => {
-  const x = xp({ Vigore: 100 });
-  const r = rouP({ n: 2 });
-  let list = openApp([r], [], '2026-09-25');
-  const w1 = list[0];
-  M.applySetCount(w1, 2, at('2026-09-26'));
-  M.applyComplete(x, w1, r, 1, at('2026-09-27'));
-  list = openApp([r], list, '2026-10-02');
-  const w2 = occ(list, r, '2026-10-02');
-  M.applySetCount(w2, 1, at('2026-10-03'));
-  list = openApp([r], list, '2026-10-09');
-  M.applyFail(x, w2, r, '2026-10-09', 1);
-  assert.deepEqual([r.streak, r.brks, x.Vigore], [0, [{ d: '2026-10-02', n: 1 }], 105]);
-  M.applyRevert(x, w2, r, at('2026-10-10'));
-  assert.deepEqual([w2.re, w2.rj, w2.p.length, r.streak, x.Vigore], ['2026-10-10', 1, 1, 1, 110]);
-  M.applySetCount(w2, 2, at('2026-10-10'));
-  const res = M.applyComplete(x, w2, r, 1, at('2026-10-10'));
-  assert.deepEqual([res.n, r.streak, !!w2.done], [2, 2, true]);
 });
 
 test('cambio di frequenza: vale dal periodo successivo, la serie resta', () => {
@@ -809,4 +709,27 @@ test('Google Calendar: missione, routine e routine di gruppo', t => {
   assert.match(decodeURIComponent(M.gcalRoutineUrl(rou())), /RRULE:FREQ=DAILY/);
   const group = M.gcalRoutineUrl(rou({ sr: 'qabc1234', tz: 'Europe/Rome', time: '18:00' }));
   assert.match(group, /ctz=Europe%2FRome/, 'routine di gruppo: con il fuso del gruppo');
+});
+
+test('calendario: una volta ripresa con "Annulla penalità" (dati di prima) sta nel giorno in cui va recuperata', () => {
+  const m = { id: 'r1-20260925', title: 'Palestra', rewards: {}, rid: 'r1', ps: '2026-09-25', due: '2026-10-01', re: '2026-10-03',
+    created: '2026-09-25', done: null, failed: null };
+  assert.equal(M.calendarMarks([m]).todo['2026-10-03'], 1);
+  assert.equal(M.calendarMarks([m]).todo['2026-10-01'], undefined, 'non nel giorno (passato) in cui scadeva');
+  assert.deepEqual(M.dayLists([m], '2026-10-03').todo.map(x => x.id), [m.id]);
+});
+
+
+/* ---------- un'ora già passata oggi non fa nascere volte già scadute ---------- */
+test('ora già passata oggi: il cambio d\'ora vale da domani, altrimenti subito', t => {
+  now(t, '2026-03-05', '15:00');
+  const r = rou({ time: '18:00' });
+  assert.equal(M.timePassedToday(r, '10:00', '2026-03-05'), true);
+  assert.equal(M.timePassedToday(r, '20:00', '2026-03-05'), false);
+  assert.equal(M.planChange(r, { freq: 'd', n: 1, days: r.days, time: '20:00' }, '2026-03-05'), '2026-03-05', 'più tardi: subito');
+  assert.equal(r.nx, undefined);
+  assert.equal(M.planChange(r, { freq: 'd', n: 1, days: r.days, time: '10:00' }, '2026-03-05'), '2026-03-06', 'già passata: da domani');
+  assert.deepEqual([r.time, r.nx.time, r.nx.at], ['18:00', '10:00', '2026-03-06'], 'oggi resta l\'ora di prima');
+  const d = rou({ days: [1], time: '18:00' });   // solo lunedì: giovedì 5 non conta
+  assert.equal(M.timePassedToday(d, '10:00', '2026-03-05'), false);
 });

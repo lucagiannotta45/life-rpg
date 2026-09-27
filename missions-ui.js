@@ -198,38 +198,6 @@
     }
 
     // penalità: alla prima apertura dopo la scadenza, una sola volta per missione
-    function revertPenalty(id) {
-      const m = S.missions.find(x => x.id === id);
-      if (!m || !m.failed || m.done || m.sid) return;
-      if (m.rid) { revertRoutine(m); return; }
-      // gli XP tornano e la missione resta senza data (e senza ora), così non scade di nuovo (missions.js, applyRevert)
-      const { restored } = MISSIONS.applyRevert(S.xp, m, null);
-      persist();
-      touchMonth(monthOf(m));
-      render(true);
-      missionMsg(T(hasAny(restored) ? 'msg.penrev' : 'msg.resched', { title: m.title, gain: gainText(restored) }), 'good');
-      renderMissionViews();
-      sfx('add');
-      // si apre la modifica per scegliere una nuova data; se la chiudi, la missione resta senza data
-      openMissionForm(m.id);
-      mfMsg(T(hasAny(restored) ? 'msg.penrev.form' : 'msg.resched.form'));
-      $('mf-date').focus();
-    }
-    // routine: la volta fallita torna da fare fino alla fine di oggi (resta legata al suo giorno); gli XP della penalità
-    // tornano e, se quel giorno aveva interrotto la serie, la serie di prima si riattacca. Non per le routine di gruppo.
-    function revertRoutine(m) {
-      const rt = routineOf(m);
-      // (routine di gruppo: vale solo per la tua parte, XP e serie personale; per il gruppo quel periodo resta mancato)
-      const { restored, routineChanged } = MISSIONS.applyRevert(S.xp, m, rt);   // regole in missions.js
-      if (routineChanged) saveRoutinesLocal();
-      persist();
-      touchMonth(monthOf(m));
-      render(true);
-      const streak = rt && rt.streak ? T('msg.streak.back', { n: rt.streak }) : '';
-      missionMsg(T(hasAny(restored) ? 'msg.penrev.r' : 'msg.resched.r', { title: m.title, gain: gainText(restored) }) + streak, 'good');
-      renderMissionViews();
-      sfx('add');
-    }
     function showPenalties(list, before, after, ovBefore, ovAfter) {
       // il riepilogo dice il motivo vero: abbandono (tuo o dell'amico) oppure scadenza; "hai perso XP" solo se è così
       const one = list.length === 1 ? list[0] : null;
@@ -487,8 +455,9 @@
       head.appendChild(mk('h3', 'm-title', m.title));
       if (m.done) head.appendChild(mk('span', 'm-date', T(skippedSh ? 'm.skipped.on' : 'm.done.on', { when: fmtDay(m.done.date) + (m.done.t > 1e12 ? T('time.at', { time: fmtClock(m.done.t) }) : '') })));
       else if (m.rid && m.re && !failedNow) {
-        // volta recuperata: si completa entro la fine di quel giorno
-        head.appendChild(mk('span', 'm-date', T(m.re === todayStr() ? 'm.rec.today' : 'm.rec.by', { when: fmtDay(m.re), day: fmtDay(m.due) })));
+        // volta ripresa ("Annulla penalità"): si completa entro la fine di quel giorno (l'ora della routine non conta più:
+        // la fine del giorno viene sempre dopo). Vale anche per settimanali e mensili
+        head.appendChild(mk('span', 'm-date', T(m.re === todayStr() ? 'm.rec.today' : 'm.rec.by', { when: fmtDay(m.re) })));
       } else if (m.due) {
         const late = isLate(m);
         const txt = late ? T('m.late.on', { when: dueLabel(m) })
@@ -569,10 +538,7 @@
         // condivisa: non si annulla; routine di gruppo: non dopo che l'avete fatta tutti (la serie di gruppo l'ha contata)
         if (!m.sid && SR().canUndo(m)) act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
       } else if (failedNow) {
-        if (!m.sid) {   // non per le missioni condivise (routine di gruppo: sì, solo per la tua parte)
-          const hadPenalty = hasAny(m.penalty);
-          act.appendChild(btn('', T(hadPenalty ? 'btn.undopen' : 'btn.resched'), T(hadPenalty ? 'aria.undopen' : 'aria.resched'), () => revertPenalty(m.id)));
-        }
+        // fallita: l'esito resta (niente "Annulla penalità" né "Riprogramma": prima della scadenza si completa o si salta)
       } else if (open) {
         // condivisa e accettata dall'amico
         if (shi.out === 'open') {
@@ -1192,7 +1158,10 @@
       const today = r ? routineToday(r) : '';
       const days = formFreq === 'd' ? pickedDays() : [];
       const same = r && formFreq === (r.freq || 'd') && timesNow() === (r.n || 1) && days.join() === r.days.join();
-      note.hidden = !r || r.start > today || !!same;
+      // stesse regole, ma l'ora nuova di oggi è già passata: anche lei vale da domani (missions.js, planChange)
+      const t = $('mf-time').value;
+      const timeLater = !!r && same && formFreq === 'd' && timesNow() === 1 && validTime(t) && t !== r.time && MISSIONS.timePassedToday(r, t, today);
+      note.hidden = !r || r.start > today || (!!same && !timeLater);
       // la data a metà frase: senza la maiuscola che fmtDay mette all'inizio ("dal sabato 3 ottobre")
       if (note.hidden) return;
       let when = changeAt(r, today);
@@ -1204,6 +1173,7 @@
       note.textContent = T('mf.change.at', { when: parseDate(when).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' }) });
     }
     $('mf-times').addEventListener('input', paintFreq);
+    $('mf-time').addEventListener('input', paintChangeNote);   // un'ora già passata oggi vale da domani
     function paintDayChips() {
       const box = $('mf-days');
       MISSIONS.weekOrder(firstDay()).forEach(d => {
@@ -1370,13 +1340,17 @@
       // data di inizio: si sceglie (da oggi a un anno) finché la routine non è iniziata; dopo resta quella
       const today = todayStr();
       const started = !!r && r.start <= today;
-      const start = started ? r.start : $('mf-start').value || today;
-      const newStart = !r || start !== r.start;
+      let start = started ? r.start : $('mf-start').value || today;
       if (!validDate(start)) return fail(T('mf.err.date'), $('mf-start'));
-      if (newStart && start < today) return fail(T('mf.err.past'), $('mf-start'));
-      if (newStart && start > addDaysStr(today, 365)) return fail(T('mf.err.far'), $('mf-start'));
+      if ((!r || start !== r.start) && start < today) return fail(T('mf.err.past'), $('mf-start'));
+      if ((!r || start !== r.start) && start > addDaysStr(today, 365)) return fail(T('mf.err.far'), $('mf-start'));
       const desc = $('mf-desc').value.trim().slice(0, 500);
       const time = timeRaw || null;
+      // parte oggi, ma l'ora di oggi è già passata: la prima volta nascerebbe già scaduta (e fallita). Parte da domani
+      let movedStart = false;
+      if (!started && start === today && freq === 'd' && times === 1 && time
+        && MISSIONS.timePassedToday({ freq, n: 1, days, start, streakDate: '' }, time, today)) { start = addDaysStr(today, 1); movedStart = true; }
+      const newStart = !r || start !== r.start;
       if (r) {
         Object.assign(r, { title, desc, rewards, penalty, bonus, stars });
         // non ancora iniziata: la nuova data di inizio vale subito (la serie non c'è ancora)
@@ -1388,7 +1362,8 @@
         const cal = freq !== 'd' && (!r.sr || r.cal || freq !== (r.freq || 'd'));
         MISSIONS.planChange(r, { freq, n: times, days, time, ...(cal ? { cal: 1, wk: wkFor(r, freq) } : {}) }, routineToday(r));
         if (!r.nx && isDaily(r) && (r.n || 1) === 1) r.time = time;   // stesse regole: l'ora nuova vale subito
-        if (r.made && r.made >= today) r.made = addDaysStr(today, -1);   // se oggi ora è un giorno previsto, compare subito
+        // se oggi ora è un giorno previsto, compare subito (ma non se la sua ora è già passata: nascerebbe già fallita)
+        if (r.made && r.made >= today && !(r.time && MISSIONS.timePassedToday(r, r.time, today))) r.made = addDaysStr(today, -1);
       } else {
         if (S.routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
         r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty,
@@ -1413,7 +1388,7 @@
       sfx('save');
       finishForm();
       renderMissionViews();
-      missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }), 'good');
+      missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }) + (movedStart ? ' ' + T('msg.routine.tomorrow', { time }) : ''), 'good', movedStart);
     }
     async function deleteRoutine() {
       const r = S.routines.find(x => x.id === editingRid);
@@ -1475,7 +1450,8 @@
       const timeRaw = dueRaw ? $('mf-time').value : '';
       if (timeRaw && !validTime(timeRaw)) return fail(T('mf.err.time'), $('mf-time'));
       const dueTime = timeRaw || null;
-      if (anyPen && dueRaw && Date.now() >= dueEndMs({ due: dueRaw, dueTime })) {
+      // una scadenza già passata farebbe fallire la missione all'istante (con o senza penalità)
+      if (dueRaw && Date.now() >= dueEndMs({ due: dueRaw, dueTime })) {
         return fail(T('mf.err.pastdue'), $('mf-date'));
       }
       const desc = $('mf-desc').value.trim().slice(0, 500);

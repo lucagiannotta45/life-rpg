@@ -405,11 +405,14 @@
       });
       return { todo, failed, done, groups };
     }
+    // il giorno in cui una missione da fare sta nel Calendario: la scadenza (o l'inizio); una volta di routine ripresa
+    // con "Annulla penalità" nel giorno in cui va recuperata (non in quello, passato, in cui scadeva)
+    const todoDay = m => (m.rid && m.re ? m.re : m.due || m.from);
     // le missioni di un giorno del calendario (da fare, fallite, completate)
     function dayLists(missions, ds) {
       const byTime = (a, b) => dueKey(a).localeCompare(dueKey(b)) || a.title.localeCompare(b.title);
       // (le routine settimanali e mensili stanno nel giorno della scadenza, l'ultimo del periodo, come le missioni)
-      const todo = missions.filter(m => !m.done && !m.failed && (m.due || m.from) === ds).sort(byTime);
+      const todo = missions.filter(m => !m.done && !m.failed && todoDay(m) === ds).sort(byTime);
       const failed = missions.filter(m => !m.done && m.failed && m.due === ds).sort(byTime);
       const byDone = (a, b) => b.done.t - a.done.t || a.title.localeCompare(b.title);   // le più recenti in alto
       const done = missions.filter(m => m.done && !m.done.sk && m.done.date === ds).sort(byDone);
@@ -426,7 +429,7 @@
         if (m.done && m.done.sk) skip[m.done.date] = (skip[m.done.date] || 0) + 1;   // condivisa saltata
         else if (m.done) { if (!m.p) done[m.done.date] = (done[m.done.date] || 0) + 1; }
         else if (m.due && m.failed) fail[m.due] = (fail[m.due] || 0) + 1;
-        else if (m.due || m.from) { const k = m.due || m.from; todo[k] = (todo[k] || 0) + 1; }
+        else if (todoDay(m)) { const k = todoDay(m); todo[k] = (todo[k] || 0) + 1; }
       });
       return { todo, done, fail, skip };
     }
@@ -563,13 +566,20 @@
         applyShape(r, next);
         return r.start;
       }
-      if (sameShape(next, r)) return today;
+      // Stesse regole: nessun cambio in attesa (l'ora, se cambia, la mette chi chiama), a meno che la nuova ora di oggi sia
+      // già passata: la volta di oggi scadrebbe all'istante, quindi l'ora nuova vale da domani (come un cambio)
+      if (sameShape(next, r) && !(next.time && next.time !== r.time && timePassedToday(r, next.time, today))) return today;
       r.nx = { at: changeAt(r, today), ...next };
       // l'ultimo periodo con le regole di adesso (per la serie di gruppo: il periodo nuovo viene subito dopo di lui)
       const pc = isDaily(r) ? null : periodAt(r, today);
       const pk = isDaily(r) ? (dayCounts(r, today) ? today : prevDay(r, today)) : pc ? pc.s : prevDay(r, today);
       if (pk) r.nx.pk = pk;
       return r.nx.at;
+    }
+    // oggi è un giorno della routine e, con l'ora "time", la sua volta sarebbe già scaduta (routine di gruppo: nel suo fuso)
+    function timePassedToday(r, time, today, now = Date.now()) {
+      if (!isDaily(r) || !dayCounts(r, today)) return false;
+      return (r.tz ? groupDueMs({ ...r, time }, today) : dueEndMs({ due: today, dueTime: time })) <= now;
     }
     // la routine come sarà dopo il cambio in attesa (una copia; la routine non cambia)
     function foldedCopy(r) {
@@ -637,17 +647,6 @@
       rt.streak = Math.max(0, (rt.streak || 0) + delta);
       if (upBest) rt.best = Math.max(rt.best || 0, rt.streak);
       return true;
-    }
-    // recuperando il periodo mancato \"day\": la serie di prima si riattacca (cambia la routine). Restituisce la serie
-    // ridata (anche 0), oppure null se quel periodo non ha interrotto niente (per esempio: recuperato lo stesso giorno)
-    function streakRecover(rt, day) {
-      if (!rt || !rt.brks) return null;
-      const i = rt.brks.findIndex(b => b.d === day);
-      if (i < 0) return null;
-      const n = rt.brks[i].n;
-      rt.brks.splice(i, 1);
-      streakShift(rt, day, n);
-      return n;
     }
     // la volta recuperata è fallita di nuovo: la serie ridata si toglie e il periodo torna tra quelli mancati (cambia la routine)
     function streakLose(rt, day, n) {
@@ -733,16 +732,8 @@
     // Missione: resta senza scadenza (se ne sceglie una nuova). Volta di una routine: resta legata al suo periodo ed è
     // da fare fino alla fine di oggi (con le volte già segnate); se quel periodo aveva interrotto la serie, la serie di
     // prima si riattacca. Restituisce { restored, routineChanged }.
-    function applyRevert(xp, m, rt, now = Date.now()) {
-      const restored = gainXp(xp, m.failed.applied);
-      m.failed = null;
-      if (!m.rid) { m.due = null; m.dueTime = null; return { restored, routineChanged: false }; }
-      m.re = isoDate(new Date(now));
-      delete m.rj;
-      const back = streakRecover(rt, occKey(m));
-      if (back !== null) m.rj = back;
-      return { restored, routineChanged: back !== null };
-    }
+    // ("Annulla penalità" e "Riprogramma" non ci sono più: le volte già riprese prima, con re e rj, si leggono ancora:
+    // valgono fino alla fine del loro giorno, e completarle riattacca la serie come allora)
     // la volta di una routine nel periodo p ({ s, e }); here = il fuso di questo dispositivo
     function makeOcc(r, p, here = hereTz()) {
       const occ = { id: occId(r, p.s), title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
@@ -1079,10 +1070,10 @@
       missionLists, dayLists, calendarMarks, lateMissions,
       gainXp, undoXp, penaltyXp,
       WD_ALL, isDaily, anchorOf, dayCounts, periodAt, nextPeriod, occKey, occEnd, missingOf, changeAt, planChange,
-      occId, routineOf, streakStep, streakUndo, streakShift, streakRecover, streakLose, routineDay,
-      applySetCount, fullCount, applyComplete, applyUndo, applyFail, applyRevert, plannedRoutines,
+      occId, routineOf, streakStep, streakUndo, streakShift, streakLose, routineDay,
+      applySetCount, fullCount, applyComplete, applyUndo, applyFail, plannedRoutines,
       calOf, gridAt, calMigrate, firstCalPeriod,
-      MAX_SKIPS, rulesOn, isSkipped, dayPlanned, makeOcc, periodStarting, plannedPeriod, canSkipRoutine, canSkipOcc, applySkip,
+      timePassedToday, MAX_SKIPS, rulesOn, isSkipped, dayPlanned, makeOcc, periodStarting, plannedPeriod, canSkipRoutine, canSkipOcc, applySkip,
       unskipPlan, applyUnskip, skippedOn, skipMarks,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
       foldedCopy, shapeOf, groupPeriods,

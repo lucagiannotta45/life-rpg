@@ -663,12 +663,21 @@
       if (!d || !isDoc(d) || !online() || !navigator.onLine) { fail('sh.err.offline'); return false; }
       return true;
     };
+    // Da quale giorno del gruppo partecipi, accettando adesso: oggi, ma non se la volta di oggi è già scaduta (routine
+    // di ogni giorno con un orario già passato): nascerebbe già fallita per te, e per il gruppo oggi mancheresti tu.
+    // Settimanali e mensili partono comunque dal periodo successivo (guestStart).
+    function joinDay(t, now) {
+      const today = zoneDay(now, t ? t.tz : hereTz());
+      if (!t) return today;
+      const x = t.nx && today >= t.nx.at ? foldedCopy(t) : t;
+      return MISSIONS.isDaily(x) && MISSIONS.dayPlanned(x, today) && groupDueMs(x, today) <= now ? addDaysStr(today, 1) : today;
+    }
     async function acceptInvite(id) {
       const d = docs[id];
       if (!ready(d)) return;
       if (!S.routines.some(r => r.id === id) && S.routines.length >= MAX_ROUTINES) { msg('mf.err.routines', { max: MAX_ROUTINES }, 'bad', true); sfx('err'); return; }
       const t = tplOf(d);
-      const since = zoneDay(Date.now(), t ? t.tz : hereTz());
+      const since = joinDay(t, Date.now());
       if (!(await guestWrite(id, { [gPath('j')]: true, [gPath('a')]: d.ver, [gPath('n')]: myName(), [gPath('since')]: since }, d.ver))) return;
       sfx('ok');
       msg('sr.msg.joined', { title: d.title }, 'good');
@@ -752,7 +761,7 @@
       openInvite, invites, acceptInvite, declineInvite, acceptChange, exit, dissolve, beforeDelete, cancelInvite,
       canSkip, canUnskip, writeSkip,
       // per le prove
-      together, allSkipped, partsOf, tplOf,
+      together, allSkipped, partsOf, tplOf, joinDay,
     };
   }
   window.LIFE_RPG_SHARED_ROUTINES = { create, MAX_GUESTS };

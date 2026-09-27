@@ -370,29 +370,6 @@ test('salta: se gli altri l\'hanno già completata, il salto non si annulla più
   assert.equal(W2.SR.canUnskip(r2, '2026-10-02'), false);
 });
 
-test('annulla penalità in una routine di gruppo: vale solo per me, nel documento non si scrive niente', t => {
-  now(t, '2026-10-03', '10:00');
-  const { SR, S, writes } = fakeWorld('uG', baseDoc({ k: { 20261002: { uO: at('2026-10-03') } } }));
-  SR.evaluate();
-  D_sync(S);
-  const r = S.routines[0];
-  r.streak = 3; r.streakDate = '2026-09-25';
-  const m = S.missions.find(y => y.id === ID + '-20261002');
-  t.mock.timers.setTime(at('2026-10-09', '10:00'));
-  D_sync(S);   // chiude la settimana del 2 ottobre: la serie personale si interrompe
-  M.applyFail(M.normalizeRewards(null), m, r, '2026-10-09', 1);
-  assert.equal(r.streak, 0);
-  M.applyRevert(M.normalizeRewards(null), m, r);   // "Annulla penalità"
-  assert.deepEqual([m.re, r.streak], ['2026-10-09', 3], 'ripresa fino a stasera, serie personale riattaccata');
-  M.applySetCount(m, 3);
-  M.applyComplete(M.normalizeRewards(null), m, r, 1);
-  const before = writes.length;
-  SR.markPart(r, m, true);   // come fa l'app completandola
-  assert.equal(writes.length, before, 'per il gruppo non conta: niente parte nel documento');
-  assert.equal(r.streak, 4, 'la serie personale cresce');
-  assert.equal(r.gs, undefined, 'la serie di gruppo no');
-});
-
 test('una routine non più di gruppo (dati di prima) perde serie e record di gruppo quando si legge', () => {
   const r = M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { Vigore: 10 }, freq: 'w', start: '2026-09-25',
     gs: 3, gsd: '2026-10-02', gbest: 7, gx: ['2026-09-25'], streak: 2, best: 5 }])[0];
@@ -471,4 +448,14 @@ test('fusi orari: "Annulla salto" su una volta con orario di un gruppo in Giappo
   assert.equal(M.localDue(M.groupDueMs(r, '2026-10-06')).due, plan.occ.due, 'la scadenza nell\'ora di questo dispositivo');
   t.mock.timers.setTime(atZ('2026-10-06', '09:30', 'Asia/Tokyo'));
   assert.equal(M.unskipPlan(r, '2026-10-06'), null, 'dopo le 9:00 a Tokyo è già scaduta');
+});
+
+test('invitato: accettando dopo l\'ora di oggi del gruppo, parte da domani (non da una volta già scaduta)', t => {
+  const doc = baseDoc({ freq: 'd', n: 1, days: [0, 1, 2, 3, 4, 5, 6], time: '10:00' });
+  const { SR } = fakeWorld('uG', doc);
+  const tpl = SR.tplOf(doc);
+  assert.equal(SR.joinDay(tpl, at('2026-10-05', '11:00')), '2026-10-06', 'alle 11 le 10 sono passate: da domani');
+  assert.equal(SR.joinDay(tpl, at('2026-10-05', '09:00')), '2026-10-05', 'alle 9: da oggi');
+  const w = SR.tplOf(baseDoc());
+  assert.equal(SR.joinDay(w, at('2026-10-05', '23:00')), '2026-10-05', 'settimanale: il giorno di oggi (poi guestStart va alla settimana dopo)');
 });
