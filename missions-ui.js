@@ -107,6 +107,10 @@
       // (per esempio una routine di prima passata alle settimane del calendario: cambia solo come si contano i periodi)
       return parts.length ? parts.join(' · ') : T('chg.other');
     }
+    // un oggetto come testo con le chiavi in ordine: per confrontare i valori, non l'ordine dei campi (una routine
+    // ricaricata dalla memoria ha gli stessi campi in un altro ordine)
+    const canon = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
+      ? Object.fromEntries(Object.keys(x).sort().map(y => [y, x[y]])) : x));
     const gainText = map => {
       if (allSame(map)) return '+' + fmt(allSame(map)) + ' ' + T('xp.all');
       const parts = STATS.filter(s => map[s.key] > 0).map(s => '+' + fmt(map[s.key]) + ' ' + s.name);
@@ -1489,7 +1493,7 @@
         && MISSIONS.timePassedToday({ freq, n: 1, days, start, streakDate: '' }, time, today)) { start = addDaysStr(today, 1); movedStart = true; }
       const newStart = !r || start !== r.start;
       let redo = [];   // volte rifatte con le regole nuove (routine appena creata)
-      const nxBefore = JSON.stringify((r && r.nx) || null);   // per dire "il resto dal…" solo se cambia adesso
+      const nxBefore = canon((r && r.nx) || null);   // per dire "il resto dal…" solo se cambia adesso
       if (r) {
         // titolo e descrizione cambiano subito (anche nelle volte ancora da fare, qui sotto)
         Object.assign(r, { title, desc });
@@ -1545,7 +1549,7 @@
       finishForm();
       renderMissionViews();
       // con un cambio in attesa si dice da quando valgono le regole nuove
-      const later = wasEdit && r.nx && JSON.stringify(r.nx) !== nxBefore ? ' ' + T('msg.routine.from', { when: midDay(r.nx.at) }) : '';
+      const later = wasEdit && r.nx && canon(r.nx) !== nxBefore ? ' ' + T('msg.routine.from', { when: midDay(r.nx.at) }) : '';
       missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }) + later + (movedStart ? ' ' + T('msg.routine.tomorrow', { time }) : ''), 'good', movedStart || !!later);
     }
     // eliminazione rimandata: prima di confermare si spiega che cosa succederà (nella nota del modulo, che resta
@@ -1669,8 +1673,8 @@
         }
         Object.assign(m, { title, desc });
         // "il resto da domani" solo se questo salvataggio ha cambiato le modifiche in attesa (non per una di prima)
-        const nxBefore = JSON.stringify(m.nx || null);
-        later = MISSIONS.planMissionChange(m, c) > todayStr() && JSON.stringify(m.nx || null) !== nxBefore;
+        const nxBefore = canon(m.nx || null);
+        later = MISSIONS.planMissionChange(m, c) > todayStr() && canon(m.nx || null) !== nxBefore;
         if (m.sid) SH().afterEdit(m);   // anche gli amici vedono la missione cambiata (e le regole di domani)
       } else {
         const created = todayStr();
