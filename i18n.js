@@ -564,7 +564,7 @@
 
       "info.mis.s5": "Saltare una volta",
 
-      "info.mis.s5p1": "Se una volta di una routine non si può fare (la lezione è annullata, sei in trasferta…), saltala dal Calendario: tocca il giorno e premi “Salta” sulla routine. Funziona per la volta in corso, finché non è scaduta, e per quelle future. Le routine settimanali e mensili stanno nell'ultimo giorno del periodo, con “Salta la settimana” o “Salta il mese”.",
+      "info.mis.s5p1": "Se una volta di una routine non si può fare (la lezione è annullata, sei in trasferta…), premi “Salta”: nella scheda Missioni per la volta di oggi, oppure nel Calendario (tocca il giorno) anche per quelle future. Funziona finché la volta non è scaduta. Le routine settimanali e mensili stanno nell'ultimo giorno del periodo, con “Salta la settimana” o “Salta il mese”.",
 
       "info.mis.s5p2": "Una volta saltata non conta: niente XP, niente penalità, e la serie resta com'è. Finché non sarebbe scaduta puoi premere “Annulla salto”.",
 
@@ -577,7 +577,7 @@
       "info.fr.p2": "Gli amici vedono solo il tuo profilo: nome, titolo, livello, statistiche, colori e, se lo scegli, lo sfondo. Le tue missioni non le vede nessuno, tranne quelle che condividi con un amico.",
       "info.fr.s1": "Missioni condivise",
       "info.fr.s1p1": "Nella scheda di una missione, “Invita” la condivide con fino a 3 amici, e ognuno sceglie se accettare. La superate quando l'avete completata tutti: gli XP arrivano a tutti in quel momento. Se alla scadenza qualcuno non l'ha completata, la missione fallisce per tutti, ma la penalità la paga solo chi non ha fatto la sua parte.",
-      "info.fr.s1p2": "Chi non può farla la salta prima della scadenza (“Salta”): niente XP e niente penalità, e per gli altri continua.",
+      "info.fr.s1p2": "Chi non può farla la salta prima della scadenza (“Salta”, nella scheda Missioni o nel Calendario): niente XP e niente penalità, e per gli altri continua.",
       "info.fr.s1p3": "Ricompensa, penalità e scadenza le decide chi l'ha creata, come chi invitare. Titolo e descrizione cambiano subito; il resto vale da domani per tutti, e chi partecipa sceglie subito se accettare le regole nuove o uscire senza penalità. Per modificarla serve la connessione, perché la modifica deve arrivare agli amici.",
       "info.fr.s2": "Routine di gruppo",
       "info.fr.s2p1": "Su una routine, “Invita” la condivide con fino a 3 amici. Ognuno ha la sua: gli XP arrivano quando la completi, e la penalità la paga solo chi non la fa. In più c'è la serie di gruppo: i periodi di fila in cui l'avete completata tutti, con il suo bonus.",
@@ -1314,7 +1314,7 @@
 
       "info.mis.s5": "Skipping a time",
 
-      "info.mis.s5p1": "If a routine can't be done one time (the class is cancelled, you're traveling…), skip it from the Calendar: tap the day and press “Skip” on the routine. It works for the current time, until it's overdue, and for future ones. Weekly and monthly routines sit on the last day of the period, with “Skip the week” or “Skip the month”.",
+      "info.mis.s5p1": "If a routine can't be done one time (the class is cancelled, you're traveling…), press “Skip”: on the Missions screen for today's time, or in the Calendar (tap the day) also for future ones. It works until the time is overdue. Weekly and monthly routines sit on the last day of the period, with “Skip the week” or “Skip the month”.",
 
       "info.mis.s5p2": "A skipped time doesn't count: no XP, no penalty, and your streak stays as it is. Until it would be overdue you can press “Undo skip”.",
 
@@ -1327,7 +1327,7 @@
       "info.fr.p2": "Friends only see your profile: name, title, level, stats, colors and, if you choose, your background. Nobody sees your missions, except the ones you share with a friend.",
       "info.fr.s1": "Shared missions",
       "info.fr.s1p1": "On a mission card, “Invite” shares it with up to 3 friends, and each one chooses whether to accept. You pass it when you've all completed it: everyone gets the XP at that moment. If someone hasn't completed it by the deadline, the mission fails for everyone, but only whoever didn't do their part pays the penalty.",
-      "info.fr.s1p2": "Anyone who can't do it skips it before the deadline (“Skip”): no XP and no penalty, and it goes on for the others.",
+      "info.fr.s1p2": "Anyone who can't do it skips it before the deadline (“Skip”, on the Missions screen or in the Calendar): no XP and no penalty, and it goes on for the others.",
       "info.fr.s1p3": "Reward, penalty and deadline are decided by whoever created it, like who to invite. Title and description change right away; the rest applies from tomorrow for everyone, and the participants choose right away whether to accept the new rules or leave with no penalty. Editing it needs a connection, because the change has to reach your friends.",
       "info.fr.s2": "Group routines",
       "info.fr.s2p1": "On a routine, “Invite” shares it with up to 3 friends. Each of you has your own: you get the XP when you complete it, and only whoever doesn't do it pays the penalty. On top of that there's the group streak: the periods in a row you all completed it, with its bonus.",
@@ -2064,7 +2064,7 @@
 
       "info.mis.s5": "Pular uma vez",
 
-      "info.mis.s5p1": "Se uma vez de uma rotina não puder ser feita (a aula foi cancelada, você está viajando…), pule-a pelo Calendário: toque no dia e aperte “Pular” na rotina. Funciona para a vez atual, até vencer, e para as futuras. As rotinas semanais e mensais ficam no último dia do período, com “Pular a semana” ou “Pular o mês”.",
+      "info.mis.s5p1": "Se uma vez de uma rotina não puder ser feita (a aula foi cancelada, você está viajando…), toque em “Pular”: na tela Missões para a vez de hoje, ou no Calendário (toque no dia) também para as futuras. Funciona até a vez vencer. As rotinas semanais e mensais ficam no último dia do período, com “Pular a semana” ou “Pular o mês”.",
 
       "info.mis.s5p2": "Uma vez pulada não conta: nada de XP, nada de penalidade, e a sequência fica como está. Até o momento em que venceria, você pode apertar “Desfazer pulo”.",
 
@@ -2077,7 +2077,7 @@
       "info.fr.p2": "Os amigos veem só o seu perfil: nome, título, nível, estatísticas, cores e, se você quiser, o fundo. Ninguém vê as suas missões, exceto as que você compartilha com um amigo.",
       "info.fr.s1": "Missões compartilhadas",
       "info.fr.s1p1": "No card de uma missão, “Convidar” a compartilha com até 3 amigos, e cada um escolhe se aceita. Vocês a superam quando todos a concluírem: o XP chega para todos nesse momento. Se no prazo alguém não a tiver concluído, a missão fracassa para todos, mas a penalidade só paga quem não fez a sua parte.",
-      "info.fr.s1p2": "Quem não puder fazê-la a pula antes do prazo (“Pular”): nada de XP e nada de penalidade, e ela continua para os outros.",
+      "info.fr.s1p2": "Quem não puder fazê-la a pula antes do prazo (“Pular”, na tela Missões ou no Calendário): nada de XP e nada de penalidade, e ela continua para os outros.",
       "info.fr.s1p3": "Recompensa, penalidade e prazo são decididos por quem a criou, assim como quem convidar. Título e descrição mudam na hora; o resto vale a partir de amanhã para todos, e os participantes escolhem na hora se aceitam as novas regras ou saem sem penalidade. Para editá-la é preciso estar conectado, porque a mudança precisa chegar aos amigos.",
       "info.fr.s2": "Rotinas em grupo",
       "info.fr.s2p1": "Em uma rotina, “Convidar” a compartilha com até 3 amigos. Cada um tem a sua: o XP chega quando você a conclui, e a penalidade só paga quem não a faz. Além disso existe a sequência do grupo: os períodos seguidos em que todos a concluíram, com o seu bônus.",

@@ -624,6 +624,8 @@
           const p = { s: MISSIONS.occKey(m), e: MISSIONS.occEnd(m) };
           act.appendChild(skipBtn(rtn, perKind(rtn, p.s), p, () => skipOcc(m.id)));
         }
+        // missione condivisa: "Salta" anche qui, come nella scheda Missioni ("Salta" c'è in tutti e due i posti)
+        if (shi && shi.out === 'open' && !shi.pending && shi.canWithdraw) act.appendChild(withdrawBtn(m));
       } else if (m.done) {
         // condivisa: non si annulla; routine di gruppo: non dopo che l'avete fatta tutti (la serie di gruppo l'ha contata)
         if (!m.sid && SR().canUndo(m)) act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
@@ -673,6 +675,11 @@
         // (eliminata, o di una routine eliminata: non si modifica più, si può solo ripristinare)
         if (!isLate(m) && !m.del && !(m.rid && !rtn) && !(rtn && (rtn.sh === 'g' || rtn.del))) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
         if (m.del) act.appendChild(btn('', T('btn.restore'), T('aria.restore'), () => restoreMission(m.id)));
+        // "Salta" la volta in corso anche qui, come nel Calendario (lì anche le volte future e "Annulla salto")
+        if (rtn && MISSIONS.canSkipOcc(rtn, m) && skippable(rtn) && !(sri && sri.pending)) {
+          const p = { s: MISSIONS.occKey(m), e: MISSIONS.occEnd(m) };
+          act.appendChild(skipBtn(rtn, perKind(rtn, p.s), p, () => skipOcc(m.id)));
+        }
         // routine eliminata: "Ripristina" anche qui, per tutta la routine (come "Modifica"), finché non è arrivato il suo giorno
         if (rtn && rtn.del && rtn.del > todayStr()) act.appendChild(btn('', T('btn.restore'), T('aria.restore'), () => restoreRoutine(rtn.id)));
         // routine: "Invita" anche qui (come "Modifica"), per tutta la routine; solo chi l'ha creata, finché c'è posto
@@ -705,8 +712,9 @@
     }
     // "Esci" da una routine di gruppo: nessuna penalità, la routine resta tua (chiede conferma)
     const exitBtn = r => armedBtn('', T('sh.exit'), T('sr.exit.aria') + ' ' + r.title, T('sr.exit.confirm'), null, () => SR().exit(r.id));
-    // "Abbandona": fa fallire la missione per entrambi, quindi chiede conferma
-    const withdrawBtn = m => armedBtn(' sub', T('sh.withdraw'), T('sh.withdraw') + ' ' + m.title, T('sh.withdraw.confirm'), null, () => SH().withdraw(m.id));
+    // "Salta" una missione condivisa (niente XP e niente penalità, per gli altri continua): non si annulla, quindi chiede
+    // conferma. Colore neutro, come "Salta" nelle routine, "Modifica" e "Invita"
+    const withdrawBtn = m => armedBtn('', T('sh.withdraw'), T('sh.withdraw') + ' ' + m.title, T('sh.withdraw.confirm'), null, () => SH().withdraw(m.id));
     // invito ricevuto a una routine di gruppo: la routine come la vedresti, con "Accetta" e "Rifiuta"
     function routineInviteCard(x) {
       const r = x.r;
@@ -947,7 +955,7 @@
       card.focus({ preventScroll: true });
       card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
     }
-    /* ---------- saltare una volta (dal Calendario) ---------- */
+    /* ---------- saltare una volta (dalla scheda Missioni o dal Calendario) ---------- */
     // Le regole sono in missions.js (applySkip, unskipPlan...): qui i pulsanti, le etichette e il salvataggio.
     // 'd' = routine di ogni giorno, 'w' = settimanale, 'm' = mensile (con le regole che valgono in quel periodo)
     const perKind = (r, s) => { const y = MISSIONS.rulesOn(r, s); return isDaily(y) ? 'd' : y.freq; };
