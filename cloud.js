@@ -20,11 +20,11 @@
   'use strict';
   function create(D, ST) {
     const {
-      T, TN, STATS, levelFromXp, overallOf, blank, normalize, SYNC, normDel, rawOf, clampXp, mergeItems, monthOf,
-      normalizeMissions, normalizeRoutines, fmt, saveLocal, hasProgress, defaultSettings, saveSettingsLocal, isDefaultSettings,
+      T, STATS, blank, normalize, SYNC, normDel, rawOf, clampXp, mergeItems, monthOf,
+      normalizeMissions, normalizeRoutines, saveLocal, hasProgress, defaultSettings, saveSettingsLocal, isDefaultSettings,
       LANGS, applyLang, mergeSettings, IMG_NAMES, CLOUD_IMG_MAX, validImg, imgs, imgTouched, saveImgLocal, imagesInit, saveMissionsLocal,
       saveRoutinesLocal, setSaveState, lsSet, blankSync, DEV, absorbLocal, recomputeXp, hasPend, saveSync, missionSig,
-      routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, openModal, closeModal, applyImages, cs, paintCustom,
+      routineSig, seenOf, mSeen, rSeen, sfx, musicSync, $, render, applyImages, cs, paintCustom,
       applyAll, imgQueue, flushImgs, monthQueue, flushMissions, touchMonth, MUI, checkPenalties, renderMissionViews, rmodal,
       renderRoutines, renderInfo, schedulePublish, friendsReset, checkFriendRequests, LS_ACC, sharedStart, sharedReset,
       wipeLocalData, clearDeviceData, discardLocal, syncBusy,
@@ -260,15 +260,8 @@
     };
     // l'accesso funziona solo da un indirizzo web (https o localhost), non aprendo il file dal dispositivo
     function fbUsable() { return location.protocol === 'https:' || location.hostname === 'localhost'; }
-    // Le librerie Firebase (circa 700 KB) si caricano solo se servono: all'avvio se avevi già fatto l'accesso,
-    // altrimenti quando apri le impostazioni (per essere pronte al tocco su "Accedi").
+    // se sul dispositivo resta il segno di un accesso fatto in precedenza (serve solo a uscire in modo pulito)
     const LS_SIGNED = 'liferpg:signed';
-    function wasSignedIn() {
-      try {
-        const v = localStorage.getItem(LS_SIGNED);
-        return v === '1' || (v === null && !!localStorage.getItem(LS_ACC));   // versione precedente: basta essere stati collegati
-      } catch (e) { return false; }
-    }
     const markSigned = on => lsSet(LS_SIGNED, on ? '1' : '0');
     let fbLoading = null;
     function loadFirebase() {
@@ -622,7 +615,7 @@
     });
     // "Elimina account": cancella tutto quello che sta nell'account (profilo, progressi, missioni, routine,
     // amicizie, codice amico) e poi anche l'accesso Google stesso. Va confermato con un secondo tocco, come
-    // "Azzera tutto". È un'azione "meglio possibile": se un pezzo non si può cancellare per via delle regole
+    // "Azzera tutto", e poi con l'accesso Google (prima di cancellare qualsiasi cosa). È un'azione "meglio possibile": se un pezzo non si può cancellare per via delle regole
     // di sicurezza (per esempio una missione condivisa dove un amico ha già accettato, che solo lui o la
     // scadenza possono chiudere), l'operazione prova a uscirne e prosegue comunque con il resto.
     let delArmed = 0;
@@ -678,6 +671,11 @@
       await dropGroupDocs('sroutines');
     }
     const delBtn = $('btn-del-account');
+    // attende (al massimo ms millisecondi) che finiscano le scritture già partite verso l'account
+    async function waitIdle(ms) {
+      const end = Date.now() + ms;
+      while ((ST.writing || syncBusy()) && Date.now() < end) await new Promise(r => setTimeout(r, 100));
+    }
     if (delBtn) delBtn.addEventListener('click', async () => {
       if (ST.accBusy || ST.delBusy || !ST.fbAuth || !ST.fbUser) return;
       if (Date.now() >= delArmed) {
@@ -690,26 +688,40 @@
       delArmed = 0;
       delBtn.textContent = T('del.btn'); delBtn.removeAttribute('aria-label');
       ST.delBusy = true; paintAccount();
-      delMsg(T('del.busy'));
+      delMsg(T('del.check'));
       const uid = ST.fbUser.uid;
+      const stop = key => { delMsg(T(key)); ST.delBusy = false; paintAccount(); };
+      // 1. Prima di cancellare qualsiasi cosa, Google conferma che sei proprio tu (serve comunque per eliminare
+      //    l'accesso). Il popup si apre subito, dentro il tocco: così il browser non lo blocca. Con
+      //    reauthenticateWithPopup non si può scegliere un altro account (Firebase risponde auth/user-mismatch).
       try {
-        await deleteCloudData(uid);
-        try { await ST.fbUser.delete(); }
-        catch (e) {
-          if (e && e.code === 'auth/requires-recent-login') {
-            delMsg(T('del.reauth'));
-            try {
-              const provider = new firebase.auth.GoogleAuthProvider();
-              await ST.fbAuth.signInWithPopup(provider);
-              await ST.fbAuth.currentUser.delete();
-            } catch (e2) { console.warn('auth', e2); delMsg(T('del.err')); ST.delBusy = false; paintAccount(); return; }
-          } else { throw e; }
-        }
+        await ST.fbUser.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
       } catch (e) {
-        console.warn('cloud', e); delMsg(T('del.err')); ST.delBusy = false; paintAccount(); return;
+        console.warn('auth', e);
+        const code = (e && e.code) || '';
+        if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') stop('del.cancel');
+        else if (code === 'auth/user-mismatch') stop('del.mismatch');
+        else if (code === 'auth/popup-blocked') stop('del.popup');
+        else stop('del.err');
+        return;
       }
+      if (!ST.fbUser || ST.fbUser.uid !== uid) { stop('del.err'); return; }
+      // 2. Niente più aggiornamenti in diretta né nuovi tentativi di scrittura, e si aspetta la fine di quelle già
+      //    partite: altrimenti potrebbero riscrivere nell'account una parte dei dati appena cancellati.
+      delMsg(T('del.busy'));
       stopListening();
       clearTimeout(retryT);
+      await waitIdle(5000);
+      // 3. Si cancellano i dati e poi l'accesso (appena confermato: Firebase non chiede di rifarlo)
+      try {
+        await deleteCloudData(uid);
+        await ST.fbUser.delete();
+      } catch (e) {
+        console.warn('cloud', e);
+        startListening();   // l'account c'è ancora: si torna ad ascoltarlo
+        stop('del.err');
+        return;
+      }
       markSigned(false);
       ST.fbUser = null; ST.dbRef = null;
       friendsReset();

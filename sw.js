@@ -3,7 +3,7 @@
    - La pagina e i file dell'app (index.html, style.css, i18n.js, game.js, draw.js, look.js, sync.js, missions.js, missions-ui.js, settings-ui.js, cloud.js, friends.js, shared.js, shared-routines.js, audio.js, index.js): prima si prova la rete,
      così un aggiornamento arriva sempre tutto insieme (markup, stili e logica della stessa versione).
      Se la rete manca o è lenta (più di 4 secondi) si usa la copia salvata; la risposta arrivata in ritardo
-     aggiorna comunque la copia, per la prossima volta.
+     aggiorna comunque la copia, per la prossima volta. Le altre pagine (privacy.html) si salvano con il loro nome.
    - Icone, manifest e librerie Firebase: si usa subito la copia salvata e intanto la si aggiorna
      (cambiano di rado e non devono "andare d'accordo" con il resto).
    - Tutto ciò che viene da altri siti (account Google e Firebase, Calendar) non viene toccato.
@@ -14,7 +14,7 @@
    a ogni release per evitare HTML nuovo con JS vecchio. Cambiala solo se vuoi forzare la pulizia
    di tutta la copia salvata (per esempio se togli o rinomini dei file). */
 
-const CACHE = 'life-rpg-v54';
+const CACHE = 'life-rpg-v55';   // v55: toglie le copie di index.html sovrascritte per errore da privacy.html
 const PAGE = './index.html';
 const APP_FILES = ['./style.css', './i18n.js', './game.js', './draw.js', './look.js', './sync.js', './missions.js', './missions-ui.js', './settings-ui.js', './cloud.js', './friends.js', './shared.js', './shared-routines.js', './audio.js', './index.js'];
 const FILES = [
@@ -24,6 +24,8 @@ const FILES = [
 // le librerie Firebase non si scaricano all'installazione: si salvano la prima volta che l'app le usa
 const APP_PATHS = new Set(APP_FILES.map(f => new URL(f, self.location).pathname));
 const WAIT_MS = 4000;
+const SCOPE = new URL('./', self.location).pathname;
+const isAppPage = url => url.pathname === SCOPE || url.pathname === SCOPE + 'index.html';
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
@@ -86,7 +88,9 @@ self.addEventListener('fetch', e => {
   if (url.origin !== self.location.origin) return;
   // audio e richieste "a pezzi" (Range): vanno diretti alla rete, altrimenti alcuni browser non riproducono la musica
   if (req.headers.has('range') || req.destination === 'audio' || req.destination === 'video') return;
-  if (req.mode === 'navigate') e.respondWith(networkFirst(e, PAGE));
+  // la pagina dell'app (./ o index.html) si salva sempre come index.html; le altre pagine (privacy.html) con il loro
+  // nome, così non prendono mai il posto dell'app nella copia salvata
+  if (req.mode === 'navigate') e.respondWith(networkFirst(e, isAppPage(url) ? PAGE : url.pathname));
   else if (APP_PATHS.has(url.pathname)) e.respondWith(networkFirst(e, url.pathname));
   else e.respondWith(cacheFirst(e));
 });

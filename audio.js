@@ -84,10 +84,12 @@
       sfxNow(kind, arg);
     }
     let sfxSeq = 0;
+    // il motore audio (Web Audio), creato alla prima occorrenza: effetti sonori e, su iPhone e iPad, volume della musica
+    const ctx = () => (audio = audio || new (window.AudioContext || window.webkitAudioContext)());
     function sfxNow(kind, arg) {
       if (kind === 'open' || kind === 'close') lastLow = Date.now(); else lastMajor = Date.now();
       try {
-        audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+        ctx();
         const play = () => {
           try {
             const t = audio.currentTime;
@@ -137,12 +139,35 @@
     const musicLevel = () => (fullVolume() || musicBoost) ? 1 : MUSIC_DUCK;
     const musicTarget = () => musicGain() * musicLevel();
     let musicEl = null, musicFile = '', musicFailed = false, musicFade = 0;
+    // Su iPhone e iPad il volume di un elemento <audio> non si può cambiare da programma (resta sempre al massimo):
+    // lì la musica passa da un nodo di guadagno di Web Audio, e dissolvenze e volume si regolano su quello.
+    let volLocked = null, musicGainNode = null;
+    function isVolLocked() {
+      if (volLocked === null) {
+        try { const t = new Audio(); t.volume = 0.5; volLocked = Math.abs(t.volume - 0.5) > 0.01; } catch (e) { volLocked = false; }
+      }
+      return volLocked;
+    }
+    const getVol = () => (musicGainNode ? musicGainNode.gain.value : musicEl ? musicEl.volume : 0);
+    function setVol(v) {
+      v = Math.min(1, Math.max(0, v));
+      if (musicGainNode) musicGainNode.gain.value = v; else if (musicEl) musicEl.volume = v;
+    }
     const musicMissing = new Set();      // brani che il server non ha: non si richiedono di nuovo
     function loadTrack(file) {
       if (!musicEl) {
         musicEl = new Audio();
         musicEl.loop = true; musicEl.preload = 'auto'; musicEl.volume = 0;
         musicEl.addEventListener('error', onMusicError);
+        if (isVolLocked()) {
+          try {
+            const c = ctx(), g = c.createGain();
+            g.gain.value = 0;
+            c.createMediaElementSource(musicEl).connect(g);
+            g.connect(c.destination);
+            musicGainNode = g;
+          } catch (e) { musicGainNode = null; }   // senza Web Audio: il volume resta quello del sistema
+        }
       }
       if (musicFile !== file) { musicFile = file; musicEl.src = MUSIC_DIR + file; }   // cambiando brano si riparte dall'inizio
     }
@@ -180,12 +205,12 @@
       return musicEl;
     }
     function fadeMusic(to, ms, done) {
-      const a = musicEl; if (!a) return;
+      if (!musicEl) return;
       clearInterval(musicFade);
-      const from = a.volume, steps = Math.max(1, Math.round(ms / 50)); let i = 0;
+      const from = getVol(), steps = Math.max(1, Math.round(ms / 50)); let i = 0;
       musicFade = setInterval(() => {
         i++;
-        a.volume = Math.min(1, Math.max(0, from + (to - from) * (i / steps)));
+        setVol(from + (to - from) * (i / steps));
         if (i >= steps) { clearInterval(musicFade); if (done) done(); }
       }, 50);
     }
@@ -193,6 +218,7 @@
     const musicIdle = () => !musicEl || musicEl.paused;    // true se in questo momento non suona niente
     function musicPlay() {           // parte, oppure porta il volume al livello giusto per la scheda in cui sei
       const a = getMusic(); if (!a) return;
+      if (musicGainNode && audio && audio.state !== 'running') { try { audio.resume(); } catch (e) { /* ignora */ } }
       const p = a.play();
       const ok = () => fadeMusic(musicTarget(), 600);
       if (p && p.then) p.then(ok, () => { /* il browser aspetta un tocco: si riprova al prossimo */ }); else ok();
@@ -226,7 +252,7 @@
       clearTimeout(musicBoostT);
       musicBoostT = setTimeout(() => { musicBoost = false; musicRetune(); }, 2000);
       if (musicEl && !musicEl.paused) {
-        if (wasFull) { clearInterval(musicFade); musicEl.volume = musicTarget(); } else fadeMusic(musicTarget(), 200);
+        if (wasFull) { clearInterval(musicFade); setVol(musicTarget()); } else fadeMusic(musicTarget(), 200);
       } else if (musicWanted()) musicPlay();
     }
 

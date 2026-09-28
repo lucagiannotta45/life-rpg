@@ -80,7 +80,6 @@
     STATS, ICONS, ALIASES, MAX_LEVEL, xpForLevel, levelFromXp, fracLevel, overallOf, PAIRS, TRIPLES,
     QUADS, QUINTS, TIERS, GRADES, SPEC_MIN_LEVEL, blank, normalize,
   } = GAME;
-  const heroRole = (x = xp) => GAME.heroRole(x);     // di solito si guardano i tuoi XP
   const heroClass = (x = xp) => GAME.heroClass(x);
   // Regole della sincronizzazione tra dispositivi (calcoli puri): sono in sync.js
   const SYNC = window.LIFE_RPG_SYNC.create(GAME);
@@ -488,6 +487,7 @@
     return arm;
   }
   const resetArm = armable(() => [$('btn-reset')], () => T('data.reset'), () => T('data.reset.confirm'));
+  const importArm = armable(() => [$('btn-import')], () => T('data.import'), () => T('data.import.confirm'));
   const custResetArm = armable(() => [$('btn-custom-reset')], () => T('look.reset'), () => T('look.reset.confirm'));
   const mfDelArm = armable(() => [$('mf-del')], () => T('btn.delete'), () => T('btn.delete.confirm'));
   const fpArm = armable(() => [$('fp-remove')], () => T('fr.remove'), () => T('fr.remove.confirm'));
@@ -509,7 +509,7 @@
 
   // disegni a pixel (icone, cifre, linguetta del livello) e radar: sono in draw.js
   const DRAW = window.LIFE_RPG_DRAW.create(T, GAME);
-  const { icoPx, snapSize, iconSvg, digitsSvg, levelTabSvg, radarMarkup, radarShapePoints, RADAR_IDX, POS } = DRAW;
+  const { icoPx, snapSize, iconSvg, digitsSvg, levelTabSvg, radarMarkup, radarShapePoints, POS } = DRAW;
   // se cambia lo zoom o lo schermo, le icone si ricalcolano
   window.addEventListener('resize', () => {
     document.querySelectorAll('svg[data-px]').forEach(sv => {
@@ -683,6 +683,7 @@
     activeModal.hidden = true;
     activeModal = null;
     resetArm(false);
+    importArm(false);
     custResetArm(false);
     mfDelArm(false);
     clearPasteSlot();
@@ -720,6 +721,25 @@
     } catch (e) { return false; }
   }
 
+  // Routine di gruppo e missioni condivise ancora in corso: "Azzera tutto" e "Importa" non passano dalle uscite
+  // dal gruppo (beforeDelete, release), quindi i documenti condivisi resterebbero con te dentro e gli amici
+  // aspetterebbero la tua parte per sempre. Prima si esce dai gruppi (o li si scioglie), poi si azzera o si importa.
+  const inGroups = () => routines.some(r => r.sr) || missions.some(m => m.sid && !m.done && !m.failed);
+  function groupsBlock() {
+    if (!inGroups()) return false;
+    dataMsg(T('data.msg.groups'));
+    sfx('err');
+    return true;
+  }
+  // i dati di gruppo di un backup (documenti condivisi di allora) non si ricollegano: diventano missioni e routine normali
+  function detachGroups(list) {
+    list.forEach(x => {
+      if (x.sr) ['sr', 'sh', 'shn', 'srd', 'tz', 'gs', 'gsd', 'gbest', 'gx'].forEach(k => { delete x[k]; });   // routine
+      if (x.sid && !x.done && !x.failed) ['sid', 'sh', 'shn', 'shd'].forEach(k => { delete x[k]; });    // missione in corso
+    });
+    return list;
+  }
+
   // il salvataggio completo (usato dal backup)
   function buildBackup() {
     const out = { ...xp, _settings: settings };
@@ -749,7 +769,7 @@
     }
     if (Array.isArray(obj._missions)) {
       const months = new Set(missions.map(monthOf));
-      const next = normalizeMissions(obj._missions), keep = new Set(next.map(m => m.id));
+      const next = detachGroups(normalizeMissions(obj._missions)), keep = new Set(next.map(m => m.id));
       tombMissions(missions.filter(m => !keep.has(m.id)));
       missions = next;
       const epoch = Date.now();
@@ -758,7 +778,7 @@
       renderMissionViews();
     }
     if (Array.isArray(obj._routines)) {
-      const next = normalizeRoutines(obj._routines), keep = new Set(next.map(r => r.id));
+      const next = detachGroups(normalizeRoutines(obj._routines)), keep = new Set(next.map(r => r.id));
       routines.filter(r => !keep.has(r.id)).forEach(r => tombRoutine(r.id));
       routines = next;
       rSeen.clear();
@@ -780,7 +800,13 @@
       : T('data.msg.copy'));
   });
 
-  $('btn-import').addEventListener('click', () => $('file-import').click());
+  // importare sostituisce tutti i dati: come "Azzera tutto", va confermato con un secondo tocco
+  $('btn-import').addEventListener('click', () => {
+    if (groupsBlock()) return;
+    if (!$('btn-import').dataset.armed) { importArm(true); return; }
+    importArm(false);
+    $('file-import').click();
+  });
   $('file-import').addEventListener('change', e => {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
@@ -791,6 +817,7 @@
       try {
         const obj = JSON.parse(String(reader.result));
         if (!isBackup(obj)) { dataMsg(T('data.msg.unknown')); return; }
+        if (groupsBlock()) return;
         applyBackup(obj);
         dataMsg(T('data.msg.imported'));
       } catch (err) {
@@ -804,6 +831,7 @@
 
   const resetBtn = $('btn-reset');
   resetBtn.addEventListener('click', () => {
+    if (groupsBlock()) return;
     if (!resetBtn.dataset.armed) { resetArm(true); return; }   // solo "Azzera tutto" → "Conferma", nello stesso punto
     resetArm(false);
     xp = blank(); xpAbs = Date.now(); persist(); render(true);
@@ -854,7 +882,7 @@
     document.querySelectorAll('#settings input[type="color"]').forEach(c => {
       if (c._hex) c._hex.setAttribute('aria-label', T('hex.aria'));
     });
-    paintSound(); paintMusic(); resetArm(false); custResetArm(false); mfDelArm(false);
+    paintSound(); paintMusic(); resetArm(false); importArm(false); custResetArm(false); mfDelArm(false);
     setSaveState(saveKind);
     if (cs.Vigore) paintCustom();
     render(false);

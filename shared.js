@@ -602,7 +602,7 @@
     // (per chi l'ha creata) su una condivisa ancora aperta, con meno di 3 amici
     function canInvite(m) {
       if (!S.fbUser || m.rid || m.done || m.failed || MISSIONS.isLate(m)) return false;
-      if (!m.sid) return true;
+      if (!m.sid) return MISSIONS.groupSafe(m);   // entro i limiti di premi e penalità (missions.js, firestore.rules)
       const d = docOf(m);
       return !!(d && isV2(d) && roleOf(d) === 'o' && !ownerOut(d) && ['invite', 'open'].includes(outcome(d)) && guests(d).length < MAX_GUESTS);
     }

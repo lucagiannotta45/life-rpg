@@ -3,7 +3,8 @@
  * ---------------------------------------------------------------
  * Ogni giocatore ha un codice amico (8 caratteri) e un profilo pubblico: nome, livello complessivo,
  * XP delle sei statistiche (da cui l'app dell'amico ricalcola titolo e grafico nella sua lingua).
- * Il profilo lo leggono solo gli amici (regole su Firebase). Le missioni non escono mai dall'account.
+ * Il profilo lo leggono solo gli amici (regole su Firebase). Le missioni non escono dall'account, tranne quelle che
+ * condividi (shared.js, shared-routines.js).
  *
  * Qui: il codice amico, la pubblicazione del profilo, richieste e elenco degli amici, la finestra Amici
  * e il profilo di un amico (la sua scheda Personaggio in sola lettura, con i suoi colori, il suo sfondo
@@ -227,7 +228,7 @@
       if ($('fmodal').hidden) openModal($('fmodal'), $('fr-in'), opts);
       renderFriends();
       frMsg(T('fr.msg.wait'));
-      try { await ensureCode(); await publishProfile(); await loadFriends(); renderFriends(); frMsg(afterMsg || ''); }
+      try { await ensureCode(); await publishProfile(); await loadFriends(); renderFriends(); frMsg(afterMsg || '', opts && opts.bad ? 'bad' : ''); }
       catch (e) { console.warn('friends', e); frMsg(T('fr.msg.err'), 'bad'); }
     }
     $('btn-friends').addEventListener('click', () => openFriends());
@@ -316,14 +317,16 @@
     // uscire dal profilo di un amico e tornare alla lista: concettualmente è una CHIUSURA (del profilo),
     // non un'apertura — si lascia sentire il decrescendo di closeModal(), invece di coprirlo con
     // l'apertura (silenziosa qui apposta) della lista dietro
-    function backToFriends(msg) { closeModal(); openFriends(msg, { silentOpen: true }); }
+    function backToFriends(msg, bad) { closeModal(); openFriends(msg, { silentOpen: true, bad: !!bad }); }
     $('fp-close').addEventListener('click', () => backToFriends());
     $('fpmodal').addEventListener('click', e => { if (e.target === $('fpmodal')) backToFriends(); });
     $('fp-remove').addEventListener('click', async () => {
       const b = $('fp-remove');
       if (!b.dataset.armed) { fpArm(true); return; }
       fpArm(false);
-      try { await S.fbDb.doc('friendships/' + pairOf(S.fbUser.uid, fpUid)).delete(); } catch (e) { console.warn('friends', e); }
+      // il messaggio di conferma solo se la rimozione è arrivata davvero all'account
+      try { await S.fbDb.doc('friendships/' + pairOf(S.fbUser.uid, fpUid)).delete(); }
+      catch (e) { console.warn('friends', e); sfx('err'); backToFriends(T('fr.msg.err'), true); return; }
       backToFriends(T('fr.msg.removed'));
     });
 

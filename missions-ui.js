@@ -30,7 +30,7 @@
     const {
       MAX_PER_MONTH, MAX_MISSIONS, MAX_ROUTINES, pad2, isoDate, parseDate, todayStr, addDaysStr, monthOf, validDate, validTime,
       rewardTotal, rewardMatch, startMs, dueEndMs, isLate, notYet, WD_ALL, gcalUrl, gcalRoutineUrl,
-      MAX_TIMES, MAX_EVERY, isDaily, changeAt, routineToday,
+      MAX_TIMES, MAX_EVERY, isDaily, changeAt, routineToday, MAX_REWARD, MAX_PENALTY, MAX_BONUS_XP, sumOf,
     } = MISSIONS;
     const nameSpan = key => D.nameSpan(key);   // in index.js è definito più avanti: si prende al momento dell'uso
     // missioni condivise (shared.js): nasce dopo questo file; finché non c'è, nessuna missione risulta condivisa
@@ -51,9 +51,17 @@
     // la data a metà frase: senza la maiuscola che fmtDay mette all'inizio ("dal sabato 3 ottobre")
     const midDay = ds => parseDate(ds).toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
     // primo giorno della settimana (0 = domenica, 1 = lunedì, 6 = sabato): scelto nelle impostazioni, oppure, in
-    // automatico, secondo la lingua dell'app (italiano: lunedì; inglese e portoghese del Brasile: domenica).
+    // automatico, secondo la lingua dell'app e la regione del dispositivo: se il dispositivo usa la stessa lingua con
+    // una sua regione (inglese del Regno Unito, portoghese del Portogallo...) vale quella, altrimenti la regione della
+    // lingua dell'app (italiano: lunedì; inglese degli Stati Uniti e portoghese del Brasile: domenica).
     // Le regole sono in missions.js.
-    const firstDay = () => MISSIONS.firstDayOf(S.settings ? S.settings.week : 'auto', locale());
+    const weekTag = () => {
+      const app = locale();
+      let dev = '';
+      try { dev = String(navigator.language || ''); } catch (e) { /* ignora */ }
+      return dev.includes('-') && dev.split('-')[0].toLowerCase() === app.split('-')[0].toLowerCase() ? dev : app;
+    };
+    const firstDay = () => MISSIONS.firstDayOf(S.settings ? S.settings.week : 'auto', weekTag());
     const firstDayName = () => new Date(2024, 0, 7 + firstDay()).toLocaleDateString(locale(), { weekday: 'long' });   // 7/1/2024 = domenica
     // nomi brevi dei giorni: "cal.wd" li elenca da lunedì; d = numero di Date.getDay
     const wdName = d => T('cal.wd').split(',')[(d + 6) % 7] || '';
@@ -87,7 +95,7 @@
       if (isRoutine && freqText(cur) !== freqText(nxt)) parts.push(both(freqText(cur), freqText(nxt)));
       if (nxt.rewards && !eq(cur.rewards, nxt.rewards)) parts.push(T('chg.reward', { what: both(xpList(cur.rewards), xpList(nxt.rewards)) }));
       else if (nxt.rewards && !eq(cur.stars, nxt.stars)) {
-        const st = (x, k) => (x ? String(x[k]) : '–');
+        const st = (x, k) => (x ? String(x[k]) : '-');   // (il font non ha la lineetta lunga)
         if (st(cur.stars, 'd') !== st(nxt.stars, 'd')) parts.push(T('chg.dur', { what: both(st(cur.stars, 'd'), st(nxt.stars, 'd')) }));
         if (st(cur.stars, 'f') !== st(nxt.stars, 'f')) parts.push(T('chg.dif', { what: both(st(cur.stars, 'f'), st(nxt.stars, 'f')) }));
       }
@@ -1172,7 +1180,7 @@
       plabel.htmlFor = 'mf-pen-' + s.key;
       const pinp = mk('input', 'xp-in');
       pinp.id = 'mf-pen-' + s.key;
-      pinp.type = 'number'; pinp.min = '0'; pinp.max = String(MAX_XP); pinp.step = '1';
+      pinp.type = 'number'; pinp.min = '0'; pinp.max = String(MAX_PENALTY); pinp.step = '1';
       pinp.inputMode = 'numeric'; pinp.placeholder = '0'; pinp.autocomplete = 'off';
       prow.append(plabel, pinp);
       formLabels.push([s, label, plabel]);
@@ -1500,9 +1508,9 @@
       let bonus = null;
       if (ev || bx) {
         const e = Number(ev), x = Number(bx);
-        const okE = Number.isInteger(e) && e >= 2 && e <= MAX_EVERY, okX = Number.isInteger(x) && x >= 1 && x <= MAX_XP;
+        const okE = Number.isInteger(e) && e >= 2 && e <= MAX_EVERY, okX = Number.isInteger(x) && x >= 1 && x <= MAX_BONUS_XP;
         // il messaggio parla di giorni, settimane o mesi; il cursore va sul campo da correggere
-        if (!okE || !okX) return fail(T(freq === 'd' ? 'mf.err.bonus' : 'mf.err.bonus.' + freq, { max: fmt(MAX_XP) }), $(okE ? 'mf-bonus-xp' : 'mf-bonus-every'));
+        if (!okE || !okX) return fail(T(freq === 'd' ? 'mf.err.bonus' : 'mf.err.bonus.' + freq, { max: fmt(MAX_BONUS_XP) }), $(okE ? 'mf-bonus-xp' : 'mf-bonus-every'));
         bonus = { every: e, xp: x };
       }
       const blk = SR().editBlock(r);   // routine di gruppo: serve il documento, e la connessione, per avvisare gli amici
@@ -1648,6 +1656,12 @@
         rewardSum += n;
       }
       if (rewardSum !== rewardTarget) return fail(T('mf.err.xpsum', { have: fmt(rewardSum), total: fmt(rewardTarget) }), xpInputs[STATS[0].key]);
+      // una missione condivisa o una routine di gruppo creata prima delle stelle può avere più XP del massimo di adesso:
+      // gli amici (e le regole di Firebase) non la accetterebbero, quindi va ridotta
+      const editingM = editingId ? S.missions.find(x => x.id === editingId) : null, editingR = editingRoutine();
+      if (rewardSum > MAX_REWARD && ((editingM && editingM.sid) || (formRepeat && editingR && editingR.sr))) {
+        return fail(T('mf.err.rewardgroup', { max: fmt(MAX_REWARD) }), null);
+      }
       const stars = (mfDur && mfDif) ? { d: mfDur, f: mfDif } : null;
       const penalty = {};
       let anyPen = false;
@@ -1660,6 +1674,8 @@
         penalty[s.key] = n;
         if (n > 0) anyPen = true;
       }
+      // la penalità totale di una volta: al massimo quanto la ricompensa più alta possibile (missions.js, MAX_PENALTY)
+      if (sumOf(penalty) > MAX_PENALTY) return fail(T('mf.err.pentotal', { max: fmt(MAX_PENALTY) }), penInputs[STATS[0].key]);
       if (formRepeat) return submitRoutine(title, rewards, penalty, stars);
       const dueRaw = $('mf-date').value;
       if (dueRaw && !validDate(dueRaw)) return fail(T('mf.err.date'), $('mf-date'));

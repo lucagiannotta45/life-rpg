@@ -446,7 +446,7 @@
     // "Invita" su una routine: la tua (o creata da te), con meno di 3 amici
     function canInvite(r) {
       if (!S.fbUser || !r || r.sh === 'g') return false;
-      if (!r.sr) return true;
+      if (!r.sr) return MISSIONS.groupSafe(r);   // entro i limiti di premi, penalità e bonus (missions.js, firestore.rules)
       const d = docOfR(r);
       return !!(d && isDoc(d) && roleOf(d) === 'o' && guests(d).length < MAX_GUESTS);
     }

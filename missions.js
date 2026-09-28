@@ -131,6 +131,19 @@
     const REWARD_WEIGHT = [0, 1, 2, 3, 5, 8];
     const REWARD_BASE = 4;
     const rewardTotal = (d, f) => REWARD_WEIGHT[d] * REWARD_WEIGHT[f] * REWARD_BASE;
+    // Limiti di ciò che si può mettere in gioco (li controllano anche le regole di Firebase, firestore.rules, per le
+    // missioni condivise e le routine di gruppo):
+    // - la ricompensa più alta possibile (Durata 5 x Difficoltà 5): una missione condivisa non vale di più;
+    // - la penalità totale di una volta non supera quella ricompensa: un errore di battitura (1000 invece di 10)
+    //   non può costare decine di livelli, e chi crea una missione condivisa non può farla pagare cara agli amici;
+    // - il bonus della serie, per ogni statistica, non la supera nemmeno lui.
+    const MAX_REWARD = rewardTotal(5, 5);   // 256
+    const MAX_PENALTY = MAX_REWARD;
+    const MAX_BONUS_XP = MAX_REWARD;
+    const sumOf = map => STATS.reduce((t, s) => t + (Number(map && map[s.key]) || 0), 0);
+    // una missione o una routine rispetta i limiti per essere condivisa con gli amici
+    const groupSafe = x => !!x && sumOf(x.rewards) <= MAX_REWARD && sumOf(x.penalty) <= MAX_PENALTY
+      && (!x.bonus || x.bonus.xp <= MAX_BONUS_XP);
     // trova una coppia (durata, difficoltà) che dia questo totale: serve solo per le missioni create prima di questo sistema,
     // che non hanno "stars" salvato. Con lo stesso totale possono esistere più coppie valide (per esempio 4x3 e 3x4 fanno
     // entrambe 60): qui si sceglie la prima trovata, ma se la missione ha già un campo "stars" quello vince sempre.
@@ -1230,6 +1243,7 @@
     }
 
     return {
+      MAX_REWARD, MAX_PENALTY, MAX_BONUS_XP, sumOf, groupSafe,
       MAX_PER_MONTH, MAX_MISSIONS, MAX_ROUTINES, KEEP_DAYS, MAX_TIMES, MAX_EVERY, FREQS,
       pad2, isoDate, parseDate, todayStr, addDaysStr, daysBetween, addMonthsStr, monthOf, validDate, validTime,
       normalizeRewards, REWARD_WEIGHT, REWARD_BASE, rewardTotal, rewardMatch, normalizeStars,

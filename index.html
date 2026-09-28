@@ -2,8 +2,8 @@
 <html lang="it" data-frame="semplice">
 <head>
 <meta charset="utf-8">
-<!-- zoom bloccato (scelta dell'autore; per riattivarlo togliere maximum-scale e user-scalable) -->
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<!-- zoom permesso: chi ha bisogno di testi più grandi deve poter ingrandire la pagina (accessibilità, WCAG 1.4.4) -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
@@ -29,7 +29,7 @@
     index.js        -> dati dell'app e collegamento di tutti i pezzi
     sw.js           -> service worker (funzionamento offline)
     privacy.html    -> informativa sulla privacy
-    firebase/       -> librerie Firebase, caricate solo quando servono
+    firebase/       -> librerie Firebase, caricate da cloud.js all'avvio
     musica/         -> un brano mp3 per ogni ruolo
 
   Gli script qui sotto (con "defer") vengono eseguiti nell'ordine in cui
@@ -211,7 +211,7 @@
           <input type="color" id="in-title-color" value="#ffd54a">
           <button type="button" class="btn small reset" id="title-color-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
         </div>
-        <p class="tip" data-i18n="look.c.tip">Di base, il tuo nome e il titolo in alto usano il colore di “Titoli e numeri”.</p>
+        <p class="tip" data-i18n="look.c.tip">Se non scegli un colore, il tuo nome e il titolo in alto usano quello di “Titoli e numeri”.</p>
       </div>
 
       <div class="field">
@@ -220,7 +220,7 @@
           <input type="color" id="in-win" value="#3049cf">
           <button type="button" class="btn small reset" id="win-reset" hidden aria-label="Predefinito" data-i18n-aria="btn.default"></button>
         </div>
-        <p class="tip" data-i18n="look.win.tip">Puoi scrivere il codice esadecimale a mano. I colori molto chiari vengono scuriti da soli per lasciare il testo leggibile.</p>
+        <p class="tip" data-i18n="look.win.tip">Puoi scrivere il codice esadecimale a mano. I colori molto chiari vengono scuriti automaticamente, per mantenere il testo leggibile.</p>
       </div>
 
       <div class="field">
@@ -239,11 +239,11 @@
           <button type="button" class="btn small" id="bg-upload" data-i18n="img.use">Usa un'immagine</button>
           <button type="button" class="btn small sub" id="bg-remove" hidden data-i18n="img.remove">Togli immagine</button>
         </div>
-        <p class="tip" data-i18n="img.tip">Copia un'immagine da internet e incollala qui (Ctrl+V), oppure trascinala o caricala.</p>
+        <p class="tip" data-i18n="img.tip">Copia un'immagine e incollala qui (Ctrl+V, su Mac Cmd+V), oppure trascinala o caricala.</p>
         <div id="fit-wrap" hidden>
           <p class="label" id="l-fit" data-i18n="look.fit">Adattamento</p>
           <div class="seg" id="seg-fit" role="radiogroup" aria-labelledby="l-fit"></div>
-          <p class="tip" data-i18n="fit.tip">Adatta mostra tutta l'immagine e riempie le bande con una copia sfocata. Riempi copre lo schermo tagliando i bordi. Allunga la deforma per riempire lo schermo.</p>
+          <p class="tip" data-i18n="fit.tip">“Adatta” mostra tutta l'immagine e riempie le bande con una copia sfocata. “Riempi” copre lo schermo tagliando i bordi. “Allunga” deforma l'immagine per riempire lo schermo.</p>
         </div>
         <p class="label" data-i18n="look.sharebg">Sfondo per gli amici</p>
         <button type="button" class="btn small toggle" id="btn-share-bg" aria-pressed="false">Sfondo nascosto agli amici</button>
@@ -276,17 +276,17 @@
     <div role="tabpanel" id="pane-sound" aria-labelledby="tab-sound" hidden>
       <div class="field">
         <p class="label" data-i18n="sound.label">Effetti sonori</p>
-        <p data-i18n="sound.desc">Brevi suoni quando completi o riapri una missione, sali di livello o perdi XP. Vale solo per questo dispositivo.</p>
+        <p data-i18n="sound.desc">Brevi suoni quando completi o riapri una missione, sali di livello, perdi XP, salvi, elimini o qualcosa non si può fare. Vale solo per questo dispositivo.</p>
         <button type="button" class="btn small toggle" id="btn-sound" aria-pressed="true">Suono acceso</button>
       </div>
       <div class="field">
         <p class="label" data-i18n="sound.menu.label">Suoni dei menu</p>
-        <p data-i18n="sound.menu.desc">Suoni leggeri quando cambi schermata, apri o chiudi una finestra, salvi o elimini. Dipendono dall'interruttore qui sopra: se spegni gli effetti sonori, si spengono anche questi. Vale solo per questo dispositivo.</p>
+        <p data-i18n="sound.menu.desc">Suoni leggeri quando cambi schermata o apri e chiudi una finestra. Dipendono dall'interruttore qui sopra: se spegni gli effetti sonori, si spengono anche questi. Vale solo per questo dispositivo.</p>
         <button type="button" class="btn small toggle" id="btn-menu-sound" aria-pressed="true">Suoni dei menu accesi</button>
       </div>
       <div class="field">
         <p class="label" data-i18n="music.label">Musica</p>
-        <p data-i18n="music.desc">Una musica di sottofondo che cambia secondo il tuo titolo. Nella scheda Personaggio suona al volume scelto, nelle altre si abbassa da sola. Parte al primo tocco. Vale solo per questo dispositivo.</p>
+        <p data-i18n="music.desc">Una musica di sottofondo che cambia secondo il titolo del tuo personaggio. Nella scheda Personaggio suona al volume scelto, nelle altre più piano. Parte appena tocchi lo schermo o fai clic. Vale solo per questo dispositivo.</p>
         <button type="button" class="btn small toggle" id="btn-music" aria-pressed="true">Musica accesa</button>
       </div>
       <div class="field">
@@ -308,7 +308,7 @@
       </div>
       <div class="field" id="del-box" hidden>
         <p class="label" data-i18n="del.h">Elimina account</p>
-        <p data-i18n="del.desc">Cancella per sempre il profilo, i progressi, le missioni, le routine, le amicizie e il codice amico da questo account. Non si può annullare.</p>
+        <p data-i18n="del.desc">Cancella per sempre il profilo, i progressi, le missioni, le routine, le amicizie e il codice amico di questo account. Prima Google ti chiede di confermare l'accesso. Non si può annullare.</p>
         <div class="data-actions">
           <button type="button" class="btn sub" id="btn-del-account" data-i18n="del.btn">Elimina account</button>
         </div>
@@ -316,7 +316,7 @@
       </div>
       <div class="field">
         <p class="label" data-i18n="data.label">Salvataggio</p>
-        <p data-i18n="data.desc">Il backup contiene progressi, missioni, routine, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. “Azzera tutto” cancella progressi, missioni e routine, ma non l'aspetto.</p>
+        <p data-i18n="data.desc">Il backup contiene progressi, missioni, routine, aspetto, lingua e immagini (non il suono). Importandolo sostituisci i dati attuali. “Azzera tutto” cancella progressi, missioni e routine, ma non l'aspetto. Prima di importare o azzerare devi uscire dalle routine di gruppo e dalle missioni condivise in corso.</p>
         <div class="data-actions">
           <button type="button" class="btn" id="btn-export" data-i18n="data.export">Esporta salvataggio</button>
           <button type="button" class="btn" id="btn-import" data-i18n="data.import">Importa salvataggio</button>
@@ -406,7 +406,7 @@
           <label for="mf-bonus-xp" data-i18n="mf.bonus.xp">XP in più per ogni statistica</label>
           <input class="xp-in" id="mf-bonus-xp" type="number" min="1" step="1" inputmode="numeric" placeholder="50" autocomplete="off">
         </div>
-        <p class="tip" data-i18n="mf.bonus.tip">Se completi la routine in tempo per quel numero di giorni di fila, ricevi il bonus. Lascia vuoto se non lo vuoi.</p>
+        <p class="tip" data-i18n="mf.bonus.tip">Ricevi il bonus ogni volta che la serie arriva a quel numero (e ai suoi multipli). Lascia vuoto se non lo vuoi.</p>
       </div>
     </div>
 
@@ -461,7 +461,7 @@
 <div class="modal" id="rmodal" hidden>
   <div class="win modal-win wide" role="dialog" aria-modal="true" aria-labelledby="t-rmodal">
     <h2 class="win-title" id="t-rmodal" data-i18n="r.h">Routine</h2>
-    <p class="tip" id="r-empty" data-i18n="r.empty">Non hai ancora routine. Una routine è una missione che compare da sola nei giorni che scegli.</p>
+    <p class="tip" id="r-empty" data-i18n="r.empty">Non hai ancora routine. Una routine è una missione che compare da sola ogni giorno, ogni settimana o ogni mese.</p>
     <div class="mlist" id="r-list"></div>
     <div class="modal-actions">
       <button type="button" class="btn add" id="r-new" data-i18n="r.new">Nuova routine</button>
@@ -546,9 +546,9 @@
   <div class="win modal-win">
     <img class="pact-icon" src="icon-512.png" alt="" width="160" height="160">
     <h2 class="win-title" id="pact-title" data-i18n="pact.title">Il patto</h2>
-    <p id="pact-text" data-i18n="pact.text">Questo gioco funziona sulla fiducia: riflette solo quello che fai davvero. Nessuno controlla, nessuno giudica — ma anche il gioco vale solo quanto vale la tua onestà con te stesso.</p>
+    <p id="pact-text" data-i18n="pact.text">Questo gioco funziona sulla fiducia: riflette solo quello che fai davvero. Nessuno controlla e nessuno giudica: il gioco vale quanto la tua onestà con te stesso.</p>
     <div class="modal-actions">
-      <button type="button" class="btn" id="pact-ok" data-i18n="pact.btn">Giuro</button>
+      <button type="button" class="btn" id="pact-ok" data-i18n="pact.btn">Accetto</button>
     </div>
   </div>
 </div>
@@ -566,7 +566,7 @@
 </div>
 
 
-<!-- le librerie Firebase (cartella firebase/) le carica index.js solo quando servono -->
+<!-- le librerie Firebase (cartella firebase/) le carica cloud.js all'avvio -->
 <script src="i18n.js" defer></script>
 <script src="game.js" defer></script>
 <script src="draw.js" defer></script>
@@ -585,7 +585,7 @@
   // Protezione per gli aggiornamenti: subito dopo una pubblicazione il browser può avere file di versioni diverse.
   // Se cloud.js è di una versione precedente (non conosce la schermata di accesso), si svuota la copia salvata
   // dal service worker e si ricarica la pagina, una volta sola, così arrivano tutti i file nuovi (come un
-  // "ricarica forzato"). Se non basta, la schermata si toglie comunque, per non bloccare l'app.
+  // "ricaricamento forzato"). Se non basta, la schermata si toglie comunque, per non bloccare l'app.
   // Gli script "defer" qui sopra sono già stati eseguiti quando arriva DOMContentLoaded.
   document.addEventListener('DOMContentLoaded', () => {
     if (window.LIFE_RPG_GATE) return;

@@ -9,8 +9,23 @@ service cloud.firestore {
       return exists(p) && get(p).data.status == 'accepted';
     }
     function shortStr(v, max) { return v is string && v.size() <= max; }
+    // somma degli XP di una mappa di statistiche (già controllata con okStats)
+    function statSum(s) {
+      return s.get('Vigore', 0) + s.get('Vitalita', 0) + s.get('Intelletto', 0) + s.get('Creativita', 0) + s.get('Animo', 0) + s.get('Legami', 0);
+    }
+    // Premi, penalità e bonus di ciò che si condivide con gli amici (come in missions.js: MAX_REWARD, MAX_PENALTY,
+    // MAX_BONUS_XP): la ricompensa al massimo 256 XP (Durata 5 x Difficoltà 5) e, con le stelle, esattamente quella che
+    // danno (pesi 1, 2, 3, 5, 8, per 4); la penalità totale e il bonus per statistica al massimo 256 XP.
+    // Così nessuno può regalare XP enormi agli amici, né farli rischiare penalità che azzerano i livelli.
+    // (Le stelle vanno controllate prima, con okStars: qui si usano come indici.)
+    function okReward(r, st) {
+      return statSum(r) <= 256 && (st == null || statSum(r) == [0, 1, 2, 3, 5, 8][st.d] * [0, 1, 2, 3, 5, 8][st.f] * 4);
+    }
+    function okPenalty(p) { return statSum(p) <= 256; }
+    // un colore #rrggbb (oppure vuoto: nessun colore scelto)
+    function okColor(v) { return v == '' || (v is string && v.matches('^#[0-9a-fA-F]{6}$')); }
 
-    // NUOVO: controlli sul contenuto del profilo pubblico
+    // controlli sul contenuto del profilo pubblico
     // XP di una statistica: numero intero tra 0 e il massimo del gioco (MAX_XP in game.js)
     function isXp(v) { return v is int && v >= 0 && v <= 100000; }
     // le sei statistiche, ognuna con un valore di XP valido
@@ -27,8 +42,8 @@ service cloud.firestore {
         && l.get('frame', 'semplice') in ['nessuno', 'sottile', 'semplice', 'classico']      // bordo delle finestre
         && l.get('bg', false) is bool
         && shortStr(l.get('bgId', ''), 64) && shortStr(l.get('lang', ''), 10)
-        && shortStr(l.get('winColor', ''), 7) && shortStr(l.get('inkColor', ''), 7) && shortStr(l.get('softColor', ''), 7)
-        && shortStr(l.get('accentColor', ''), 7) && shortStr(l.get('nameColor', ''), 7);
+        && okColor(l.get('winColor', '')) && okColor(l.get('inkColor', '')) && okColor(l.get('softColor', ''))
+        && okColor(l.get('accentColor', '')) && okColor(l.get('nameColor', ''));
     }
 
     // dati privati (progressi, impostazioni, missioni, immagini): solo il proprietario
@@ -39,7 +54,7 @@ service cloud.firestore {
     // profilo pubblico: lo vedono solo il proprietario e i suoi amici
     match /profiles/{uid} {
       allow read: if signedIn() && (me() == uid || areFriends(uid));
-      // NUOVO: si controlla anche il CONTENUTO di stats e look (non solo quanti campi hanno),
+      // si controlla anche il CONTENUTO di stats e look (non solo quanti campi hanno),
       // così nessuno può gonfiare il profilo che scaricano gli amici
       allow create, update: if signedIn() && me() == uid
         && request.resource.data.keys().hasOnly(['name', 'level', 'title', 'stats', 'look', 'code', 'updated'])
@@ -50,7 +65,7 @@ service cloud.firestore {
         && (!('code' in request.resource.data) || shortStr(request.resource.data.code, 12))
         && (!('title' in request.resource.data) || shortStr(request.resource.data.title, 60))
         && (!('updated' in request.resource.data) || request.resource.data.updated is int);
-      // NUOVO: il proprietario può cancellare il proprio profilo (prima era impossibile)
+      // il proprietario può cancellare il proprio profilo
       allow delete: if signedIn() && me() == uid;
     }
 
@@ -87,7 +102,8 @@ service cloud.firestore {
         && pid == pairId(request.resource.data.members[0], request.resource.data.members[1])
         && (!('fromName' in request.resource.data) || shortStr(request.resource.data.fromName, 30))                               // il nome del mittente
         && (!('fromCode' in request.resource.data) || shortStr(request.resource.data.fromCode, 12))                               // resta corto
-        && (!('toCode' in request.resource.data) || shortStr(request.resource.data.toCode, 12));
+        && (!('toCode' in request.resource.data) || shortStr(request.resource.data.toCode, 12))
+        && (!('created' in request.resource.data) || request.resource.data.created is int);
       allow update: if signedIn()
         && resource.data.status == 'pending'
         && me() in resource.data.members && me() != resource.data.requestedBy
@@ -149,6 +165,7 @@ service cloud.firestore {
         && x.keys().hasOnly(['at', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'oDue', 'oDueTime', 'oFrom', 'oFromTime'])
         && x.keys().hasAll(['at', 'rewards', 'penalty', 'dueAt', 'fromAt'])
         && x.at is int && okStats(x.rewards) && okStats(x.penalty) && okStars(x.get('stars', null))
+        && okReward(x.rewards, x.get('stars', null)) && okPenalty(x.penalty)
         && okTimeOrNull(x.dueAt) && okTimeOrNull(x.fromAt) && (x.dueAt == null || x.dueAt > x.at)
         && okDateOrNull(x.get('oDue', null)) && okClockOrNull(x.get('oDueTime', null))
         && okDateOrNull(x.get('oFrom', null)) && okClockOrNull(x.get('oFromTime', null)));
@@ -181,7 +198,7 @@ service cloud.firestore {
     // il contenuto della missione (lo decide chi l'ha creata)
     function okContent(n) {
       return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
-        && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
+        && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars) && okReward(n.rewards, n.stars) && okPenalty(n.penalty)
         && okTimeOrNull(n.dueAt) && okTimeOrNull(n.fromAt) && shortStr(n.tz, 64) && shDueOk(n)
         && okDateOrNull(n.oDue) && okClockOrNull(n.oDueTime) && okDateOrNull(n.oFrom) && okClockOrNull(n.oFromTime);
     }
@@ -320,7 +337,7 @@ service cloud.firestore {
     function srBonus(b) {
       return b == null || (b is map && b.keys().hasOnly(['every', 'xp'])
         && b.every is int && b.every >= 2 && b.every <= 100000
-        && b.xp is int && b.xp >= 1 && b.xp <= 100000);
+        && b.xp is int && b.xp >= 1 && b.xp <= 256);
     }
     function srNx(x) {
       return x == null || (x is map
@@ -328,13 +345,15 @@ service cloud.firestore {
         && x.keys().hasAll(['at', 'freq', 'n', 'days'])
         && okDay10(x.at) && srShape(x.freq, x.n, x.days, x.get('time', null)) && (x.get('pk', null) == null || okDay10(x.pk))
         && srCal(x.get('cal', null), x.get('wk', null))
-        && (x.get('rewards', null) == null || okStats(x.rewards)) && (x.get('penalty', null) == null || okStats(x.penalty))
-        && okStars(x.get('stars', null)) && srBonus(x.get('bonus', null)));
+        && okStars(x.get('stars', null))
+        && (x.get('rewards', null) == null || (okStats(x.rewards) && okReward(x.rewards, x.get('stars', null))))
+        && (x.get('penalty', null) == null || (okStats(x.penalty) && okPenalty(x.penalty)))
+        && srBonus(x.get('bonus', null)));
     }
     // il modello della routine (lo decide chi l'ha creata)
     function srTpl(n) {
       return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
-        && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
+        && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars) && okReward(n.rewards, n.stars) && okPenalty(n.penalty)
         && srShape(n.get('freq', 'd'), n.get('n', 1), n.days, n.time)
         && (n.get('at', null) == null || okDay10(n.at)) && (n.get('pk', null) == null || okDay10(n.pk))
         && srCal(n.get('cal', null), n.get('wk', null))

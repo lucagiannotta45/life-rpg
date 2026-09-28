@@ -326,7 +326,8 @@ test('salta: in sospeso (regole nuove da accettare) non si salta', t => {
 });
 
 test('salta: diventando di gruppo, i salti della volta in corso e futuri passano al documento', async t => {
-  now(t, '2026-10-05');
+  // il gruppo nasce nel fuso di questo dispositivo: "oggi" è il 5 ottobre qui, qualunque sia il fuso
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-05T12:00:00').getTime() });
   const r = M.normalizeRoutines([{ id: 'r2', title: 'Corsa', rewards: { Vigore: 4 }, days: [1, 3], start: '2026-09-28',
     skip: [{ d: '2026-09-30' }, { d: '2026-10-05' }, { d: '2026-10-07' }] }])[0];
   const SHfake = { pickFriends: o => o.send([{ uid: 'uF', name: 'Marco' }]), joinNames: l => l.join(', '), myName: () => 'Anna' };

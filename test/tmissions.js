@@ -596,7 +596,8 @@ test('fusi orari: la scadenza del gruppo, nell\'ora di questo dispositivo', { sk
 });
 
 test('serie di gruppo: giorni "tutti insieme" di fila', t => {
-  const r = rou({ sr: 'qabc1234', tz: 'Europe/Rome', days: [1, 3], bonus: { every: 2, xp: 9 } });   // lunedì e mercoledì
+  // il gruppo nel fuso di questo dispositivo: le ore dei controlli qui sotto (at, now) sono quelle del dispositivo
+  const r = rou({ sr: 'qabc1234', tz: M.hereTz(), days: [1, 3], bonus: { every: 2, xp: 9 } });   // lunedì e mercoledì
   assert.equal(M.groupStep(r, '2026-03-02').n, 1);
   Object.assign(r, { gs: 1, gsd: '2026-03-02' });
   const step = M.groupStep(r, '2026-03-04');
@@ -927,4 +928,17 @@ test('impegni: una routine con una volta in corso si elimina alla fine del perio
   // settimanale: sparisce dopo la fine della settimana in corso
   const w = rouP();
   assert.equal(M.scheduleRoutineDelete(w, '2026-09-28'), '2026-10-02');
+});
+
+/* ---------- limiti di premi, penalità e bonus (anche in firestore.rules) ---------- */
+test('limiti: ricompensa massima, penalità e bonus per condividere', () => {
+  assert.equal(M.MAX_REWARD, 256, 'Durata 5 x Difficoltà 5');
+  assert.equal(M.MAX_PENALTY, M.MAX_REWARD);
+  assert.equal(M.MAX_BONUS_XP, M.MAX_REWARD);
+  const x = (rewards, penalty, bonus) => ({ rewards: M.normalizeRewards(rewards), penalty: M.normalizeRewards(penalty), bonus });
+  assert.equal(M.groupSafe(x({ Vigore: 256 }, { Vigore: 128, Animo: 128 }, null)), true, 'proprio al limite');
+  assert.equal(M.groupSafe(x({ Vigore: 257 }, {}, null)), false, 'ricompensa di prima delle stelle, troppo alta');
+  assert.equal(M.groupSafe(x({ Vigore: 10 }, { Vigore: 200, Legami: 57 }, null)), false, 'penalità totale oltre il limite');
+  assert.equal(M.groupSafe(x({ Vigore: 10 }, {}, { every: 7, xp: 257 })), false, 'bonus oltre il limite');
+  assert.equal(M.groupSafe(x({ Vigore: 10 }, {}, { every: 7, xp: 50 })), true);
 });
