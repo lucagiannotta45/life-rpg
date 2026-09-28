@@ -148,6 +148,7 @@
       "msg.deleted.n_one": "Missione eliminata.",
       "msg.deleted.n_other": "{n} missioni eliminate.",
       "mis.failed": "Fallite",
+      "mis.skipped": "Saltate",
       "mis.done": "Completate",
       "mis.more.n": "Mostra altre ({n})",
       "mis.more.aria_one": "Mostra un'altra missione",
@@ -546,7 +547,7 @@
 
       "info.mis.s2p1": "Quando la finisci, premi “Completa”. Completata per sbaglio? “Riapri” toglie gli XP e la rimette tra quelle da fare.",
 
-      "info.mis.s2p2": "Per togliere dall'elenco le missioni completate o fallite usa “Seleziona”: gli XP guadagnati o persi restano.",
+      "info.mis.s2p2": "Per togliere dall'elenco le missioni completate, fallite o saltate usa “Seleziona”: gli XP guadagnati o persi restano.",
 
       "info.mis.s3": "Modificare ed eliminare",
 
@@ -566,7 +567,7 @@
 
       "info.mis.s5p1": "Se una volta di una routine non si può fare (la lezione è annullata, sei in trasferta…), premi “Salta”: nella scheda Missioni per la volta di oggi, oppure nel Calendario (tocca il giorno) anche per quelle future. Funziona finché la volta non è scaduta. Le routine settimanali e mensili stanno nell'ultimo giorno del periodo, con “Salta la settimana” o “Salta il mese”.",
 
-      "info.mis.s5p2": "Una volta saltata non conta: niente XP, niente penalità, e la serie resta com'è. Finché non sarebbe scaduta puoi premere “Annulla salto”.",
+      "info.mis.s5p2": "Una volta saltata non conta: niente XP, niente penalità, e la serie resta com'è. La trovi tra le “Saltate” nella scheda Missioni, e finché non sarebbe scaduta puoi premere “Annulla salto”.",
 
       "info.mis.s6": "Calendario",
 
@@ -898,6 +899,7 @@
       "msg.deleted.n_one": "Mission deleted.",
       "msg.deleted.n_other": "{n} missions deleted.",
       "mis.failed": "Failed",
+      "mis.skipped": "Skipped",
       "mis.done": "Completed",
       "mis.more.n": "Show more ({n})",
       "mis.more.aria_one": "Show 1 more mission",
@@ -1296,7 +1298,7 @@
 
       "info.mis.s2p1": "When you finish it, press “Complete”. Completed by mistake? “Reopen” takes the XP away and puts it back among the ones to do.",
 
-      "info.mis.s2p2": "To remove completed or failed missions from the list, use “Select”: the XP you gained or lost stays.",
+      "info.mis.s2p2": "To remove completed, failed or skipped missions from the list, use “Select”: the XP you gained or lost stays.",
 
       "info.mis.s3": "Editing and deleting",
 
@@ -1316,7 +1318,7 @@
 
       "info.mis.s5p1": "If a routine can't be done one time (the class is cancelled, you're traveling…), press “Skip”: on the Missions screen for today's time, or in the Calendar (tap the day) also for future ones. It works until the time is overdue. Weekly and monthly routines sit on the last day of the period, with “Skip the week” or “Skip the month”.",
 
-      "info.mis.s5p2": "A skipped time doesn't count: no XP, no penalty, and your streak stays as it is. Until it would be overdue you can press “Undo skip”.",
+      "info.mis.s5p2": "A skipped time doesn't count: no XP, no penalty, and your streak stays as it is. You find it under “Skipped” on the Missions screen, and until it would be overdue you can press “Undo skip”.",
 
       "info.mis.s6": "Calendar",
 
@@ -1648,6 +1650,7 @@
       "msg.deleted.n_one": "Missão excluída.",
       "msg.deleted.n_other": "{n} missões excluídas.",
       "mis.failed": "Fracassadas",
+      "mis.skipped": "Puladas",
       "mis.done": "Concluídas",
       "mis.more.n": "Mostrar mais ({n})",
       "mis.more.aria_one": "Mostrar mais 1 missão",
@@ -2046,7 +2049,7 @@
 
       "info.mis.s2p1": "Quando terminar, toque em “Concluir”. Concluiu sem querer? “Reabrir” tira os XP e a coloca de volta entre as que faltam fazer.",
 
-      "info.mis.s2p2": "Para tirar da lista as missões concluídas ou fracassadas, use “Selecionar”: os XP ganhos ou perdidos continuam.",
+      "info.mis.s2p2": "Para tirar da lista as missões concluídas, fracassadas ou puladas, use “Selecionar”: os XP ganhos ou perdidos continuam.",
 
       "info.mis.s3": "Editar e excluir",
 
@@ -2066,7 +2069,7 @@
 
       "info.mis.s5p1": "Se uma vez de uma rotina não puder ser feita (a aula foi cancelada, você está viajando…), toque em “Pular”: na tela Missões para a vez de hoje, ou no Calendário (toque no dia) também para as futuras. Funciona até a vez vencer. As rotinas semanais e mensais ficam no último dia do período, com “Pular a semana” ou “Pular o mês”.",
 
-      "info.mis.s5p2": "Uma vez pulada não conta: nada de XP, nada de penalidade, e a sequência fica como está. Até o momento em que venceria, você pode apertar “Desfazer pulo”.",
+      "info.mis.s5p2": "Uma vez pulada não conta: nada de XP, nada de penalidade, e a sequência fica como está. Você a encontra em “Puladas” na tela Missões, e até o momento em que venceria pode apertar “Desfazer pulo”.",
 
       "info.mis.s6": "Calendário",
 

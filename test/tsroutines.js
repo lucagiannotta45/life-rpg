@@ -289,15 +289,15 @@ test('salta: il mio salto va nel documento, e la mia routine ne tiene la copia (
   const r = S.routines[0];
   const m = S.missions.find(y => y.id === ID + '-20261002');
   assert.ok(m && SR.canSkip(r));
-  // come fa il pulsante: salto nella routine, volta tolta, poi il documento
+  // come fa il pulsante: salto nella routine, volta segnata come saltata, poi il documento
   M.applySkip(r, '2026-10-02', m);
-  S.missions = S.missions.filter(y => y !== m);
+  M.markSkipped(m);
   assert.equal(await SR.writeSkip(r, '2026-10-02', true), true);
   assert.deepEqual([writes.at(-1).data['x.20261002.uG'], writes.at(-1).data.lk], ['ORA_DEL_SERVER', '20261002']);
   SR.evaluate();
   assert.deepEqual(r.skip, [{ d: '2026-10-02' }], 'la copia resta (il documento ha già il salto, in attesa del server)');
   D_sync(S);
-  assert.ok(!S.missions.some(y => y.id === m.id), 'la volta non torna');
+  assert.equal(S.missions.find(y => y.id === m.id).done.sk, 1, 'la volta resta saltata');
   // tolto (per esempio da un altro dispositivo): la volta della settimana in corso torna
   assert.equal(await SR.writeSkip(r, '2026-10-02', false), true);
   assert.equal(writes.at(-1).data['x.20261002.uG'], 'TOGLI');
@@ -314,7 +314,8 @@ test('salta: saltata su un altro dispositivo, la volta ancora da fare esce anche
   D_sync(S);
   const r = S.routines[0];
   assert.deepEqual(r.skip, [{ d: '2026-10-02' }]);
-  assert.ok(!S.missions.some(y => y.id === ID + '-20261002'), 'nessuna volta da far fallire');
+  const m = S.missions.find(y => y.id === ID + '-20261002');
+  assert.deepEqual([m.done && m.done.sk, m.failed], [1, null], 'saltata anche qui: niente da far fallire');
 });
 
 test('salta: in sospeso (regole nuove da accettare) non si salta', t => {

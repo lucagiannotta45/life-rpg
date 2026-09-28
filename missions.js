@@ -233,7 +233,8 @@
             t: Number.isFinite(Number(m.done.t)) ? Number(m.done.t) : 0,
             applied: normalizeRewards(m.done.applied),
           };
-          // sk: missione condivisa saltata ("Salta": niente XP e niente penalità): finita, ma non completata
+          // sk: saltata ("Salta": niente XP e niente penalità): finita, ma non completata. Una missione condivisa, o una
+          // volta di una routine (la routine si ricorda il salto in r.skip: è lui che conta per serie e periodi)
           if (m.done.sk) it.done.sk = 1;
           const rs = m.done.rs;
           if (rs && Number.isInteger(rs.prev) && rs.prev >= 0 && Number.isInteger(rs.n) && rs.n > 0) {
@@ -420,8 +421,10 @@
         dueKey(a).localeCompare(dueKey(b)) || a.created.localeCompare(b.created) || a.title.localeCompare(b.title));
       const failed = pending.filter(m => m.failed).sort((a, b) =>
         b.failed.date.localeCompare(a.failed.date) || dueKey(b).localeCompare(dueKey(a)) || a.title.localeCompare(b.title));
-      const done = missions.filter(m => m.done).sort((a, b) =>
-        b.done.date.localeCompare(a.done.date) || b.done.t - a.done.t);
+      // completate e saltate: le più recenti per prime
+      const byDone = (a, b) => b.done.date.localeCompare(a.done.date) || b.done.t - a.done.t;
+      const done = missions.filter(m => m.done && !m.done.sk).sort(byDone);
+      const skipped = missions.filter(m => m.done && m.done.sk).sort(byDone);
       const today = todayStr();
       const soon = parseDate(today); soon.setDate(soon.getDate() + 7);
       const soonEnd = isoDate(soon);
@@ -438,7 +441,7 @@
         else if (key <= soonEnd) groups.soon.push(m);
         else groups.later.push(m);
       });
-      return { todo, failed, done, groups };
+      return { todo, failed, done, skipped, groups };
     }
     // il giorno in cui una missione da fare sta nel Calendario: la scadenza (o l'inizio); una volta di routine ripresa
     // con "Annulla penalità" nel giorno in cui va recuperata (non in quello, passato, in cui scadeva)
@@ -451,7 +454,8 @@
       const failed = missions.filter(m => !m.done && m.failed && m.due === ds).sort(byTime);
       const byDone = (a, b) => b.done.t - a.done.t || a.title.localeCompare(b.title);   // le più recenti in alto
       const done = missions.filter(m => m.done && !m.done.sk && m.done.date === ds).sort(byDone);
-      const skipped = missions.filter(m => m.done && m.done.sk && m.done.date === ds).sort(byDone);   // condivise saltate
+      // condivise saltate (le volte saltate delle routine il Calendario le prende dalle routine: skippedOn)
+      const skipped = missions.filter(m => m.done && m.done.sk && !m.rid && m.done.date === ds).sort(byDone);
       return { todo, failed, done, skipped };
     }
     // i pallini del calendario: quante missioni da fare, fallite e completate per ogni giorno.
@@ -461,7 +465,7 @@
       const todo = {}, done = {}, fail = {}, skip = {};
       missions.forEach(m => {
         if (m.p) m.p.forEach(d => { done[d] = (done[d] || 0) + 1; });
-        if (m.done && m.done.sk) skip[m.done.date] = (skip[m.done.date] || 0) + 1;   // condivisa saltata
+        if (m.done && m.done.sk) { if (!m.rid) skip[m.done.date] = (skip[m.done.date] || 0) + 1; }   // condivisa saltata (le routine: skipMarks)
         else if (m.done) { if (!m.p) done[m.done.date] = (done[m.done.date] || 0) + 1; }
         else if (m.due && m.failed) fail[m.due] = (fail[m.due] || 0) + 1;
         else if (todoDay(m)) { const k = todoDay(m); todo[k] = (todo[k] || 0) + 1; }
@@ -847,6 +851,20 @@
       r.skip = (r.skip || []).concat(x).sort((a, b) => a.d.localeCompare(b.d)).slice(-MAX_SKIPS);
       return true;
     }
+    // La volta saltata resta tra le missioni, segnata come saltata (done.sk: niente XP, niente penalità), così nella
+    // scheda Missioni si vede con le altre e si può eliminare. Il salto vero (serie, periodi, gruppo) resta in r.skip.
+    // now = quando l'hai saltata
+    function markSkipped(m, now = Date.now()) {
+      m.done = { date: isoDate(new Date(now)), t: now, applied: normalizeRewards(null), sk: 1 };
+      return m;
+    }
+    // la volta di un periodo saltato in anticipo, arrivato il suo giorno: nasce già saltata (x = il salto)
+    function skippedOcc(r, p, x, here = hereTz()) {
+      const occ = makeOcc(rulesOn(r, p.s), p, here);
+      if (occ.n && x && x.p) occ.p = x.p.slice(0, occ.n);
+      occ.done = { date: p.s, t: 0, applied: normalizeRewards(null), sk: 1 };
+      return occ;
+    }
     // Annullare un salto: si può finché la volta non sarebbe già scaduta. Restituisce null se non si può; altrimenti
     // { occ }: la volta da rimettere nell'elenco (con le volte già segnate), oppure null se il periodo non è ancora iniziato
     // (arriverà da sola il suo giorno). Non cambia niente: per annullare davvero, applyUnskip.
@@ -952,6 +970,19 @@
           routinesChanged = true;
         }
         run(today, addDaysStr(today, -1));
+        // i periodi saltati già iniziati: la loro volta nasce già saltata (così nella scheda Missioni si vede con le
+        // altre). Non se c'è già, o se l'hai eliminata (anche quelle saltate prima di questa versione, tolte allora)
+        (r.skip || []).forEach(x => {
+          if (x.d > today || x.d < keep || (r.del && x.d >= r.del)) return;
+          const id = occId(r, x.d);
+          if (existing.has(id) || (gone && gone.has(id)) || missions.length >= MAX_MISSIONS) return;
+          const p = periodStarting(r, x.d);
+          if (!p || p.s < r.start) return;
+          missions.push(skippedOcc(r, p, x, here));
+          existing.add(id);
+          months.add(p.s.slice(0, 7));
+          changed = true;
+        });
         // i salti più vecchi della cronologia non servono più
         if (r.skip && r.skip.some(x => x.d < keep)) {
           r.skip = r.skip.filter(x => x.d >= keep);
@@ -1213,7 +1244,7 @@
       timePassedToday, MAX_SKIPS, rulesOn, isSkipped, dayPlanned, makeOcc, periodStarting, plannedPeriod, canSkipRoutine, canSkipOcc, applySkip,
       unskipPlan, applyUnskip, skippedOn, skipMarks,
       hereTz, zoneDay, zoneMs, groupDueMs, localDue, routineToday, prevDay, lastClosedDay, groupStreakNow, groupStep,
-      foldedCopy, shapeOf, groupPeriods, nxParts,
+      foldedCopy, shapeOf, groupPeriods, nxParts, markSkipped, skippedOcc,
       gcalUrl, gcalRoutineUrl,
       regionFirstDay, localeFirstDay, WEEK_PREFS, firstDayOf, weekOrder, weekStart, calOffset,
       GRACE_MS, inGrace, hasPenalty, missionLocked, missionSameRules, planMissionChange, applyMissionChanges, missionDelNow, deletedDue,

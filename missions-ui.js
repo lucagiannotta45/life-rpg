@@ -518,7 +518,7 @@
       const skippedSh = !!(m.done && m.done.sk);
       const shi = m.sid && !skippedSh ? SH().info(m) : null;
       // routine di gruppo: chi l'ha già fatta quel giorno, e se l'avete fatta tutti
-      const sri = rtn && rtn.sr ? SR().occInfo(m) : null;
+      const sri = rtn && rtn.sr && !skippedSh ? SR().occInfo(m) : null;   // (saltata: niente notizie del gruppo)
       // etichetta "Routine" (o "Condivisa con…") in cima, sopra il titolo
       if (rtn && rtn.sr) {
         const gs = SR().streakNow(rtn), who = SH().joinNames ? SH().joinNames(rtn.shn || []) : '';
@@ -626,6 +626,13 @@
         }
         // missione condivisa: "Salta" anche qui, come nella scheda Missioni ("Salta" c'è in tutti e due i posti)
         if (shi && shi.out === 'open' && !shi.pending && shi.canWithdraw) act.appendChild(withdrawBtn(m));
+      } else if (m.done && m.done.sk) {
+        // saltata: una volta di routine si può rimettere da fare ("Annulla salto", finché non sarebbe scaduta);
+        // una missione condivisa saltata no
+        const s = rtn ? MISSIONS.occKey(m) : null;
+        if (rtn && skippable(rtn) && SR().canUnskip(rtn, s) && MISSIONS.unskipPlan(rtn, s)) {
+          act.appendChild(btn('', T('skip.undo'), T('skip.undo.aria'), () => unskip(rtn.id, s)));
+        }
       } else if (m.done) {
         // condivisa: non si annulla; routine di gruppo: non dopo che l'avete fatta tutti (la serie di gruppo l'ha contata)
         if (!m.sid && SR().canUndo(m)) act.appendChild(btn('', T('btn.undo'), T('aria.undo'), () => undoMission(m.id)));
@@ -801,9 +808,9 @@
       }
     }
     function renderMissions() {
-      const { todo, failed, done, groups } = MISSIONS.missionLists(S.missions);
-      const tl = $('m-todo'), fl = $('m-failed'), dl = $('m-done');
-      tl.textContent = ''; fl.textContent = ''; dl.textContent = '';
+      const { todo, failed, done, skipped, groups } = MISSIONS.missionLists(S.missions);
+      const tl = $('m-todo'), fl = $('m-failed'), dl = $('m-done'), kl = $('m-skipped');
+      tl.textContent = ''; fl.textContent = ''; dl.textContent = ''; kl.textContent = '';
 
       // inviti ricevuti a missioni condivise, in cima
       const inv = SH().invites().concat(SR().invites());
@@ -829,11 +836,17 @@
       $('w-failed').hidden = !failed.length;
       if (!failed.length && sel.list === 'failed') { sel.list = null; sel.ids.clear(); }
 
+      // saltate: volte di routine e missioni condivise, le più recenti per prime, con lo stesso "Mostra altre"
+      groupBlock(kl, 'skipped', '', skipped);
+      $('w-skipped').hidden = !skipped.length;
+      if (!skipped.length && sel.list === 'skipped') { sel.list = null; sel.ids.clear(); }
+
       // completate: le 8 più recenti, poi "Mostra altre"
       if (!done.length) dl.appendChild(mk('p', 'empty', T('mis.empty.done')));
       done.slice(0, doneShown).forEach(m => dl.appendChild(missionCard(m)));
       if (!done.length && sel.list === 'done') { sel.list = null; sel.ids.clear(); }
       selDecorate(fl, 'failed');
+      selDecorate(kl, 'skipped');
       selDecorate(dl, 'done');
       paintSelBars();
       $('m-more').hidden = done.length <= doneShown;
@@ -945,7 +958,7 @@
       let card = find();
       if (!card) {
         doneShown = 1e9;
-        ['late', 'routine', 'period', 'today', 'soon', 'later', 'nodate', 'failed'].forEach(k => { shownBy[k] = 1e9; });
+        ['late', 'routine', 'period', 'today', 'soon', 'later', 'nodate', 'failed', 'skipped'].forEach(k => { shownBy[k] = 1e9; });
         renderMissions();
         card = find();
       }
@@ -976,14 +989,14 @@
       renderMissionViews();
       sfx('leave');   // farsi da parte, senza conseguenze
     }
-    // la volta già creata (quella in corso): si toglie dall'elenco, con la lapide così non torna da un altro dispositivo
+    // la volta già creata (quella in corso): resta tra le missioni, segnata come saltata
     function skipOcc(id) {
       const m = S.missions.find(x => x.id === id), r = routineOf(m);
       if (!m || !MISSIONS.canSkipOcc(r, m) || !skippable(r)) { sfx('err'); renderMissionViews(); return; }
       const s = MISSIONS.occKey(m);
       if (!MISSIONS.applySkip(r, s, m)) return;
-      tombMissions([m]);
-      S.missions = S.missions.filter(x => x !== m);
+      // la volta resta tra le missioni, segnata come saltata (nella sezione "Saltate")
+      MISSIONS.markSkipped(m);
       touchMonth(monthOf(m));
       saveRoutinesLocal();
       skipDone(r);
@@ -993,7 +1006,9 @@
     function takeBackSkip(r, s) {
       const plan = MISSIONS.unskipPlan(r, s);
       MISSIONS.applyUnskip(r, s);
-      if (plan && plan.occ && !S.missions.some(m => m.id === plan.occ.id)) { S.missions.push(plan.occ); touchMonth(monthOf(plan.occ)); }
+      const cur = S.missions.find(m => m.id === MISSIONS.occId(r, s));
+      if (cur && cur.done && cur.done.sk) { cur.done = null; touchMonth(monthOf(cur)); }   // torna da fare
+      else if (plan && plan.occ && !cur) { S.missions.push(plan.occ); touchMonth(monthOf(plan.occ)); }
       saveRoutinesLocal();
       renderMissionViews();
     }
@@ -1014,8 +1029,13 @@
       if (!plan) { missionMsg(T('msg.unskip.late'), 'bad', true); sfx('err'); renderMissionViews(); return; }
       const entry = r.skip.find(x => x.d === s);
       MISSIONS.applyUnskip(r, s);
-      // periodo già iniziato: la volta torna subito (con le volte già segnate); futuro: arriverà da sola
-      const back = plan.occ && !S.missions.some(m => m.id === plan.occ.id) ? plan.occ : null;
+      // periodo già iniziato: la volta saltata torna da fare (con le volte già segnate), oppure torna nell'elenco se non
+      // c'era più (saltata prima di questa versione, o eliminata); futuro: arriverà da sola
+      const cur = S.missions.find(m => m.id === MISSIONS.occId(r, s));
+      const revived = cur && cur.done && cur.done.sk ? cur : null;
+      const skipInfo = revived ? revived.done : null;
+      if (revived) { revived.done = null; touchMonth(monthOf(revived)); }
+      const back = !cur && plan.occ ? plan.occ : null;
       if (back) { S.missions.push(back); touchMonth(monthOf(back)); }
       saveRoutinesLocal();
       missionMsg(T('msg.unskip', { title: r.title }), 'good');
@@ -1025,6 +1045,7 @@
       if (r.sr) SR().writeSkip(r, s, false).then(ok => {
         if (ok) return;
         r.skip = (r.skip || []).concat(entry).sort((a, b) => a.d.localeCompare(b.d));
+        if (revived) { revived.done = skipInfo; touchMonth(monthOf(revived)); }
         if (back) { tombMissions([back]); S.missions = S.missions.filter(m => m !== back); touchMonth(monthOf(back)); }
         saveRoutinesLocal();
         renderMissionViews();
@@ -1730,7 +1751,7 @@
     function paintSelBars() {
       document.querySelectorAll('.sel-bar').forEach(bar => {
         const list = bar.dataset.list, active = sel.list === list;
-        const has = !!document.getElementById(list === 'done' ? 'm-done' : 'm-failed').querySelector('.mission');
+        const has = !!document.getElementById('m-' + list).querySelector('.mission');   // m-done, m-failed, m-skipped
         bar.hidden = !has && !active;
         bar.querySelector('[data-sel="start"]').hidden = active || (!!sel.list && !active);
         bar.querySelector('[data-sel="del"]').hidden = !active;

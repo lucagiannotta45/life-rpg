@@ -510,21 +510,25 @@
       const old = r.skip || [];
       const next = days.map(ds => { const o = old.find(x => x.d === ds); return o ? { ...o } : { d: ds }; });
       if (same(old, next)) return false;
-      // saltata da un altro tuo dispositivo: la volta ancora da fare esce dall'elenco (se no fallirebbe qui)
+      // saltata da un altro tuo dispositivo: anche qui la volta ancora da fare diventa "saltata" (se no fallirebbe qui)
       next.filter(x => !old.some(o => o.d === x.d)).forEach(x => {
         const m = S.missions.find(y => y.id === occId(r, x.d));
         if (!m || m.done || m.failed) return;
         if (m.p && m.p.length) x.p = m.p.slice();
-        if (D.tombMissions) D.tombMissions([m]);
-        S.missions = S.missions.filter(y => y !== m);
+        const when = d.x[keyOf(x.d)] && d.x[keyOf(x.d)][me()];
+        MISSIONS.markSkipped(m, typeof when === 'number' ? when : Date.now());
         touchMonth(monthOf(m));
       });
       const gone = old.filter(o => !next.some(x => x.d === o.d));
       if (next.length) r.skip = next; else delete r.skip;
-      // salto tolto da un altro dispositivo: la volta del periodo in corso torna (quelle future arriveranno da sole)
+      // salto tolto da un altro dispositivo: la volta del periodo in corso torna da fare (quelle future arriveranno da sole)
       gone.forEach(o => {
-        if (S.missions.some(y => y.id === occId(r, o.d))) return;
         const plan = MISSIONS.unskipPlan({ ...r, skip: [o] }, o.d);
+        const m = S.missions.find(y => y.id === occId(r, o.d));
+        if (m) {
+          if (plan && m.done && m.done.sk) { m.done = null; touchMonth(monthOf(m)); }
+          return;
+        }
         if (plan && plan.occ) { S.missions.push(plan.occ); touchMonth(monthOf(plan.occ)); }
       });
       return true;

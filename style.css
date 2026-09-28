@@ -537,7 +537,9 @@
   .col-a { grid-area: a; }
   .col-b { grid-area: b; }
   .col-c { grid-area: c; }
-  #view-missions { grid-template-areas: "a b" "c b"; }
+  .col-d { grid-area: d; }
+  /* missioni: da fare e fallite a sinistra, completate e saltate a destra */
+  #view-missions { grid-template-areas: "a b" "c b" "c d"; }
   @media (max-width: 840px) {
     .screen.two { grid-template-columns: minmax(0, 1fr); grid-template-areas: "a" "b"; }
     /* in colonna con flex: la finestra "Fallite", quando è nascosta, non lascia una riga vuota (e uno spazio doppio) */
@@ -545,6 +547,7 @@
     #view-missions > .col-a { order: 1; }
     #view-missions > .col-c { order: 2; }
     #view-missions > .col-b { order: 3; }
+    #view-missions > .col-d { order: 4; }
   }
   .m-toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
   .mlist { display: grid; gap: 12px; }

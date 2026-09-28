@@ -663,9 +663,6 @@
         })
         .catch(e => {
           console.warn('shared edit', e && e.code, e);
-          // (diagnostica: che cosa si è provato a scrivere e com'era il documento; senza g e members, che hanno gli id)
-          const { g, members, _pw, _srv, ...doc } = raw || {};
-          console.warn('shared edit data', JSON.stringify({ now: Date.now(), data, doc }));
           if (transient(e)) return;   // si riprova da evaluate
           rollback(id, sid);
         })

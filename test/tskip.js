@@ -21,11 +21,12 @@ const pal = o => M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { 
 function openApp(routines, missions, ds) { return M.routineDay(routines, missions, ds, at(ds, '00:05')).missions; }
 const occ = (missions, r, ds) => missions.find(m => m.id === M.occId(r, ds));
 const complete = (r, m, ds) => M.applyComplete(xp({}), m, r, 1, at(ds));
-// "Salta" su una volta già creata, come fa il pulsante: la routine se lo ricorda e la volta esce dall'elenco
+// "Salta" su una volta già creata, come fa il pulsante: la routine se lo ricorda e la volta resta, segnata come saltata
 function skipOcc(r, missions, m) {
   assert.ok(M.canSkipOcc(r, m), 'si può saltare');
   assert.ok(M.applySkip(r, M.occKey(m), m));
-  return missions.filter(x => x !== m);
+  M.markSkipped(m);
+  return missions;
 }
 
 test('giornaliera: la volta di oggi saltata non interrompe la serie e non la fa crescere', t => {
@@ -44,7 +45,8 @@ test('giornaliera: la volta di oggi saltata non interrompe la serie e non la fa 
   t.mock.timers.reset();
   // sabato, domenica, lunedì: nessuna penalità da pagare, la serie è ancora lì
   for (const ds of ['2026-03-07', '2026-03-08', '2026-03-09']) list = openApp([r], list, ds);
-  assert.equal(occ(list, r, '2026-03-06'), undefined, 'la volta saltata non torna');
+  assert.equal(occ(list, r, '2026-03-06').done.sk, 1, 'la volta resta, saltata (niente penalità)');
+  assert.equal(occ(list, r, '2026-03-06').failed, null);
   assert.deepEqual([r.streak, r.brks], [4, []], 'serie ferma, nessun periodo mancato');
   now(t, '2026-03-09', '12:00');
   complete(r, occ(list, r, '2026-03-09'), '2026-03-09');
@@ -65,7 +67,11 @@ test('giornaliera: saltare in anticipo un giorno futuro', t => {
   list = openApp([r], list, '2026-03-03');
   complete(r, occ(list, r, '2026-03-03'), '2026-03-03');
   list = openApp([r], list, '2026-03-04');
-  assert.equal(occ(list, r, '2026-03-04'), undefined, 'il giorno saltato la volta non nasce');
+  const sk = occ(list, r, '2026-03-04');
+  assert.deepEqual([sk.done.sk, sk.done.date, sk.failed], [1, '2026-03-04', null], 'il giorno saltato la volta nasce già saltata');
+  assert.deepEqual(M.missionLists(list).skipped.map(m => m.id), [sk.id], 'nella scheda Missioni: tra le saltate');
+  assert.ok(!M.missionLists(list).done.includes(sk), 'non tra le completate');
+  assert.deepEqual(M.dayLists(list, '2026-03-04').skipped, [], 'nel Calendario la mostra la routine (skippedOn), non due volte');
   list = openApp([r], list, '2026-03-05');
   complete(r, occ(list, r, '2026-03-05'), '2026-03-05');
   assert.deepEqual([r.streak, r.brks], [3, []]);
@@ -130,9 +136,13 @@ test('annullare un salto: finché la volta non sarebbe scaduta', t => {
   now(t, '2026-03-02', '07:00');
   assert.ok(M.applyUnskip(r, '2026-03-02'));
   assert.equal(r.skip, undefined);
-  list.push(plan.occ);
+  // come fa il pulsante: la volta saltata c'è ancora, torna da fare
+  const cur = occ(list, r, '2026-03-02');
+  assert.equal(cur.done.sk, 1);
+  cur.done = null;
   list = openApp([r], list, '2026-03-02');
   assert.equal(list.filter(m => m.rid === 'r1').length, 1, 'una sola volta');
+  assert.equal(occ(list, r, '2026-03-02').done, null, 'di nuovo da fare');
 });
 
 test('annullare un salto: volte già segnate e giorni futuri', t => {
@@ -183,4 +193,48 @@ test('dati salvati: i salti si controllano e i più vecchi si tolgono', t => {
   const res = M.routineDay([r], [], '2026-06-01', at('2026-06-01', '00:05'));
   assert.equal(r.skip, undefined, 'dopo 60 giorni non servono più');
   assert.ok(res.routinesChanged);
+});
+
+/* ---------- le volte saltate restano tra le missioni ("Saltate"), e si possono eliminare ---------- */
+test('saltata: sta tra le saltate; eliminata con "Seleziona" non torna', t => {
+  now(t, '2026-03-02', '09:00');
+  const r = lez();
+  let list = openApp([r], [], '2026-03-02');
+  const m = occ(list, r, '2026-03-02');
+  list = skipOcc(r, list, m);
+  assert.deepEqual(M.missionLists(list).skipped, [m]);
+  assert.deepEqual(M.missionLists(list).done, [], 'non è una completata');
+  // eliminata (come fa "Seleziona": la lapide resta tra le missioni eliminate)
+  const gone = new Set([m.id]);
+  list = list.filter(x => x !== m);
+  list = M.routineDay([r], list, '2026-03-02', at('2026-03-02', '09:05'), gone).missions;
+  assert.equal(occ(list, r, '2026-03-02'), undefined, 'non torna');
+  assert.deepEqual(r.skip.map(x => x.d), ['2026-03-02'], 'il salto resta nella routine (serie e Calendario)');
+});
+
+test('saltate prima di questa versione (la volta era stata tolta): non tornano', t => {
+  now(t, '2026-03-02', '09:00');
+  const r = lez();
+  let list = openApp([r], [], '2026-03-02');
+  const m = occ(list, r, '2026-03-02');
+  M.applySkip(r, '2026-03-02', m);
+  const gone = new Set([m.id]);   // allora si toglieva, con la lapide
+  list = list.filter(x => x !== m);
+  list = M.routineDay([r], list, '2026-03-02', at('2026-03-02', '09:05'), gone).missions;
+  assert.equal(occ(list, r, '2026-03-02'), undefined);
+});
+
+test('settimanale saltata a metà: le volte già segnate restano, e tornano annullando il salto', t => {
+  now(t, '2026-09-26', '12:00');
+  const r = pal();
+  let list = openApp([r], [], '2026-09-26');
+  const m = occ(list, r, '2026-09-25');
+  M.applySetCount(m, 1, at('2026-09-26'));
+  list = skipOcc(r, list, m);
+  assert.deepEqual([m.done.sk, m.p.length], [1, 1]);
+  const plan = M.unskipPlan(r, '2026-09-25');
+  assert.ok(plan && plan.occ, 'si può ancora annullare');
+  M.applyUnskip(r, '2026-09-25');
+  m.done = null;   // come fa il pulsante
+  assert.deepEqual([m.done, m.p.length, M.missionLists(list).todo.includes(m)], [null, 1, true], 'di nuovo da fare, con la volta già segnata');
 });
