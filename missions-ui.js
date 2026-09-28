@@ -1489,6 +1489,7 @@
         && MISSIONS.timePassedToday({ freq, n: 1, days, start, streakDate: '' }, time, today)) { start = addDaysStr(today, 1); movedStart = true; }
       const newStart = !r || start !== r.start;
       let redo = [];   // volte rifatte con le regole nuove (routine appena creata)
+      const nxBefore = JSON.stringify((r && r.nx) || null);   // per dire "il resto dal…" solo se cambia adesso
       if (r) {
         // titolo e descrizione cambiano subito (anche nelle volte ancora da fare, qui sotto)
         Object.assign(r, { title, desc });
@@ -1544,7 +1545,7 @@
       finishForm();
       renderMissionViews();
       // con un cambio in attesa si dice da quando valgono le regole nuove
-      const later = wasEdit && r.nx ? ' ' + T('msg.routine.from', { when: midDay(r.nx.at) }) : '';
+      const later = wasEdit && r.nx && JSON.stringify(r.nx) !== nxBefore ? ' ' + T('msg.routine.from', { when: midDay(r.nx.at) }) : '';
       missionMsg(T(wasEdit ? 'msg.routine.edited' : 'msg.routine.created', { title }) + later + (movedStart ? ' ' + T('msg.routine.tomorrow', { time }) : ''), 'good', movedStart || !!later);
     }
     // eliminazione rimandata: prima di confermare si spiega che cosa succederà (nella nota del modulo, che resta
@@ -1667,7 +1668,9 @@
           if (due && due <= todayStr()) return fail(T('mf.err.duelater'), $('mf-date'));
         }
         Object.assign(m, { title, desc });
-        later = MISSIONS.planMissionChange(m, c) > todayStr();
+        // "il resto da domani" solo se questo salvataggio ha cambiato le modifiche in attesa (non per una di prima)
+        const nxBefore = JSON.stringify(m.nx || null);
+        later = MISSIONS.planMissionChange(m, c) > todayStr() && JSON.stringify(m.nx || null) !== nxBefore;
         if (m.sid) SH().afterEdit(m);   // anche gli amici vedono la missione cambiata (e le regole di domani)
       } else {
         const created = todayStr();
