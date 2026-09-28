@@ -651,7 +651,8 @@
       const sid = m.sid, id = m.id, sent = JSON.stringify(f);
       pushing.add(id); pushedAt[id] = Date.now();
       let again = false;
-      update(sid, { ...f, ownerName: myName(), ver: rulesChanged ? d.ver + 1 : d.ver })
+      const data = { ...f, ownerName: myName(), ver: rulesChanged ? d.ver + 1 : d.ver };
+      update(sid, data)
         .then(() => {
           const now = S.missions.find(x => x.id === id);
           if (!now || now.sid !== sid) return;
@@ -662,6 +663,9 @@
         })
         .catch(e => {
           console.warn('shared edit', e && e.code, e);
+          // (diagnostica: che cosa si è provato a scrivere e com'era il documento; senza g e members, che hanno gli id)
+          const { g, members, _pw, _srv, ...doc } = raw || {};
+          console.warn('shared edit data', JSON.stringify({ now: Date.now(), data, doc }));
           if (transient(e)) return;   // si riprova da evaluate
           rollback(id, sid);
         })
