@@ -543,6 +543,8 @@
       card.appendChild(head);
       // impegni: eliminata (sparisce domani) o con modifiche che valgono da domani
       if (m.del && !m.done && !m.failed) card.appendChild(mk('p', 'm-shared warn', T('m.deleting')));
+      // volta di una routine eliminata: lo si dice anche qui (qui c'era "Modifica", che non c'è più)
+      else if (rtn && rtn.del && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared warn', T('m.rdeleting', { when: midDay(rtn.del) })));
       else if (m.del) card.appendChild(mk('p', 'm-shared', T('m.deleting.over')));
       else if (m.nx && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared', T('m.next', { what: changeText(m, m.nx) })));
       // condivisa da un amico: le sue modifiche valgono da domani
@@ -665,6 +667,8 @@
         // (eliminata, o di una routine eliminata: non si modifica più, si può solo ripristinare)
         if (!isLate(m) && !m.del && !(m.rid && !rtn) && !(rtn && (rtn.sh === 'g' || rtn.del))) act.appendChild(btn('', T('btn.edit'), T('aria.edit'), () => openMissionForm(m.id)));
         if (m.del) act.appendChild(btn('', T('btn.restore'), T('aria.restore'), () => restoreMission(m.id)));
+        // routine eliminata: "Ripristina" anche qui, per tutta la routine (come "Modifica"), finché non è arrivato il suo giorno
+        if (rtn && rtn.del && rtn.del > todayStr()) act.appendChild(btn('', T('btn.restore'), T('aria.restore'), () => restoreRoutine(rtn.id)));
         // routine: "Invita" anche qui (come "Modifica"), per tutta la routine; solo chi l'ha creata, finché c'è posto
         if (rtn && !rtn.del && SR().canInvite(rtn)) act.appendChild(btn('', T('sh.invite'), T('sr.invite.aria'), () => SR().openInvite(rtn.id)));
         if (sri && sri.pending) act.append(btn(' add', T('sh.accept.change'), T('sh.accept.change'), () => SR().acceptChange(rtn.id)), exitBtn(rtn));
