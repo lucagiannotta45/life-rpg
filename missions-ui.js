@@ -545,6 +545,8 @@
       if (m.del && !m.done && !m.failed) card.appendChild(mk('p', 'm-shared warn', T('m.deleting')));
       // volta di una routine eliminata: lo si dice anche qui (qui c'era "Modifica", che non c'è più)
       else if (rtn && rtn.del && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared warn', T('m.rdeleting', { when: midDay(rtn.del) })));
+      // volta di una routine con un cambio in attesa: che cosa cambia e da quando, come nell'elenco delle routine
+      else if (rtn && rtn.nx && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared', T('r.next', { when: midDay(rtn.nx.at), what: changeText(rtn, rtn.nx, true) })));
       else if (m.del) card.appendChild(mk('p', 'm-shared', T('m.deleting.over')));
       else if (m.nx && !m.done && !failedNow) card.appendChild(mk('p', 'm-shared', T('m.next', { what: changeText(m, m.nx) })));
       // condivisa da un amico: le sue modifiche valgono da domani
