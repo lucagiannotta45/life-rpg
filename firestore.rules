@@ -138,9 +138,11 @@ service cloud.firestore {
     }
     // la scadenza che vale adesso: quella del cambio in attesa, se è arrivato
     function effDue(o) { return nxOn(o) ? o.nx.get('dueAt', null) : o.dueAt; }
-    // prima della scadenza (se c'è), con l'ora del server
-    function shInTime(o) { return effDue(o) == null || request.time.toMillis() < effDue(o); }
-    function shDueOk(d) { return effDue(d) == null || effDue(d) > request.time.toMillis(); }
+    // prima della scadenza (se c'è), con l'ora del server. (La scadenza che vale si calcola una volta sola: Firebase ha
+    // un tetto al numero di espressioni valutate)
+    function beforeT(t) { return t == null || request.time.toMillis() < t; }
+    function shInTime(o) { return beforeT(effDue(o)); }
+    function shDueOk(d) { return beforeT(effDue(d)); }
     // il cambio in attesa, se c'è: da un istante preciso, con regole valide, e una scadenza (se c'è) dopo quell'istante
     function okShNx(x) {
       return x == null || (x is map
@@ -181,8 +183,7 @@ service cloud.firestore {
       return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
         && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
         && okTimeOrNull(n.dueAt) && okTimeOrNull(n.fromAt) && shortStr(n.tz, 64) && shDueOk(n)
-        && okDateOrNull(n.oDue) && okClockOrNull(n.oDueTime) && okDateOrNull(n.oFrom) && okClockOrNull(n.oFromTime)
-        && okShNx(n.get('nx', null));
+        && okDateOrNull(n.oDue) && okClockOrNull(n.oDueTime) && okDateOrNull(n.oFrom) && okClockOrNull(n.oFromTime);
     }
     // creazione: tutto parte da zero, con da 1 a 3 amici veri
     function shCreate(n) {
@@ -190,7 +191,7 @@ service cloud.firestore {
         && n.v == 2 && n.owner == me() && n.members is list && n.members[0] == me()
         && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
         && newGuestAt(1, n, 1) && newGuestAt(1, n, 2) && newGuestAt(1, n, 3)
-        && okContent(n)
+        && okContent(n) && okShNx(n.get('nx', null))
         && n.ver == 1 && n.oDone == null && n.left == '' && n.seenO == false && n.created is int && n.updated is int;
     }
 
@@ -206,10 +207,13 @@ service cloud.firestore {
         || (k.hasOnly(['seenO', 'updated']) && n.seenO == true && shFinal(o))
         // modificare la missione; se cambiano XP, penalità, scadenza o il cambio in attesa la versione sale di uno (gli
         // amici dovranno riaccettare). Un cambio in attesa nuovo vale da un istante futuro
+        // Si controlla solo quello che cambia (il resto era già valido): il contenuto se cambia, il cambio in attesa se cambia
         || (k.hasOnly(['title', 'desc', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime',
                        'ver', 'ownerName', 'updated', 'nx'])
-            && shOpen(o) && shInTime(o) && okContent(n)
-            && (!k.hasAny(['nx']) || n.get('nx', null) == null || n.nx.at > request.time.toMillis())
+            && shOpen(o) && shInTime(o)
+            && (!k.hasAny(['title', 'desc', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime',
+                           'ownerName']) || okContent(n))
+            && (!k.hasAny(['nx']) || n.get('nx', null) == null || (okShNx(n.nx) && n.nx.at > request.time.toMillis()))
             && (k.hasAny(['rewards', 'penalty', 'dueAt', 'nx']) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
         // invitare altri amici: lo decide solo chi l'ha creata, e chi è già dentro non deve riaccettare (la versione resta)
         || (k.hasOnly(['g', 'members', 'updated']) && shOpen(o) && shInTime(o)
@@ -332,7 +336,7 @@ service cloud.firestore {
       return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
         && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
         && srShape(n.get('freq', 'd'), n.get('n', 1), n.days, n.time)
-        && (n.get('at', null) == null || okDay10(n.at)) && (n.get('pk', null) == null || okDay10(n.pk)) && srNx(n.get('nx', null))
+        && (n.get('at', null) == null || okDay10(n.at)) && (n.get('pk', null) == null || okDay10(n.pk))
         && srCal(n.get('cal', null), n.get('wk', null))
         && n.start is string && n.start.size() == 10 && shortStr(n.tz, 64)
         && (n.get('pause', null) == null || (n.pause is map && n.pause.keys().hasOnly(['from', 'until'])
@@ -352,7 +356,7 @@ service cloud.firestore {
         && n.v == 1 && n.owner == me() && n.members is list && n.members[0] == me()
         && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
         && newSrGuestAt(1, n, 1) && newSrGuestAt(1, n, 2) && newSrGuestAt(1, n, 3)
-        && srTpl(n) && n.ver == 1 && n.k == {} && n.get('x', {}) == {} && n.lk == '' && n.created is int && n.updated is int;
+        && srTpl(n) && srNx(n.get('nx', null)) && n.ver == 1 && n.k == {} && n.get('x', {}) == {} && n.lk == '' && n.created is int && n.updated is int;
     }
     // chi può segnare la sua parte: chi l'ha creata, o un amico dentro con le regole attuali
     function srIn(o) { return me() == o.owner || (me() in o.g && o.g[me()].j == true && o.g[me()].a == o.ver); }
@@ -410,7 +414,8 @@ service cloud.firestore {
       return me() == o.owner && (
         // modificare la routine; se cambiano le regole (XP, penalità, frequenza, volte, giorni, ora, o il cambio in attesa,
         // che porta anche stelle e bonus) la versione sale di uno
-        (k.hasOnly(srTplKeys()) && srTpl(n)
+        // (il cambio in attesa si controlla solo se cambia: Firebase ha un tetto al numero di espressioni valutate)
+        (k.hasOnly(srTplKeys()) && srTpl(n) && (!k.hasAny(['nx']) || srNx(n.get('nx', null)))
           && (k.hasAny(srRuleKeys()) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
         // invitare altri amici (chi è già dentro non deve riaccettare: per lui non cambia niente)
         || (k.hasOnly(['g', 'members', 'updated'])
