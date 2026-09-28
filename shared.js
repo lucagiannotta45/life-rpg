@@ -681,8 +681,12 @@
       push(L, d, false);
     }
     // il server ha rifiutato la modifica: la missione torna com'è nel documento (titolo, XP, penalità, date)
-    function rollback(id, sid) {
-      const L = S.missions.find(x => x.id === id), d = eff(docs[sid] || null);
+    // (Firebase mostra subito la tua modifica nel documento, prima che il server risponda, e dopo il rifiuto la toglie:
+    // finché il documento ha ancora la scrittura in sospeso, _pw, si aspetta la versione vera, fino a 10 secondi)
+    function rollback(id, sid, tries = 0) {
+      const raw = docs[sid];
+      if (raw && raw._pw && tries < 20) { setTimeout(() => rollback(id, sid, tries + 1), 500); return; }
+      const L = S.missions.find(x => x.id === id), d = eff(raw || null);
       if (!L || L.sid !== sid) return;
       delete L.shd;
       if (d && isV2(d) && !L.done && !L.failed) {

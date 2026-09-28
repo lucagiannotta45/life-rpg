@@ -643,7 +643,10 @@
       push(r, d, false);
     }
     // il server ha rifiutato la modifica: la routine torna com'è nel documento (titolo, regole, cambio in attesa)
-    function rollback(rid, id) {
+    // (Firebase mostra subito la modifica nel documento, prima che il server risponda, e dopo il rifiuto la toglie:
+    // finché il documento ha ancora la scrittura in sospeso, _pw, si aspetta la versione vera, fino a 10 secondi)
+    function rollback(rid, id, tries = 0) {
+      if (docs[id] && docs[id]._pw && tries < 20) { setTimeout(() => rollback(rid, id, tries + 1), 500); return; }
       const r = S.routines.find(x => x.id === rid), d = docs[id];
       if (!r || r.sr !== id) return;
       delete r.srd;
