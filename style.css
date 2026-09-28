@@ -538,8 +538,9 @@
   .col-b { grid-area: b; }
   .col-c { grid-area: c; }
   .col-d { grid-area: d; }
-  /* missioni: da fare e fallite a sinistra, completate e saltate a destra */
-  #view-missions { grid-template-areas: "a b" "c b" "c d"; }
+  /* missioni: da fare e fallite a sinistra, completate e saltate a destra. "Da fare" occupa due righe, così
+     "Saltate" sta subito sotto "Completate" e "Fallite" subito sotto "Da fare", qualunque sia la loro altezza */
+  #view-missions { grid-template-areas: "a b" "a d" "c d"; }
   @media (max-width: 840px) {
     .screen.two { grid-template-columns: minmax(0, 1fr); grid-template-areas: "a" "b"; }
     /* in colonna con flex: la finestra "Fallite", quando è nascosta, non lascia una riga vuota (e uno spazio doppio) */
