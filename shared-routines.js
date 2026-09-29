@@ -702,10 +702,18 @@
         const f = fieldsOf(r);
         if (f.freq === 'd' && f.n === 1 && !f.at && !f.pk && !f.nx) ['freq', 'n', 'at', 'pk', 'nx'].forEach(k => { delete f[k]; });
         if (!f.cal) { delete f.cal; delete f.wk; }   // periodi contati dall'inizio (come prima): i campi nuovi non servono
-        const data = {
-          v: 1, owner: me(), ownerName: myName(), members: [me()].concat(chosen.map(f => f.uid)),
-          g: Object.fromEntries(chosen.map(f => [f.uid, guestEntry(f)])),
+        // Due scritture: prima il documento SENZA amici (le regole ne controllano il contenuto), poi gli inviti (le regole
+        // controllano solo gli amici). Insieme superavano il tetto di espressioni valutate di Firebase.
+        const base = {
+          v: 1, owner: me(), ownerName: myName(), members: [me()], g: {},
           ...f, ver: 1, k: {}, lk: '', created: now, updated: now,
+        };
+        const inv = { members: FV().arrayUnion(...chosen.map(x => x.uid)) };
+        chosen.forEach(x => { inv['g.' + x.uid] = guestEntry(x); });
+        // la copia di qui ha già gli amici: è come sarà dopo la seconda scrittura
+        const data = {
+          ...base, members: [me()].concat(chosen.map(x => x.uid)),
+          g: Object.fromEntries(chosen.map(x => [x.uid, guestEntry(x)])),
         };
         r.sr = id; r.sh = 'o';
         // i salti della volta in corso e di quelle future passano al documento del gruppo (dopo averlo creato)
@@ -713,8 +721,18 @@
         const sendSkips = (r.skip || []).filter(x => { const p = MISSIONS.periodStarting(r, x.d); return p && p.e >= today; }).map(x => x.d);
         skipSyncing.add(r.id);
         docs[id] = { ...data, _pw: true };
-        try { await ref(id).set(data); }
-        catch (e) { skipSyncing.delete(r.id); delete r.sr; delete r.sh; delete r.tz; delete docs[id]; throw e; }
+        // le due scritture partono una dopo l'altra senza aspettare la risposta: Firebase le manda in ordine e il documento
+        // ha scritture in sospeso (_pw) finché non sono arrivate tutte e due. Così evaluate non vede mai il documento
+        // senza amici come "gruppo vuoto" (alone) e non lo scioglie
+        const w1 = ref(id).set(base);
+        const w2 = update(id, inv);
+        const [r1, r2] = await Promise.allSettled([w1, w2]);
+        if (r1.status === 'rejected' || r2.status === 'rejected') {
+          // se il documento è stato creato ma gli inviti no, lo si toglie (lo può eliminare chi l'ha creata)
+          if (r1.status !== 'rejected') { try { await ref(id).delete(); } catch (e2) { console.warn('sroutines cleanup', e2 && e2.code, e2); } }
+          skipSyncing.delete(r.id); delete r.sr; delete r.sh; delete r.tz; delete docs[id];
+          throw r1.status === 'rejected' ? r1.reason : r2.reason;
+        }
         saveCache();
         (async () => { for (const ds of sendSkips) await writeSkip(r, ds, true); })()
           .finally(() => { skipSyncing.delete(r.id); evaluate(); });

@@ -220,13 +220,17 @@ service cloud.firestore {
         && okTimeOrNull(n.dueAt) && okTimeOrNull(n.fromAt) && shortStr(n.tz, 64) && shDueOk(n)
         && okDateOrNull(n.oDue) && okClockOrNull(n.oDueTime) && okDateOrNull(n.oFrom) && okClockOrNull(n.oFromTime);
     }
-    // creazione: tutto parte da zero, con da 1 a 3 amici veri
+    // creazione: tutto parte da zero. Le app nuove creano il documento SENZA amici (members: [owner], g: {}) e li invitano
+    // con una seconda scrittura (il ramo "invitare altri amici" di shOwnerUpdate): così contenuto e ospiti non si sommano
+    // nello stesso tetto di espressioni valutate. Il secondo ramo (da 1 a 3 amici veri subito) serve alle versioni
+    // vecchie dell'app: si può togliere quando non le usa più nessuno.
     function shCreate(n) {
       // (nessun hasAll sui campi obbligatori: sotto ognuno viene letto, e se manca la scrittura è rifiutata comunque)
       return n.keys().hasOnly(sharedBaseKeys().concat(['nx']))
         && n.v == 2 && n.owner == me() && n.members is list && n.members[0] == me()
-        && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
-        && newGuestAt(1, n, 1) && newGuestAt(1, n, 2) && newGuestAt(1, n, 3)
+        && ((n.members.size() == 1 && n.g == {})
+          || (n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
+            && newGuestAt(1, n, 1) && newGuestAt(1, n, 2) && newGuestAt(1, n, 3)))
         && okContent(n, null) && okShNx(n.get('nx', null))
         && n.ver == 1 && n.oDone == null && n.left == '' && n.seenO == false && n.created is int && n.updated is int;
     }
@@ -400,8 +404,11 @@ service cloud.firestore {
       // (nessun hasAll sui campi obbligatori: sotto ognuno viene letto, e se manca la scrittura è rifiutata comunque)
       return n.keys().hasOnly(srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x', 'cal', 'wk', 'pp']))
         && n.v == 1 && n.owner == me() && n.members is list && n.members[0] == me()
-        && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
-        && newSrGuestAt(1, n, 1) && newSrGuestAt(1, n, 2) && newSrGuestAt(1, n, 3)
+        // (come per le missioni: le app nuove creano senza amici e li invitano con una seconda scrittura;
+        // il secondo ramo è per le versioni vecchie dell'app)
+        && ((n.members.size() == 1 && n.g == {})
+          || (n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
+            && newSrGuestAt(1, n, 1) && newSrGuestAt(1, n, 2) && newSrGuestAt(1, n, 3)))
         && srTpl(n, null) && srNx(n.get('nx', null)) && n.ver == 1 && n.k == {} && n.get('x', {}) == {} && n.lk == '' && n.created is int && n.updated is int;
     }
     // chi può segnare la sua parte: chi l'ha creata, o un amico dentro con le regole attuali

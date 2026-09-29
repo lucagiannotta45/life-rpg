@@ -410,7 +410,7 @@
             // nessun amico dentro: se non c'è più nessuno invitato (tutti usciti o hanno rifiutato), l'invito è scaduto,
             // oppure la missione è già finita da sola, gli inviti non servono più
             const expired = d.dueAt != null && now >= d.dueAt;
-            const none = !guests(d).length;
+            const none = !guests(d).length && !d._pw;   // (con scritture in sospeso gli inviti potrebbero essere in arrivo)
             if (none || L.done || L.failed || expired) {
               if (openL(L) && none) {
                 if (d.oDone != null && !MUI().grantShared(L)) return;   // la tua parte vale (si riprova se ora non si può)
@@ -1035,17 +1035,36 @@
       } else {
         const sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
         const now = Date.now();
-        const data = {
-          v: 2, owner: me(), ownerName: myName(), members: [me()].concat(chosen.map(f => f.uid)),
-          g: Object.fromEntries(chosen.map(f => [f.uid, guestEntry(f)])),
+        // Due scritture, una dopo l'altra: prima il documento SENZA amici (le regole ne controllano il contenuto), poi
+        // gli inviti (le regole controllano solo gli amici). Nella stessa richiesta insieme superavano il tetto di
+        // espressioni valutate di Firebase (2-3 amici, o un solo amico con una missione molto articolata).
+        const base = {
+          v: 2, owner: me(), ownerName: myName(), members: [me()], g: {},
           ...fieldsOf(m), ver: 1, oDone: null, left: '', seenO: false, created: now, updated: now,
         };
-        if (!data.nx) delete data.nx;   // (i documenti senza cambio in attesa sono come prima)
+        if (!base.nx) delete base.nx;   // (i documenti senza cambio in attesa sono come prima)
+        const inv = { members: FV().arrayUnion(...chosen.map(f => f.uid)) };
+        chosen.forEach(f => { inv['g.' + f.uid] = guestEntry(f); });
+        // la copia di qui ha già gli amici: è come sarà dopo la seconda scrittura
+        const data = {
+          ...base, members: [me()].concat(chosen.map(f => f.uid)),
+          g: Object.fromEntries(chosen.map(f => [f.uid, guestEntry(f)])),
+        };
         // la missione si collega al documento PRIMA di scriverlo: l'aggiornamento in diretta arriva già durante la scrittura
         m.sid = sid; m.sh = 'o';
         docs[sid] = { ...data, _pw: true, _srv: 0 };
-        try { await ref(sid).set(data); }
-        catch (e) { delete m.sid; delete m.sh; delete docs[sid]; throw e; }
+        // le due scritture partono una dopo l'altra senza aspettare la risposta: Firebase le manda in ordine e il documento
+        // ha scritture in sospeso (_pw) finché non sono arrivate tutte e due. Così non c'è mai un momento in cui il
+        // documento senza amici sembra "vuoto" e evaluate lo elimina
+        const w1 = ref(sid).set(base);
+        const w2 = update(sid, inv);
+        const [r1, r2] = await Promise.allSettled([w1, w2]);
+        if (r1.status === 'rejected' || r2.status === 'rejected') {
+          // se il documento è stato creato ma gli inviti no, lo si toglie (senza amici dentro lo può eliminare chi l'ha creata)
+          if (r1.status !== 'rejected') { try { await ref(sid).delete(); } catch (e2) { console.warn('shared cleanup', e2 && e2.code, e2); } }
+          delete m.sid; delete m.sh; delete docs[sid];
+          throw r1.status === 'rejected' ? r1.reason : r2.reason;
+        }
         saveCache();
         touchMonth(monthOf(m));
       }
