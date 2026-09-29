@@ -34,7 +34,7 @@ const GAME = window.LIFE_RPG_GAME.create(T);
 const SYNC = window.LIFE_RPG_SYNC.create(GAME);
 const MISSIONS = window.LIFE_RPG_MISSIONS.create(GAME, SYNC);
 
-// un istante preciso, in ora italiana: at('2026-03-10', '18:30')
+// un istante preciso, nell'ora del "dispositivo" (Roma, o il fuso di TEST_TZ): at('2026-03-10', '18:30')
 const at = (ds, time = '12:00') => new Date(ds + 'T' + time + ':00').getTime();
 
 module.exports = { T, I18N, LANGS, GAME, SYNC, MISSIONS, at };
