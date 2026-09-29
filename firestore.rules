@@ -9,24 +9,35 @@ service cloud.firestore {
       return exists(p) && get(p).data.status == 'accepted';
     }
     function shortStr(v, max) { return v is string && v.size() <= max; }
-    // somma degli XP di una mappa di statistiche (già controllata con okStats)
-    function statSum(s) {
-      return s.get('Vigore', 0) + s.get('Vitalita', 0) + s.get('Intelletto', 0) + s.get('Creativita', 0) + s.get('Animo', 0) + s.get('Legami', 0);
-    }
     // Premi, penalità e bonus di ciò che si condivide con gli amici (come in missions.js: MAX_REWARD, MAX_PENALTY,
     // MAX_BONUS_XP): la ricompensa al massimo 256 XP (Durata 5 x Difficoltà 5) e, con le stelle, esattamente quella che
     // danno (pesi 1, 2, 3, 5, 8, per 4); la penalità e il bonus al massimo 256 XP in tutto, divisi tra le statistiche.
     // Così nessuno può regalare XP enormi agli amici, né farli rischiare penalità che azzerano i livelli.
-    // (Le stelle vanno controllate prima, con okStars: qui si usano come indici.)
     // Valori salvati prima di questi limiti: restano validi finché non cambiano (o = il documento di adesso; null alla
     // creazione), così chi ha creato la missione o la routine può ancora cambiare, per esempio, il titolo. L'app gli
     // chiede di rientrare nei limiti appena modifica ricompensa, penalità o bonus.
     function keptReward(o, n) { return o != null && n.rewards == o.rewards && n.get('stars', null) == o.get('stars', null); }
     function keptPenalty(o, n) { return o != null && n.penalty == o.penalty; }
-    function okReward(r, st) {
-      return statSum(r) <= 256 && (st == null || statSum(r) == [0, 1, 2, 3, 5, 8][st.d] * [0, 1, 2, 3, 5, 8][st.f] * 4);
+    // gli XP che le stelle danno (-1: niente stelle, nessun totale preciso). Le stelle vanno controllate prima, con okStars:
+    // qui si usano come indici
+    function starXp(st) { return st == null ? -1 : [0, 1, 2, 3, 5, 8][st.d] * [0, 1, 2, 3, 5, 8][st.f] * 4; }
+    // Mappa di XP per statistica, controllata in un solo passaggio (Firebase ha un tetto al numero di espressioni valutate
+    // per richiesta: ogni valore si legge una volta sola): le sei statistiche, ognuna un intero >= 0, con la somma tra
+    // lo e hi e, se want non è -1, esattamente want. (Vale quanto okStats + il limite sulla somma: con somma <= 256
+    // ogni statistica è già sotto il massimo di okStats.)
+    function okXpMap(s, lo, hi, want) {
+      let v1 = s.get('Vigore', 0);
+      let v2 = s.get('Vitalita', 0);
+      let v3 = s.get('Intelletto', 0);
+      let v4 = s.get('Creativita', 0);
+      let v5 = s.get('Animo', 0);
+      let v6 = s.get('Legami', 0);
+      let t = v1 + v2 + v3 + v4 + v5 + v6;
+      return s is map && s.keys().hasOnly(['Vigore', 'Vitalita', 'Intelletto', 'Creativita', 'Animo', 'Legami'])
+        && v1 is int && v1 >= 0 && v2 is int && v2 >= 0 && v3 is int && v3 >= 0
+        && v4 is int && v4 >= 0 && v5 is int && v5 >= 0 && v6 is int && v6 >= 0
+        && t >= lo && t <= hi && (want < 0 || t == want);
     }
-    function okPenalty(p) { return statSum(p) <= 256; }
     // un colore #rrggbb (oppure vuoto: nessun colore scelto)
     function okColor(v) { return v == '' || (v is string && v.matches('^#[0-9a-fA-F]{6}$')); }
 
@@ -169,8 +180,8 @@ service cloud.firestore {
       return x == null || (x is map
         && x.keys().hasOnly(['at', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'oDue', 'oDueTime', 'oFrom', 'oFromTime'])
         && x.keys().hasAll(['at', 'rewards', 'penalty', 'dueAt', 'fromAt'])
-        && x.at is int && okStats(x.rewards) && okStats(x.penalty) && okStars(x.get('stars', null))
-        && okReward(x.rewards, x.get('stars', null)) && okPenalty(x.penalty)
+        && x.at is int && okStars(x.get('stars', null))
+        && okXpMap(x.rewards, 0, 256, starXp(x.get('stars', null))) && okXpMap(x.penalty, 0, 256, -1)
         && okTimeOrNull(x.dueAt) && okTimeOrNull(x.fromAt) && (x.dueAt == null || x.dueAt > x.at)
         && okDateOrNull(x.get('oDue', null)) && okClockOrNull(x.get('oDueTime', null))
         && okDateOrNull(x.get('oFrom', null)) && okClockOrNull(x.get('oFromTime', null)));
@@ -203,14 +214,16 @@ service cloud.firestore {
     // il contenuto della missione (lo decide chi l'ha creata)
     function okContent(n, o) {
       return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
-        && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
-        && (keptReward(o, n) || okReward(n.rewards, n.stars)) && (keptPenalty(o, n) || okPenalty(n.penalty))
+        && okStars(n.stars)
+        && (keptReward(o, n) || okXpMap(n.rewards, 0, 256, starXp(n.stars)))
+        && (keptPenalty(o, n) || okXpMap(n.penalty, 0, 256, -1))
         && okTimeOrNull(n.dueAt) && okTimeOrNull(n.fromAt) && shortStr(n.tz, 64) && shDueOk(n)
         && okDateOrNull(n.oDue) && okClockOrNull(n.oDueTime) && okDateOrNull(n.oFrom) && okClockOrNull(n.oFromTime);
     }
     // creazione: tutto parte da zero, con da 1 a 3 amici veri
     function shCreate(n) {
-      return n.keys().hasOnly(sharedBaseKeys().concat(['nx'])) && n.keys().hasAll(sharedBaseKeys())
+      let base = sharedBaseKeys();
+      return n.keys().hasOnly(base.concat(['nx'])) && n.keys().hasAll(base)
         && n.v == 2 && n.owner == me() && n.members is list && n.members[0] == me()
         && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
         && newGuestAt(1, n, 1) && newGuestAt(1, n, 2) && newGuestAt(1, n, 3)
@@ -322,9 +335,8 @@ service cloud.firestore {
       return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time',
               'start', 'bonus', 'tz', 'ver', 'k', 'lk', 'created', 'updated'];
     }
-    // pp: 1 = la penalità è quella del periodo intero (ogni volta fatta la riduce in proporzione); senza, documento di prima
-    // (penalità "per volta"): l'app la converte leggendola
-    function srKeys() { return srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x', 'cal', 'wk', 'pp']); }
+    // (i campi in più che può avere sono elencati in srCreate. pp: 1 = la penalità è quella del periodo intero, ogni volta
+    // fatta la riduce in proporzione; senza, documento di prima (penalità "per volta"): l'app la converte leggendola)
     function srTplKeys() {
       return ['title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time', 'start', 'pause', 'bonus', 'tz', 'ver', 'ownerName', 'updated',
               'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk', 'pp'];
@@ -348,7 +360,7 @@ service cloud.firestore {
       return b == null || (b is map && b.keys().hasOnly(['every', 'xp'])
         && b.every is int && b.every >= 2 && b.every <= 100000
         && ((b.xp is int && b.xp >= 1 && b.xp <= 42)
-          || (b.xp is map && okStats(b.xp) && statSum(b.xp) >= 1 && statSum(b.xp) <= 256)));
+          || (b.xp is map && okXpMap(b.xp, 1, 256, -1))));
     }
     function srNx(x) {
       return x == null || (x is map
@@ -357,15 +369,16 @@ service cloud.firestore {
         && okDay10(x.at) && srShape(x.freq, x.n, x.days, x.get('time', null)) && (x.get('pk', null) == null || okDay10(x.pk))
         && srCal(x.get('cal', null), x.get('wk', null))
         && okStars(x.get('stars', null))
-        && (x.get('rewards', null) == null || (okStats(x.rewards) && okReward(x.rewards, x.get('stars', null))))
-        && (x.get('penalty', null) == null || (okStats(x.penalty) && okPenalty(x.penalty)))
+        && (x.get('rewards', null) == null || okXpMap(x.rewards, 0, 256, starXp(x.get('stars', null))))
+        && (x.get('penalty', null) == null || okXpMap(x.penalty, 0, 256, -1))
         && srBonus(x.get('bonus', null)));
     }
     // il modello della routine (lo decide chi l'ha creata)
     function srTpl(n, o) {
       return shortStr(n.title, 60) && n.title.size() > 0 && shortStr(n.desc, 500) && shortStr(n.ownerName, 30)
-        && okStats(n.rewards) && okStats(n.penalty) && okStars(n.stars)
-        && (keptReward(o, n) || okReward(n.rewards, n.stars)) && (keptPenalty(o, n) || okPenalty(n.penalty))
+        && okStars(n.stars)
+        && (keptReward(o, n) || okXpMap(n.rewards, 0, 256, starXp(n.stars)))
+        && (keptPenalty(o, n) || okXpMap(n.penalty, 0, 256, -1))
         && srShape(n.get('freq', 'd'), n.get('n', 1), n.days, n.time)
         && (n.get('at', null) == null || okDay10(n.at)) && (n.get('pk', null) == null || okDay10(n.pk))
         && srCal(n.get('cal', null), n.get('wk', null))
@@ -384,7 +397,8 @@ service cloud.firestore {
         || (n.members[i] != me() && okNewSrGuest(n.g[n.members[i]]) && areFriends(n.members[i]));
     }
     function srCreate(n) {
-      return n.keys().hasOnly(srKeys()) && n.keys().hasAll(srBaseKeys())
+      let base = srBaseKeys();
+      return n.keys().hasOnly(base.concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x', 'cal', 'wk', 'pp'])) && n.keys().hasAll(base)
         && n.v == 1 && n.owner == me() && n.members is list && n.members[0] == me()
         && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
         && newSrGuestAt(1, n, 1) && newSrGuestAt(1, n, 2) && newSrGuestAt(1, n, 3)
