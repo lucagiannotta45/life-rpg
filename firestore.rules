@@ -22,8 +22,9 @@ service cloud.firestore {
     // qui si usano come indici
     function starXp(st) { return st == null ? -1 : [0, 1, 2, 3, 5, 8][st.d] * [0, 1, 2, 3, 5, 8][st.f] * 4; }
     // Mappa di XP per statistica, controllata in un solo passaggio (Firebase ha un tetto al numero di espressioni valutate
-    // per richiesta: ogni valore si legge una volta sola): le sei statistiche, ognuna un intero >= 0, con la somma tra
-    // lo e hi e, se want non è -1, esattamente want. (Vale quanto okStats + il limite sulla somma: con somma <= 256
+    // per richiesta: ogni valore si legge una volta sola): le sei statistiche, ognuna >= 0 e tutte intere (se ce n'è
+    // una decimale, anche la somma lo è: basta controllare la somma), con la somma tra lo e hi e, se want non è -1,
+    // esattamente want. (Vale quanto okStats + il limite sulla somma: con somma <= 256
     // ogni statistica è già sotto il massimo di okStats.)
     function okXpMap(s, lo, hi, want) {
       let v1 = s.get('Vigore', 0);
@@ -34,9 +35,8 @@ service cloud.firestore {
       let v6 = s.get('Legami', 0);
       let t = v1 + v2 + v3 + v4 + v5 + v6;
       return s is map && s.keys().hasOnly(['Vigore', 'Vitalita', 'Intelletto', 'Creativita', 'Animo', 'Legami'])
-        && v1 is int && v1 >= 0 && v2 is int && v2 >= 0 && v3 is int && v3 >= 0
-        && v4 is int && v4 >= 0 && v5 is int && v5 >= 0 && v6 is int && v6 >= 0
-        && t >= lo && t <= hi && (want < 0 || t == want);
+        && v1 >= 0 && v2 >= 0 && v3 >= 0 && v4 >= 0 && v5 >= 0 && v6 >= 0
+        && t is int && t >= lo && t <= hi && (want < 0 || t == want);
     }
     // un colore #rrggbb (oppure vuoto: nessun colore scelto)
     function okColor(v) { return v == '' || (v is string && v.matches('^#[0-9a-fA-F]{6}$')); }
@@ -222,8 +222,8 @@ service cloud.firestore {
     }
     // creazione: tutto parte da zero, con da 1 a 3 amici veri
     function shCreate(n) {
-      let base = sharedBaseKeys();
-      return n.keys().hasOnly(base.concat(['nx'])) && n.keys().hasAll(base)
+      // (nessun hasAll sui campi obbligatori: sotto ognuno viene letto, e se manca la scrittura è rifiutata comunque)
+      return n.keys().hasOnly(sharedBaseKeys().concat(['nx']))
         && n.v == 2 && n.owner == me() && n.members is list && n.members[0] == me()
         && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
         && newGuestAt(1, n, 1) && newGuestAt(1, n, 2) && newGuestAt(1, n, 3)
@@ -397,8 +397,8 @@ service cloud.firestore {
         || (n.members[i] != me() && okNewSrGuest(n.g[n.members[i]]) && areFriends(n.members[i]));
     }
     function srCreate(n) {
-      let base = srBaseKeys();
-      return n.keys().hasOnly(base.concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x', 'cal', 'wk', 'pp'])) && n.keys().hasAll(base)
+      // (nessun hasAll sui campi obbligatori: sotto ognuno viene letto, e se manca la scrittura è rifiutata comunque)
+      return n.keys().hasOnly(srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x', 'cal', 'wk', 'pp']))
         && n.v == 1 && n.owner == me() && n.members is list && n.members[0] == me()
         && n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
         && newSrGuestAt(1, n, 1) && newSrGuestAt(1, n, 2) && newSrGuestAt(1, n, 3)
