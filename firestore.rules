@@ -176,12 +176,16 @@ service cloud.firestore {
     function shInTime(o) { return beforeT(effDue(o)); }
     function shDueOk(d) { return beforeT(effDue(d)); }
     // il cambio in attesa, se c'è: da un istante preciso, con regole valide, e una scadenza (se c'è) dopo quell'istante
-    function okShNx(x) {
+    // (o = il documento di adesso, null alla creazione: ricompense e penalità uguali a quelle che ha già il documento
+    // non si ricontrollano, come fanno keptReward e keptPenalty)
+    function okShNx(x, o) {
       return x == null || (x is map
         && x.keys().hasOnly(['at', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'oDue', 'oDueTime', 'oFrom', 'oFromTime'])
         && x.keys().hasAll(['at', 'rewards', 'penalty', 'dueAt', 'fromAt'])
         && x.at is int && okStars(x.get('stars', null))
-        && okXpMap(x.rewards, 0, 256, starXp(x.get('stars', null))) && okXpMap(x.penalty, 0, 256, -1)
+        && ((o != null && x.rewards == o.rewards && x.get('stars', null) == o.get('stars', null))
+          || okXpMap(x.rewards, 0, 256, starXp(x.get('stars', null))))
+        && ((o != null && x.penalty == o.penalty) || okXpMap(x.penalty, 0, 256, -1))
         && okTimeOrNull(x.dueAt) && okTimeOrNull(x.fromAt) && (x.dueAt == null || x.dueAt > x.at)
         && okDateOrNull(x.get('oDue', null)) && okClockOrNull(x.get('oDueTime', null))
         && okDateOrNull(x.get('oFrom', null)) && okClockOrNull(x.get('oFromTime', null)));
@@ -231,7 +235,7 @@ service cloud.firestore {
         && ((n.members.size() == 1 && n.g == {})
           || (n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
             && newGuestAt(1, n, 1) && newGuestAt(1, n, 2) && newGuestAt(1, n, 3)))
-        && okContent(n, null) && okShNx(n.get('nx', null))
+        && okContent(n, null) && okShNx(n.get('nx', null), null)
         && n.ver == 1 && n.oDone == null && n.left == '' && n.seenO == false && n.created is int && n.updated is int;
     }
 
@@ -253,7 +257,7 @@ service cloud.firestore {
             && shOpen(o) && shInTime(o)
             && (!k.hasAny(['title', 'desc', 'rewards', 'penalty', 'stars', 'dueAt', 'fromAt', 'tz', 'oDue', 'oDueTime', 'oFrom', 'oFromTime',
                            'ownerName']) || okContent(n, o))
-            && (!k.hasAny(['nx']) || n.get('nx', null) == null || (okShNx(n.nx) && n.nx.at > request.time.toMillis()))
+            && (!k.hasAny(['nx']) || n.get('nx', null) == null || (okShNx(n.nx, o) && n.nx.at > request.time.toMillis()))
             && (k.hasAny(['rewards', 'penalty', 'dueAt', 'nx']) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
         // invitare altri amici: lo decide solo chi l'ha creata, e chi è già dentro non deve riaccettare (la versione resta)
         || (k.hasOnly(['g', 'members', 'updated']) && shOpen(o) && shInTime(o)
@@ -366,16 +370,31 @@ service cloud.firestore {
         && ((b.xp is int && b.xp >= 1 && b.xp <= 42)
           || (b.xp is map && okXpMap(b.xp, 1, 256, -1))));
     }
-    function srNx(x) {
+    // (o = il documento di adesso, null alla creazione: ricompense, penalità e bonus del cambio in attesa che sono uguali a
+    // quelli che ha già il documento non si ricontrollano, come fanno keptReward e keptPenalty: erano già validi, e ogni
+    // controllo di una mappa di XP pesa molto sul tetto di espressioni valutate di Firebase)
+    function srNx(x, o) {
       return x == null || (x is map
         && x.keys().hasOnly(['at', 'freq', 'n', 'days', 'time', 'pk', 'cal', 'wk', 'rewards', 'penalty', 'stars', 'bonus'])
         && x.keys().hasAll(['at', 'freq', 'n', 'days'])
         && okDay10(x.at) && srShape(x.freq, x.n, x.days, x.get('time', null)) && (x.get('pk', null) == null || okDay10(x.pk))
         && srCal(x.get('cal', null), x.get('wk', null))
         && okStars(x.get('stars', null))
-        && (x.get('rewards', null) == null || okXpMap(x.rewards, 0, 256, starXp(x.get('stars', null))))
-        && (x.get('penalty', null) == null || okXpMap(x.penalty, 0, 256, -1))
-        && srBonus(x.get('bonus', null)));
+        && (x.get('rewards', null) == null
+          || (o != null && x.rewards == o.rewards && x.get('stars', null) == o.get('stars', null))
+          || okXpMap(x.rewards, 0, 256, starXp(x.get('stars', null))))
+        && (x.get('penalty', null) == null
+          || (o != null && x.penalty == o.penalty)
+          || okXpMap(x.penalty, 0, 256, -1))
+        && (x.get('bonus', null) == null
+          || (o != null && x.bonus == o.get('bonus', null))
+          || srBonus(x.bonus)));
+    }
+    // i campi del modello (tutti tranne il cambio in attesa, la versione e l'ora): se non ne cambia nessuno, srTpl non serve
+    // (erano già validi). Così mandare solo un cambio in attesa non paga anche il controllo di tutto il resto.
+    function srTplTouched(k) {
+      return k.hasAny(['title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time', 'start', 'pause', 'bonus', 'tz',
+                       'ownerName', 'freq', 'n', 'at', 'pk', 'cal', 'wk', 'pp']);
     }
     // il modello della routine (lo decide chi l'ha creata)
     function srTpl(n, o) {
@@ -409,7 +428,7 @@ service cloud.firestore {
         && ((n.members.size() == 1 && n.g == {})
           || (n.members.size() >= 2 && n.members.size() <= 4 && gMatches(n)
             && newSrGuestAt(1, n, 1) && newSrGuestAt(1, n, 2) && newSrGuestAt(1, n, 3)))
-        && srTpl(n, null) && srNx(n.get('nx', null)) && n.ver == 1 && n.k == {} && n.get('x', {}) == {} && n.lk == '' && n.created is int && n.updated is int;
+        && srTpl(n, null) && srNx(n.get('nx', null), null) && n.ver == 1 && n.k == {} && n.get('x', {}) == {} && n.lk == '' && n.created is int && n.updated is int;
     }
     // chi può segnare la sua parte: chi l'ha creata, o un amico dentro con le regole attuali
     function srIn(o) { return me() == o.owner || (me() in o.g && o.g[me()].j == true && o.g[me()].a == o.ver); }
@@ -468,7 +487,7 @@ service cloud.firestore {
         // modificare la routine; se cambiano le regole (XP, penalità, frequenza, volte, giorni, ora, o il cambio in attesa,
         // che porta anche stelle e bonus) la versione sale di uno
         // (il cambio in attesa si controlla solo se cambia: Firebase ha un tetto al numero di espressioni valutate)
-        (k.hasOnly(srTplKeys()) && srTpl(n, o) && (!k.hasAny(['nx']) || srNx(n.get('nx', null)))
+        (k.hasOnly(srTplKeys()) && (!srTplTouched(k) || srTpl(n, o)) && (!k.hasAny(['nx']) || srNx(n.get('nx', null), o))
           && (k.hasAny(srRuleKeys()) ? n.ver == o.ver + 1 : (n.ver == o.ver || n.ver == o.ver + 1)))
         // invitare altri amici (chi è già dentro non deve riaccettare: per lui non cambia niente)
         || (k.hasOnly(['g', 'members', 'updated'])

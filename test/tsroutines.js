@@ -263,6 +263,9 @@ test('chi l\'ha creata: con un cambio in attesa, il gruppo si crea senza e il ca
   assert.deepEqual(Object.keys(second.data).sort(), ['g.uF', 'members', 'updated']);
   assert.equal(third.id, first.id);
   assert.deepEqual([third.data.nx.freq, third.data.nx.n, third.data.ver], ['w', 2, 2], 'poi il cambio, come una modifica: versione 2');
+  // campi vuoti che nel documento non ci sono (cal e wk in una routine a giorni) non si riscrivono: per le regole sarebbero
+  // campi cambiati, e ricontrollerebbero tutto il modello insieme al cambio in attesa (tetto di espressioni di Firebase)
+  assert.deepEqual(['cal', 'wk'].filter(k => k in third.data), [], 'non si riscrivono i campi vuoti che nel documento non ci sono');
   assert.equal(W.deleted.length, 0);
 });
 

@@ -616,6 +616,10 @@
       const t = tplOf(d), today = zoneDay(Date.now(), f.tz);
       if (t && shapeOf(r, today) === shapeOf(t, today)) SHAPE_KEYS.forEach(k => { delete f[k]; });
       const rulesChanged = RULE_KEYS.some(k => k in f && !sameK(f[k], d[k] === undefined ? null : d[k]));
+      // un campo vuoto che nel documento non c'è (per esempio cal e wk in una routine a giorni) non si scrive: per il
+      // server sarebbe comunque un campo "cambiato", e le regole ricontrollerebbero tutto il modello per niente
+      // (Firebase ha un tetto al numero di espressioni valutate: un cambio in attesa da solo deve costare poco)
+      Object.keys(f).forEach(k => { if (f[k] == null && !(k in d)) delete f[k]; });
       const id = r.sr, rid = r.id, sent = JSON.stringify(fieldsOf(r));
       pushing.add(rid); pushedAt[rid] = Date.now();
       let again = false;
