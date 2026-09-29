@@ -155,7 +155,11 @@ test('cambio di frequenza del gruppo: arriva a tutti lo stesso giorno, senza ria
   const { SR, S, saves } = fakeWorld('uG', baseDoc({ nx, ver: 2, g: { uG: { n: 'Io', j: true, a: 2, since: '2026-09-25' } } }));
   SR.evaluate();
   const r = S.routines[0];
-  assert.deepEqual(r.nx, nx, 'il cambio in attesa arriva anche a me');
+  const { at: a0, freq, n, days, time, pk } = r.nx;
+  assert.deepEqual({ at: a0, freq, n, days, time, pk }, nx, 'il cambio in attesa arriva anche a me');
+  // documento di prima (penalità "per volta": 2 XP, 3 volte a settimana): adesso la penalità è quella della settimana
+  // intera (6 XP); dal cambio, una volta al mese, torna 2 XP (il cambio la porta con sé)
+  assert.deepEqual([r.penalty.Vigore, r.nx.penalty.Vigore], [6, 2]);
   t.mock.timers.setTime(at('2026-10-02', '08:00'));
   D_sync(S);
   assert.deepEqual([r.freq, r.n, r.at, r.pk, r.nx], ['m', 1, '2026-10-02', '2026-09-25', undefined]);

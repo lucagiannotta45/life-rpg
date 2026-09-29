@@ -94,7 +94,7 @@
     function tplOf(d) {
       const r = normalizeRoutines([{ id: 'x', title: d.title, desc: d.desc, rewards: d.rewards, penalty: d.penalty, days: d.days,
         time: d.time, start: d.start, bonus: d.bonus, stars: d.stars, freq: d.freq, n: d.n, at: d.at, pk: d.pk, nx: d.nx,
-        cal: d.cal, wk: d.wk }])[0];
+        cal: d.cal, wk: d.wk, pp: d.pp }])[0];   // pp: penalità già "del periodo" (senza: documento di prima)
       if (!r) return null;
       const tz = typeof d.tz === 'string' && d.tz ? d.tz : hereTz();
       const t = { title: r.title, desc: r.desc, rewards: r.rewards, penalty: r.penalty, freq: r.freq, n: r.n, days: r.days, time: r.time,
@@ -276,7 +276,7 @@
         S.routines.push(r);
       }
       Object.assign(r, { title: t.title, desc: t.desc, rewards: t.rewards, penalty: t.penalty, bonus: t.bonus, stars: t.stars,
-        start, sr: id, sh: 'g', tz: t.tz });
+        start, sr: id, sh: 'g', tz: t.tz, pp: 1 });   // (la penalità del modello è già "del periodo")
       takeShape(r, t);
       // se oggi (il giorno del gruppo) è un giorno previsto, compare subito (una volta eliminata non torna: vedi routineDay)
       const today = zoneDay(Date.now(), t.tz);
@@ -446,7 +446,7 @@
     // "Invita" su una routine: la tua (o creata da te), con meno di 3 amici
     function canInvite(r) {
       if (!S.fbUser || !r || r.sh === 'g') return false;
-      if (!r.sr) return MISSIONS.groupSafe(r);   // entro i limiti di premi, penalità e bonus (missions.js, firestore.rules)
+      if (!r.sr) return true;
       const d = docOfR(r);
       return !!(d && isDoc(d) && roleOf(d) === 'o' && guests(d).length < MAX_GUESTS);
     }
@@ -479,13 +479,14 @@
       // ricompense, penalità, stelle e bonus nuovi (anche loro dal primo giorno del cambio)
       if (nx && r.nx.rewards) {
         Object.assign(nx, { rewards: { ...r.nx.rewards }, penalty: { ...r.nx.penalty }, stars: r.nx.stars ? { d: r.nx.stars.d, f: r.nx.stars.f } : null,
-          bonus: r.nx.bonus ? { every: r.nx.bonus.every, xp: r.nx.bonus.xp } : null });
+          bonus: r.nx.bonus ? { every: r.nx.bonus.every, xp: { ...r.nx.bonus.xp } } : null });
       }
       return {
         title: r.title, desc: r.desc || '', rewards: { ...r.rewards }, penalty: { ...r.penalty },
         stars: r.stars ? { d: r.stars.d, f: r.stars.f } : null, days: r.days.slice(), time: r.time || null,
         start: r.start,
-        bonus: r.bonus ? { every: r.bonus.every, xp: r.bonus.xp } : null, tz: r.tz || hereTz(),
+        bonus: r.bonus ? { every: r.bonus.every, xp: { ...r.bonus.xp } } : null, tz: r.tz || hereTz(),
+        pp: 1,   // la penalità è quella del periodo intero (vedi missions.js, periodPenalty): si scrive sempre con lei
         freq: r.freq || 'd', n: r.n || 1, at: r.at || null, pk: r.pk || null, nx,
         // periodi del calendario (settimane da wk, il primo giorno della settimana di chi l'ha creata)
         cal: r.cal ? 1 : null, wk: r.cal && Number.isInteger(r.wk) ? r.wk : null,
@@ -494,7 +495,8 @@
     // le regole della routine: cambiandole, gli amici devono accettare di nuovo (le regole di Firebase lo controllano).
     // SHAPE_KEYS: quelle che shapeOf confronta (con ricompense, penalità, stelle e bonus). Stelle e bonus cambiano
     // insieme al cambio in attesa (nx), quindi fanno riaccettare anche loro
-    const SHAPE_KEYS = ['days', 'time', 'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk', 'rewards', 'penalty', 'stars', 'bonus'];
+    // (pp va insieme alla penalità: un documento di prima resta tutto "per volta" finché le regole non si riscrivono)
+    const SHAPE_KEYS = ['days', 'time', 'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk', 'rewards', 'penalty', 'stars', 'bonus', 'pp'];
     const RULE_KEYS = ['rewards', 'penalty'].concat(SHAPE_KEYS);
     const sortKeys = v => Array.isArray(v) ? v.map(sortKeys)
       : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sortKeys(v[k])])) : v;
@@ -671,6 +673,9 @@
     /* ---------- inviti ---------- */
     function openInvite(rid) {
       const byR = () => S.routines.find(x => x.id === rid);
+      // oltre i limiti di premi, penalità e bonus (missions.js, firestore.rules) gli amici non la riceverebbero
+      const r0 = byR();
+      if (r0 && !r0.sr && !MISSIONS.groupSafe(r0)) { msg('sh.err.limits', { max: MISSIONS.MAX_REWARD }, 'bad', true); sfx('err'); return Promise.resolve(false); }
       return SH().pickFriends({
         id: 'r:' + rid, text: T('sr.pick.text'), full: T('sr.pick.full'), allin: T('sr.pick.allin'),
         inside: () => { const d = docOfR(byR()); return new Set(d && isDoc(d) ? guests(d).map(x => x.uid) : []); },

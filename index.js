@@ -878,7 +878,7 @@
       r.lvT.textContent = T('lv');
       radarNames[POS[i]].textContent = s.name;
     });
-    formLabels.forEach(([s, a, c]) => { a.textContent = s.name; c.textContent = s.name; });
+    formLabels.forEach(([s, ...labels]) => labels.forEach(l => { l.textContent = s.name; }));
     document.querySelectorAll('#settings input[type="color"]').forEach(c => {
       if (c._hex) c._hex.setAttribute('aria-label', T('hex.aria'));
     });

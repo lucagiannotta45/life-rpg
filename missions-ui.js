@@ -101,7 +101,7 @@
       }
       if (nxt.penalty && !eq(cur.penalty, nxt.penalty)) parts.push(T('chg.penalty', { what: both(xpList(cur.penalty), xpList(nxt.penalty)) }));
       if (isRoutine && nxt.rewards && !eq(cur.bonus, nxt.bonus)) {
-        const bt = b => (b ? T('chg.bonus.v', { xp: fmt(b.xp), n: b.every }) : T('chg.none.m'));
+        const bt = b => (b ? T('chg.bonus.v', { xp: gainText(b.xp), n: b.every }) : T('chg.none.m'));
         parts.push(T('chg.bonus', { what: both(bt(cur.bonus), bt(nxt.bonus)) }));
       }
       if (!isRoutine) {
@@ -745,7 +745,7 @@
       if (sl) card.appendChild(sl);
       card.appendChild(chips(r.rewards));
       if (hasAny(r.penalty)) card.appendChild(mk('p', 'm-pen', T('sr.pen.warn', { loss: lossText(r.penalty) })));
-      if (r.bonus) card.appendChild(mk('p', 'm-desc', T('sr.bonus', { xp: fmt(r.bonus.xp), n: r.bonus.every })));
+      if (r.bonus) card.appendChild(mk('p', 'm-desc', T('sr.bonus', { xp: gainText(r.bonus.xp), n: r.bonus.every })));
       card.appendChild(mk('p', 'm-shared', T('sr.inv.rule')));
       if (x.others) card.appendChild(mk('p', 'm-shared', T('sh.inv.others', { name: x.others })));
       const act = mk('div', 'm-actions');
@@ -1153,7 +1153,7 @@
 
     // finestra per creare e modificare una missione
     const mform = $('mform');
-    const xpInputs = {}, penInputs = {};
+    const xpInputs = {}, penInputs = {}, bonusInputs = {};
     let editingId = null;
     let formRepeat = false, editingRid = null, routinesBack = false, editingFrom = null;
     const dayBtns = [];
@@ -1183,11 +1183,24 @@
       pinp.type = 'number'; pinp.min = '0'; pinp.max = String(MAX_PENALTY); pinp.step = '1';
       pinp.inputMode = 'numeric'; pinp.placeholder = '0'; pinp.autocomplete = 'off';
       prow.append(plabel, pinp);
-      formLabels.push([s, label, plabel]);
       $('mf-pen').appendChild(prow);
       penInputs[s.key] = pinp;
+      // bonus della serie (routine): anche lui diviso tra le statistiche, come ricompensa e penalità
+      const brow = mk('div', 'xp-row');
+      formRows.push([s.key, brow]);
+      const blabel = mk('label', null, s.name);
+      blabel.htmlFor = 'mf-bonus-' + s.key;
+      const binp = mk('input', 'xp-in');
+      binp.id = 'mf-bonus-' + s.key;
+      binp.type = 'number'; binp.min = '0'; binp.max = String(MAX_BONUS_XP); binp.step = '1';
+      binp.inputMode = 'numeric'; binp.placeholder = '0'; binp.autocomplete = 'off';
+      brow.append(blabel, binp);
+      $('mf-bonus').appendChild(brow);
+      bonusInputs[s.key] = binp;
+      formLabels.push([s, label, plabel, blabel]);
       inp.addEventListener('input', () => { paintXpCounter(); paintChangeNote(); });
       pinp.addEventListener('input', paintChangeNote);
+      binp.addEventListener('input', paintChangeNote);
     });
     let mfDur = 0, mfDif = 0, mfLegacyTotal = null;   // 0 = nessuna stella scelta; mfLegacyTotal: missione com'era prima di questo sistema
     // hai toccato le stelle nel modulo? Una routine di prima non ha le stelle salvate: il modulo le ricava dal totale, ma
@@ -1300,8 +1313,10 @@
       const num = el => { const v = el.value.trim(); return v === '' ? 0 : Number(v); };
       const rewards = {}, penalty = {};
       STATS.forEach(s => { rewards[s.key] = num(xpInputs[s.key]); penalty[s.key] = penOn ? num(penInputs[s.key]) : 0; });
-      const ev = $('mf-bonus-every').value.trim(), bx = $('mf-bonus-xp').value.trim();
-      return JSON.stringify([rewards, penalty, formStars(r), ev || bx ? { every: Number(ev), xp: Number(bx) } : null]);
+      const ev = $('mf-bonus-every').value.trim(), bxp = {};
+      STATS.forEach(s => { bxp[s.key] = num(bonusInputs[s.key]); });
+      const anyB = STATS.some(s => bonusInputs[s.key].value.trim() !== '');
+      return JSON.stringify([rewards, penalty, formStars(r), ev || anyB ? { every: Number(ev), xp: bxp } : null]);
     }
     const routineValsKey = r => JSON.stringify([r.rewards, r.penalty, r.stars || null, r.bonus || null]);
     // modificando una routine già iniziata: le regole nuove (tutto tranne titolo e descrizione) valgono dal periodo successivo
@@ -1327,7 +1342,6 @@
     $('mf-times').addEventListener('input', paintFreq);
     $('mf-time').addEventListener('input', paintChangeNote);   // anche l'ora nuova vale dal periodo successivo
     $('mf-bonus-every').addEventListener('input', paintChangeNote);
-    $('mf-bonus-xp').addEventListener('input', paintChangeNote);
     function paintDayChips() {
       const box = $('mf-days');
       MISSIONS.weekOrder(firstDay()).forEach(d => {
@@ -1344,7 +1358,7 @@
       $('mf-date').hidden = formRepeat;
       $('mf-due-lbl').textContent = formRepeat ? T('mf.time') : T('mf.date');
       $('mf-dt-tip').hidden = formRepeat;
-      $('mf-pen-tip').textContent = formRepeat ? T('mf.pen.tip.r') : T('mf.pen.tip');
+      $('mf-pen-tip').textContent = T(formRepeat ? 'mf.pen.tip.r' : 'mf.pen.tip', { max: fmt(MAX_PENALTY) });
       $('mf-pen-on').textContent = penOn ? T('mf.pen.on') : T('mf.pen.off');   // (anche quando cambi lingua)
       paintDayChips();
       paintFreq();
@@ -1403,7 +1417,7 @@
       $('mf-rep-toggle').hidden = false;
       // se la fai diventare una routine: parte da oggi, ogni giorno, una volta
       formFreq = 'd'; $('mf-times').value = ''; setDays(WD_ALL);
-      $('mf-bonus-every').value = ''; $('mf-bonus-xp').value = '';
+      $('mf-bonus-every').value = ''; STATS.forEach(s => { bonusInputs[s.key].value = ''; });
       $('mf-start').disabled = false; $('mf-start-tip').textContent = T('mf.start.tip'); $('mf-start').min = todayStr(); $('mf-start').max = addDaysStr(todayStr(), 365); $('mf-start').value = todayStr();
       setFormRepeat(false);
       const m = id ? S.missions.find(x => x.id === id) : null;
@@ -1470,7 +1484,7 @@
       $('mf-time').value = sh && sh.time ? sh.time : '';
       setDays(sh && formFreq === 'd' ? sh.days : WD_ALL);
       $('mf-bonus-every').value = v && v.bonus ? String(v.bonus.every) : '';
-      $('mf-bonus-xp').value = v && v.bonus ? String(v.bonus.xp) : '';
+      STATS.forEach(s => { const b = v && v.bonus ? v.bonus.xp[s.key] || 0 : 0; bonusInputs[s.key].value = b ? String(b) : ''; });
       // la data di inizio si cambia solo finché la routine non è iniziata (poi servirebbe solo a rimandarla)
       const started = !!r && r.start <= todayStr();
       $('mf-start').disabled = started;
@@ -1504,14 +1518,24 @@
       if (freq === 'd' && !days.length) return fail(T('mf.err.days'), dayBtns[0]);
       const timeRaw = freq === 'd' && times === 1 ? $('mf-time').value : '';
       if (timeRaw && !validTime(timeRaw)) return fail(T('mf.err.time'), $('mf-time'));
-      const ev = $('mf-bonus-every').value.trim(), bx = $('mf-bonus-xp').value.trim();
+      // bonus della serie: ogni quanti periodi di fila, e gli XP da dividere tra le statistiche (al massimo MAX_BONUS_XP in tutto)
+      const ev = $('mf-bonus-every').value.trim();
+      const anyB = STATS.some(s => bonusInputs[s.key].value.trim() !== '');
       let bonus = null;
-      if (ev || bx) {
-        const e = Number(ev), x = Number(bx);
-        const okE = Number.isInteger(e) && e >= 2 && e <= MAX_EVERY, okX = Number.isInteger(x) && x >= 1 && x <= MAX_BONUS_XP;
+      if (ev || anyB) {
+        const e = Number(ev), bxp = {};
+        let okX = true;
+        STATS.forEach(s => {
+          const raw = bonusInputs[s.key].value.trim(), v = raw === '' ? 0 : Number(raw);
+          if (!Number.isInteger(v) || v < 0) okX = false;
+          bxp[s.key] = v;
+        });
+        const tot = okX ? sumOf(bxp) : 0;
+        okX = okX && tot >= 1 && tot <= MAX_BONUS_XP;
+        const okE = Number.isInteger(e) && e >= 2 && e <= MAX_EVERY;
         // il messaggio parla di giorni, settimane o mesi; il cursore va sul campo da correggere
-        if (!okE || !okX) return fail(T(freq === 'd' ? 'mf.err.bonus' : 'mf.err.bonus.' + freq, { max: fmt(MAX_BONUS_XP) }), $(okE ? 'mf-bonus-xp' : 'mf-bonus-every'));
-        bonus = { every: e, xp: x };
+        if (!okE || !okX) return fail(T(freq === 'd' ? 'mf.err.bonus' : 'mf.err.bonus.' + freq, { max: fmt(MAX_BONUS_XP) }), okE ? bonusInputs[STATS[0].key] : $('mf-bonus-every'));
+        bonus = { every: e, xp: bxp };
       }
       const blk = SR().editBlock(r);   // routine di gruppo: serve il documento, e la connessione, per avvisare gli amici
       if (blk) return fail(blk, null);
@@ -1557,7 +1581,7 @@
       } else {
         if (S.routines.length >= MAX_ROUTINES) return fail(T('mf.err.routines', { max: MAX_ROUTINES }), null);
         r = { id: 'r' + Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 4), title, desc, rewards, penalty,
-          freq, n: times, days, time, start, streak: 0, streakDate: addDaysStr(start, -1), best: 0, bonus, stars, ct: Date.now(),
+          freq, n: times, days, time, start, streak: 0, streakDate: addDaysStr(start, -1), best: 0, bonus, stars, ct: Date.now(), pp: 1,
           ...MISSIONS.calOf(freq, { cal: 1, wk: firstDay() }) };   // settimane e mesi del calendario
         S.routines.push(r);
       }
@@ -1874,7 +1898,7 @@
       card.appendChild(mk('p', 'm-desc', T('r.streak', { n: r.streak || 0 }) + ', ' + T('r.best', { n: r.best || 0 })));
       // serie di gruppo: anche dopo che il gruppo non c'è più si vede il record
       if (r.sr) card.appendChild(mk('p', 'm-desc', T('sr.streak', { n: SR().streakNow(r) }) + ', ' + T('r.best', { n: r.gbest || 0 })));
-      if (r.bonus) card.appendChild(mk('p', 'm-desc', T(r.sr ? 'sr.bonus' : isDaily(r) ? 'r.bonus' : 'r.bonus.' + r.freq, { xp: fmt(r.bonus.xp), n: r.bonus.every })));
+      if (r.bonus) card.appendChild(mk('p', 'm-desc', T(r.sr ? 'sr.bonus' : isDaily(r) ? 'r.bonus' : 'r.bonus.' + r.freq, { xp: gainText(r.bonus.xp), n: r.bonus.every })));
       if (sri && sri.pending) card.appendChild(mk('p', 'm-shared warn', T('sr.changed', { name: sri.ownerName })));
       if (sri && !sri.pending && sri.pendNames) card.appendChild(mk('p', 'm-shared', T('sh.pend.others', { name: sri.pendNames })));
       if (sri && sri.role === 'o' && sri.invitedCount && !sri.invited) card.appendChild(mk('p', 'm-shared', T('sh.invited.wait', { name: sri.invitedNames })));

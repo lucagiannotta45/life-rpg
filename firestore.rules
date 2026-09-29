@@ -316,13 +316,15 @@ service cloud.firestore {
       return ['v', 'owner', 'ownerName', 'members', 'g', 'title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time',
               'start', 'bonus', 'tz', 'ver', 'k', 'lk', 'created', 'updated'];
     }
-    function srKeys() { return srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x', 'cal', 'wk']); }
+    // pp: 1 = la penalità è quella del periodo intero (ogni volta fatta la riduce in proporzione); senza, documento di prima
+    // (penalità "per volta"): l'app la converte leggendola
+    function srKeys() { return srBaseKeys().concat(['pause', 'freq', 'n', 'at', 'pk', 'nx', 'x', 'cal', 'wk', 'pp']); }
     function srTplKeys() {
       return ['title', 'desc', 'rewards', 'penalty', 'stars', 'days', 'time', 'start', 'pause', 'bonus', 'tz', 'ver', 'ownerName', 'updated',
-              'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk'];
+              'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk', 'pp'];
     }
     // le regole della routine: cambiandole la versione sale di uno (gli amici dovranno riaccettare)
-    function srRuleKeys() { return ['rewards', 'penalty', 'days', 'time', 'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk']; }
+    function srRuleKeys() { return ['rewards', 'penalty', 'days', 'time', 'freq', 'n', 'at', 'pk', 'nx', 'cal', 'wk', 'pp']; }
     // periodi del calendario: cal 1 (o niente), wk da 0 a 6 (o niente)
     function srCal(c, w) { return (c == null || c == 1) && (w == null || (w is int && w >= 0 && w <= 6)); }
     function okDay10(v) { return v is string && v.size() == 10; }
@@ -333,11 +335,14 @@ service cloud.firestore {
         && (f == 'd' ? days.size() >= 1 : days.size() == 0)
         && okClockOrNull(time) && (time == null || (f == 'd' && times == 1));
     }
-    // bonus della serie: niente, oppure ogni quanti periodi e quanti XP
+    // bonus della serie: niente, oppure ogni quanti periodi e gli XP per statistica, al massimo 256 in tutto (come la
+    // ricompensa). Le versioni di prima scrivevano un numero solo, dato a ogni statistica premiata: si accetta ancora,
+    // ma solo fino a 42 (6 x 42 = 252, sotto il limite anche con tutte le statistiche premiate)
     function srBonus(b) {
       return b == null || (b is map && b.keys().hasOnly(['every', 'xp'])
         && b.every is int && b.every >= 2 && b.every <= 100000
-        && b.xp is int && b.xp >= 1 && b.xp <= 256);
+        && ((b.xp is int && b.xp >= 1 && b.xp <= 42)
+          || (b.xp is map && okStats(b.xp) && statSum(b.xp) >= 1 && statSum(b.xp) <= 256)));
     }
     function srNx(x) {
       return x == null || (x is map
@@ -360,7 +365,7 @@ service cloud.firestore {
         && n.start is string && n.start.size() == 10 && shortStr(n.tz, 64)
         && (n.get('pause', null) == null || (n.pause is map && n.pause.keys().hasOnly(['from', 'until'])
             && n.pause.from is string && n.pause.from.size() == 10 && n.pause.until is string && n.pause.until.size() == 10))
-        && srBonus(n.bonus);
+        && srBonus(n.bonus) && (n.get('pp', null) == null || n.pp == 1);
     }
     function okNewSrGuest(e) {
       return e is map && e.keys().hasOnly(['n', 'j', 'a', 'since']) && e.keys().size() == 4

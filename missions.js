@@ -134,16 +134,17 @@
     // Limiti di ciò che si può mettere in gioco (li controllano anche le regole di Firebase, firestore.rules, per le
     // missioni condivise e le routine di gruppo):
     // - la ricompensa più alta possibile (Durata 5 x Difficoltà 5): una missione condivisa non vale di più;
-    // - la penalità totale di una volta non supera quella ricompensa: un errore di battitura (1000 invece di 10)
-    //   non può costare decine di livelli, e chi crea una missione condivisa non può farla pagare cara agli amici;
-    // - il bonus della serie, per ogni statistica, non la supera nemmeno lui.
+    // - la penalità (per le routine con più volte: quella del periodo intero, se non fai nemmeno una volta), divisa tra
+    //   le statistiche, non supera quella ricompensa: un errore di battitura (1000 invece di 10) non può costare decine
+    //   di livelli, e chi crea una missione condivisa non può farla pagare cara agli amici;
+    // - il bonus della serie, diviso tra le statistiche, non la supera nemmeno lui.
     const MAX_REWARD = rewardTotal(5, 5);   // 256
     const MAX_PENALTY = MAX_REWARD;
     const MAX_BONUS_XP = MAX_REWARD;
     const sumOf = map => STATS.reduce((t, s) => t + (Number(map && map[s.key]) || 0), 0);
     // una missione o una routine rispetta i limiti per essere condivisa con gli amici
     const groupSafe = x => !!x && sumOf(x.rewards) <= MAX_REWARD && sumOf(x.penalty) <= MAX_PENALTY
-      && (!x.bonus || x.bonus.xp <= MAX_BONUS_XP);
+      && (!x.bonus || sumOf(x.bonus.xp) <= MAX_BONUS_XP);
     // trova una coppia (durata, difficoltà) che dia questo totale: serve solo per le missioni create prima di questo sistema,
     // che non hanno "stars" salvato. Con lo stesso totale possono esistere più coppie valide (per esempio 4x3 e 3x4 fanno
     // entrambe 60): qui si sceglie la prima trovata, ma se la missione ha già un campo "stars" quello vince sempre.
@@ -189,6 +190,8 @@
           const n = Number(m.n);
           if (Number.isInteger(n) && n >= 2 && n <= MAX_TIMES) { it.n = n; it.p = (Array.isArray(m.p) ? m.p : []).filter(validDate).slice(0, n); }
           if (validDate(m.ps)) it.ps = m.ps;
+          if (it.n && !m.pp) it.penalty = periodPenalty(it.penalty, it.n);   // volta di prima: penalità "per volta"
+          it.pp = 1;
         }
         // volta di una routine di gruppo: gd = il giorno del gruppo (nel fuso di chi l'ha creata), che può essere
         // diverso da "due" (la scadenza nell'ora di questo dispositivo) se siete in fusi orari diversi
@@ -298,8 +301,26 @@
     const normDays = a => [...new Set((Array.isArray(a) ? a : []).map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
     const normTimes = v => { const n = Number(v); return Number.isInteger(n) && n >= 1 ? Math.min(n, MAX_TIMES) : 1; };
     // bonus della serie: { every, xp } oppure null
-    const normBonus = b => (b && Number.isInteger(b.every) && b.every >= 2 && b.every <= MAX_EVERY && Number.isInteger(b.xp) && b.xp >= 1 && b.xp <= MAX_XP
-      ? { every: b.every, xp: b.xp } : null);
+    // Il bonus è { every, xp }: xp = gli XP in più per statistica (come la ricompensa: { Vigore: 30, ... }), da dividere
+    // tra le statistiche. Nelle versioni di prima xp era un numero solo, dato a ogni statistica premiata dalla routine:
+    // si converte così (rewards = la ricompensa della routine), e il bonus resta quello di prima.
+    function normBonus(b, rewards) {
+      if (!b || !Number.isInteger(b.every) || b.every < 2 || b.every > MAX_EVERY) return null;
+      let xp;
+      if (Number.isInteger(b.xp)) {
+        if (b.xp < 1 || b.xp > MAX_XP || !rewards) return null;
+        xp = normalizeRewards(Object.fromEntries(STATS.map(s => [s.key, rewards[s.key] > 0 ? b.xp : 0])));
+      } else xp = normalizeRewards(b.xp);
+      return Object.values(xp).some(v => v > 0) ? { every: b.every, xp } : null;
+    }
+    // Penalità delle volte da fare più volte per periodo: quella scritta è la perdita del periodo intero (se non ne fai
+    // nemmeno una); ogni volta fatta la riduce in proporzione. Nelle versioni di prima era la perdita di ogni volta
+    // mancata: le routine e le volte di prima (senza pp) si convertono moltiplicandola per le volte, così il rischio
+    // massimo resta quello di prima. pp = 1: penalità già "del periodo".
+    const periodPenalty = (pen, n) => normalizeRewards(Object.fromEntries(STATS.map(s => [s.key, (pen[s.key] || 0) * Math.max(1, n || 1)])));
+    // quanto si perde con "missing" volte mancate su n: la parte mancante della penalità, arrotondata per difetto
+    // (a favore di chi gioca), statistica per statistica
+    const penaltyFor = (pen, missing, n) => Object.fromEntries(STATS.map(s => [s.key, Math.floor((pen[s.key] || 0) * missing / Math.max(1, n || 1))]));
     function normalizeRoutines(arr) {
       if (!Array.isArray(arr)) return [];
       const out = [], seen = new Set();
@@ -316,12 +337,15 @@
         // i giorni della settimana valgono solo per le routine di ogni giorno
         const days = freq === 'd' ? normDays(r.days) : [];
         if (freq === 'd' && !days.length) continue;
-        const bonus = normBonus(r.bonus);
+        const bonus = normBonus(r.bonus, rewards);
+        // routine di prima (senza pp): la penalità era "per volta", ora è "del periodo" (vedi periodPenalty)
+        const rawPen = normalizeRewards(r.penalty);
+        const penalty = r.pp ? rawPen : periodPenalty(rawPen, times);
         seen.add(id);
         out.push({
           id, title,
           desc: typeof r.desc === 'string' ? r.desc.trim().slice(0, 500) : '',
-          rewards, penalty: normalizeRewards(r.penalty), freq, n: times, days,
+          rewards, penalty, pp: 1, freq, n: times, days,
           // l'ora vale solo per una volta al giorno: con più volte (o per settimana, per mese) si scade a fine periodo
           time: freq === 'd' && times === 1 && validTime(r.time) ? r.time : null,
           start: r.start,
@@ -360,9 +384,15 @@
           if (nx.freq !== 'd' || nd.length) {
             it.nx = { at: nx.at, freq: nx.freq, n: nn, days: nd, time: nx.freq === 'd' && nn === 1 && validTime(nx.time) ? nx.time : null, ...calOf(nx.freq, nx) };
             if (validDate(nx.pk) && nx.pk < nx.at) it.nx.pk = nx.pk;
+            // routine di prima con un cambio del numero di volte, senza valori propri: dal cambio la penalità "per volta"
+            // di adesso vale per un altro numero di volte, quindi il cambio la porta con sé, già convertita
+            if (!r.pp && !nx.rewards && nn !== times && Object.values(rawPen).some(v => v > 0)) {
+              Object.assign(it.nx, { rewards: { ...rewards }, penalty: periodPenalty(rawPen, nn), stars: normalizeStars(rewards, r.stars), bonus });
+            }
             const nrw = normalizeRewards(nx.rewards);
             if (nx.rewards && Object.values(nrw).some(v => v > 0)) {
-              Object.assign(it.nx, { rewards: nrw, penalty: normalizeRewards(nx.penalty), stars: normalizeStars(nrw, nx.stars), bonus: normBonus(nx.bonus) });
+              const npen = normalizeRewards(nx.penalty);
+              Object.assign(it.nx, { rewards: nrw, penalty: r.pp ? npen : periodPenalty(npen, nn), stars: normalizeStars(nrw, nx.stars), bonus: normBonus(nx.bonus, nrw) });
             }
           }
         }
@@ -638,7 +668,7 @@
       next.rewards = Object.values(rewards).some(v => v > 0) ? rewards : { ...r.rewards };
       next.penalty = c.penalty !== undefined ? normalizeRewards(c.penalty) : { ...r.penalty };
       next.stars = normalizeStars(next.rewards, c.stars !== undefined ? c.stars : r.stars);
-      next.bonus = normBonus(c.bonus !== undefined ? c.bonus : r.bonus);
+      next.bonus = normBonus(c.bonus !== undefined ? c.bonus : r.bonus, next.rewards);
       delete r.nx;
       if (now || r.start > today) {
         applyShape(r, next);
@@ -694,13 +724,13 @@
       if (rt && day && m.re && m.rj !== undefined) {
         const cur = !(rt.brks || []).some(b => b.d > day);   // nessun altro periodo mancato dopo: si allunga la serie di adesso
         const n = cur ? (rt.streak || 0) + 1 : 0;
-        if (cur && rt.bonus && !rt.sr && n % rt.bonus.every === 0) STATS.forEach(s => { if (m.rewards[s.key] > 0) bonus[s.key] = rt.bonus.xp; });
+        if (cur && rt.bonus && !rt.sr && n % rt.bonus.every === 0) STATS.forEach(s => { if (rt.bonus.xp[s.key] > 0) bonus[s.key] = rt.bonus.xp[s.key]; });
         return { rs, bonus, join: true, n };
       }
       if (rt && day && today <= (m.re && m.re > end ? m.re : end) && day > (rt.streakDate || '')) {
         const n = (rt.streak || 0) + 1;
         rs = { prev: rt.streak || 0, prevDate: rt.streakDate || '', n, pb: rt.best || 0 };
-        if (rt.bonus && !rt.sr && n % rt.bonus.every === 0) STATS.forEach(s => { if (m.rewards[s.key] > 0) bonus[s.key] = rt.bonus.xp; });
+        if (rt.bonus && !rt.sr && n % rt.bonus.every === 0) STATS.forEach(s => { if (rt.bonus.xp[s.key] > 0) bonus[s.key] = rt.bonus.xp[s.key]; });
       }
       return { rs, bonus };
     }
@@ -790,13 +820,12 @@
       } else routineChanged = streakUndo(rt, rs, occKey(m));
       return { removed, routineChanged };
     }
-    // Fallire: si perdono gli XP della penalità, una volta per ogni volta mancante (pay = false: nessuna perdita, per
-    // esempio se ha abbandonato un amico). Una volta di routine recuperata che fallisce di nuovo perde la serie ridata.
+    // Fallire: si perde la parte della penalità che corrisponde alle volte mancanti (tutta, se non ne hai fatta nessuna;
+    // arrotondata per difetto: penaltyFor). pay = false: nessuna perdita (per esempio se ha abbandonato un amico). Una volta di routine recuperata che fallisce di nuovo perde la serie ridata.
     // Restituisce { removed, routineChanged, missing }.
     function applyFail(xp, m, rt, date, t, pay = true) {
       const missing = missingOf(m);
-      const pen = {};
-      STATS.forEach(s => { pen[s.key] = (m.penalty[s.key] || 0) * missing; });
+      const pen = penaltyFor(m.penalty, missing, m.n || 1);
       const removed = pay ? penaltyXp(xp, pen) : normalizeRewards(null);
       m.failed = { date, t, applied: removed };
       delete m.nx;   // fallita con le regole di adesso (le modifiche in attesa arrivavano troppo tardi)
@@ -814,7 +843,7 @@
     // la volta di una routine nel periodo p ({ s, e }), con le regole della routine r; here = il fuso di questo dispositivo
     function makeOcc(r, p, here = hereTz()) {
       const occ = { id: occId(r, p.s), title: r.title, desc: r.desc, rewards: { ...r.rewards }, penalty: { ...r.penalty },
-        due: p.e, dueTime: r.time, created: p.s, done: null, failed: null, rid: r.id, stars: r.stars };
+        due: p.e, dueTime: r.time, created: p.s, done: null, failed: null, rid: r.id, stars: r.stars, pp: 1 };
       if (r.n > 1) { occ.n = r.n; occ.p = []; }
       if (!isDaily(r)) occ.ps = p.s;
       if (r.sr && r.tz) {
@@ -1057,7 +1086,7 @@
     function groupStep(r, ds) {
       const n = r.gsd && r.gsd === prevDay(r, ds) ? (r.gs || 0) + 1 : 1;
       const bonus = {};
-      if (r.bonus && n % r.bonus.every === 0) STATS.forEach(s => { if (r.rewards[s.key] > 0) bonus[s.key] = r.bonus.xp; });
+      if (r.bonus && n % r.bonus.every === 0) STATS.forEach(s => { if (r.bonus.xp[s.key] > 0) bonus[s.key] = r.bonus.xp[s.key]; });
       return { n, bonus };
     }
     // i periodi di una routine che iniziano fra from e until (compresi), anche a cavallo di un cambio in attesa:
@@ -1243,7 +1272,7 @@
     }
 
     return {
-      MAX_REWARD, MAX_PENALTY, MAX_BONUS_XP, sumOf, groupSafe,
+      MAX_REWARD, MAX_PENALTY, MAX_BONUS_XP, sumOf, groupSafe, penaltyFor, normBonus,
       MAX_PER_MONTH, MAX_MISSIONS, MAX_ROUTINES, KEEP_DAYS, MAX_TIMES, MAX_EVERY, FREQS,
       pad2, isoDate, parseDate, todayStr, addDaysStr, daysBetween, addMonthsStr, monthOf, validDate, validTime,
       normalizeRewards, REWARD_WEIGHT, REWARD_BASE, rewardTotal, rewardMatch, normalizeStars,

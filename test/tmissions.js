@@ -125,7 +125,8 @@ test('routine salvate: giorni, bonus, giorni mancati', () => {
     brks: [{ d: '2026-03-09', n: 2 }, { d: '2026-03-03', n: 5 }, { d: '2026-03-03', n: 1 }, { d: 'boh', n: 1 }, { d: '2026-03-04', n: -1 }] }]);
   assert.deepEqual(r.days, [1, 3]);
   assert.equal(r.bonus, null, 'un bonus ogni 1 volta non vale');
-  assert.deepEqual(rou({ bonus: { every: 1000, xp: 5 } }).bonus, { every: 1000, xp: 5 }, 'nessun limite pratico verso l\'alto');
+  // (il bonus di prima, un numero solo, va a ogni statistica premiata: qui solo Vigore)
+  assert.deepEqual(rou({ bonus: { every: 1000, xp: 5 } }).bonus, { every: 1000, xp: M.normalizeRewards({ Vigore: 5 }) }, 'nessun limite pratico verso l\'alto');
   assert.equal(rou({ bonus: { every: 100001, xp: 5 } }).bonus, null, 'solo il tetto contro i dati rovinati');
   assert.equal(r.pause, undefined, 'le pause non ci sono più: una salvata prima si ignora');
   assert.equal(r.gc, 1);
@@ -766,13 +767,15 @@ test('ricompense, penalità, stelle e bonus nuovi: la volta di oggi resta com\'�
     bonus: { every: 2, xp: 7 } }, '2026-03-05');
   assert.equal(at6, '2026-03-06');
   assert.deepEqual([r.rewards.Vigore, r.penalty.Vigore, r.stars, r.bonus.every], [10, 5, null, 3], 'oggi valgono ancora le regole di prima');
-  assert.deepEqual([r.nx.rewards.Animo, r.nx.penalty.Vigore, r.nx.stars, r.nx.bonus], [4, 1, { d: 2, f: 3 }, { every: 2, xp: 7 }]);
+  // bonus di prima (un numero solo): va a ogni statistica premiata dalla ricompensa nuova (Vigore e Animo)
+  const b7 = { every: 2, xp: M.normalizeRewards({ Vigore: 7, Animo: 7 }) };
+  assert.deepEqual([r.nx.rewards.Animo, r.nx.penalty.Vigore, r.nx.stars, r.nx.bonus], [4, 1, { d: 2, f: 3 }, b7]);
   assert.deepEqual(M.nxParts(r), { shape: false, vals: true }, 'cambiano i valori, non i giorni');
   assert.equal(today.rewards.Vigore, 10, 'la volta di oggi resta com\'è');
   // il cambio va anche nella copia salvata
   const [saved] = M.normalizeRoutines([JSON.parse(JSON.stringify(r))]);
   assert.deepEqual(saved.nx.rewards, r.nx.rewards);
-  assert.deepEqual([saved.nx.stars, saved.nx.bonus], [{ d: 2, f: 3 }, { every: 2, xp: 7 }]);
+  assert.deepEqual([saved.nx.stars, saved.nx.bonus], [{ d: 2, f: 3 }, b7]);
   // il periodo prima del cambio si chiude con le regole di prima: la penalità di oggi è quella vecchia
   const x = xp({ Vigore: 50 });
   M.applyFail(x, today, r, '2026-03-05', 1);
@@ -939,6 +942,55 @@ test('limiti: ricompensa massima, penalità e bonus per condividere', () => {
   assert.equal(M.groupSafe(x({ Vigore: 256 }, { Vigore: 128, Animo: 128 }, null)), true, 'proprio al limite');
   assert.equal(M.groupSafe(x({ Vigore: 257 }, {}, null)), false, 'ricompensa di prima delle stelle, troppo alta');
   assert.equal(M.groupSafe(x({ Vigore: 10 }, { Vigore: 200, Legami: 57 }, null)), false, 'penalità totale oltre il limite');
-  assert.equal(M.groupSafe(x({ Vigore: 10 }, {}, { every: 7, xp: 257 })), false, 'bonus oltre il limite');
-  assert.equal(M.groupSafe(x({ Vigore: 10 }, {}, { every: 7, xp: 50 })), true);
+  const bonus = xp => M.normBonus({ every: 7, xp }, M.normalizeRewards({ Vigore: 10 }));
+  assert.equal(M.groupSafe(x({ Vigore: 10 }, {}, bonus({ Vigore: 200, Animo: 57 }))), false, 'bonus totale oltre il limite');
+  assert.equal(M.groupSafe(x({ Vigore: 10 }, {}, bonus({ Vigore: 128, Animo: 128 }))), true, 'bonus diviso, proprio al limite');
+});
+
+/* ---------- penalità del periodo (routine da più volte) ---------- */
+test('penalità del periodo: si perde la parte delle volte mancanti, arrotondata per difetto', () => {
+  const pen = M.normalizeRewards({ Vigore: 100, Animo: 10 });
+  assert.deepEqual(M.penaltyFor(pen, 4, 4), { ...blank(), Vigore: 100, Animo: 10 }, 'nessuna volta fatta: tutta');
+  assert.deepEqual(M.penaltyFor(pen, 2, 4), { ...blank(), Vigore: 50, Animo: 5 }, 'metà');
+  assert.deepEqual(M.penaltyFor(pen, 1, 3), { ...blank(), Vigore: 33, Animo: 3 }, '33,3 e 3,3: per difetto');
+  assert.deepEqual(M.penaltyFor(pen, 1, 1), { ...blank(), Vigore: 100, Animo: 10 }, 'una volta sola: tutta');
+});
+
+test('penalità del periodo: una volta da 4 fallita con 3 fatte costa un quarto', () => {
+  const r = rouP({ n: 4, penalty: { Vigore: 100 }, pp: 1 });
+  const list = openApp([r], [], '2026-10-05');
+  const m = list.find(x => x.rid === r.id && !x.done);
+  assert.equal(m.pp, 1);
+  M.applySetCount(m, 3, at('2026-10-06'));
+  const x = xp({ Vigore: 500 });
+  const { removed } = M.applyFail(x, m, r, '2026-10-12', 1);
+  assert.equal(removed.Vigore, 25);
+  assert.equal(x.Vigore, 475);
+});
+
+test('penalità del periodo: routine e volte di prima (penalità "per volta") si convertono una volta sola', () => {
+  // prima: 30 XP per ogni volta mancata, 3 volte a settimana (al massimo 90): adesso 90 per la settimana intera
+  const [r] = M.normalizeRoutines([{ id: 'r1', title: 'Palestra', rewards: { Vigore: 10 }, penalty: { Vigore: 30 }, freq: 'w', n: 3, start: '2026-09-28' }]);
+  assert.deepEqual([r.penalty.Vigore, r.pp], [90, 1]);
+  const [again] = M.normalizeRoutines([JSON.parse(JSON.stringify(r))]);
+  assert.equal(again.penalty.Vigore, 90, 'già convertita: resta così');
+  const [one] = M.normalizeRoutines([{ id: 'r2', title: 'Corsa', rewards: { Vigore: 10 }, penalty: { Vigore: 30 }, days: [1], start: '2026-09-28' }]);
+  assert.equal(one.penalty.Vigore, 30, 'una volta per periodo: niente cambia');
+  // una volta di prima, ancora da fare
+  const [m] = M.normalizeMissions([{ id: 'r1-20260928', title: 'Palestra', rewards: { Vigore: 10 }, penalty: { Vigore: 30 }, created: '2026-09-28',
+    due: '2026-10-04', rid: 'r1', n: 3, p: [], ps: '2026-09-28' }]);
+  assert.deepEqual([m.penalty.Vigore, m.pp], [90, 1]);
+  assert.equal(M.normalizeMissions([JSON.parse(JSON.stringify(m))])[0].penalty.Vigore, 90);
+});
+
+test('bonus: diviso tra le statistiche; quello di prima (un numero solo) va a ogni statistica premiata', () => {
+  const rewards = M.normalizeRewards({ Vigore: 10, Animo: 5 });
+  assert.deepEqual(M.normBonus({ every: 3, xp: 20 }, rewards), { every: 3, xp: M.normalizeRewards({ Vigore: 20, Animo: 20 }) });
+  assert.deepEqual(M.normBonus({ every: 3, xp: { Legami: 40 } }, rewards), { every: 3, xp: M.normalizeRewards({ Legami: 40 }) }, 'anche su statistiche non premiate');
+  assert.equal(M.normBonus({ every: 3, xp: {} }, rewards), null, 'senza XP non c\'è bonus');
+  // il bonus arriva con le statistiche scelte
+  const r = rou({ bonus: { every: 2, xp: { Animo: 7 } }, streak: 1, streakDate: '2026-03-04' });
+  const list = openApp([r], [], '2026-03-05');
+  const res = M.applyComplete(xp({}), occ(list, r, '2026-03-05'), r, 1, at('2026-03-05', '10:00'));
+  assert.deepEqual(res.bonus, { Animo: 7 });
 });

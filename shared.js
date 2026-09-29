@@ -602,7 +602,7 @@
     // (per chi l'ha creata) su una condivisa ancora aperta, con meno di 3 amici
     function canInvite(m) {
       if (!S.fbUser || m.rid || m.done || m.failed || MISSIONS.isLate(m)) return false;
-      if (!m.sid) return MISSIONS.groupSafe(m);   // entro i limiti di premi e penalità (missions.js, firestore.rules)
+      if (!m.sid) return true;
       const d = docOf(m);
       return !!(d && isV2(d) && roleOf(d) === 'o' && !ownerOut(d) && ['invite', 'open'].includes(outcome(d)) && guests(d).length < MAX_GUESTS);
     }
@@ -1007,6 +1007,13 @@
     // il salto si annulla e la missione gli torna da fare (vedi evaluate)
     const notInvitable = d => guests(d).map(x => x.uid);
     function openInvite(id) {
+      // oltre i limiti di premi e penalità (missions.js, firestore.rules) gli amici non la riceverebbero: si dice cosa cambiare
+      const m0 = byId(id);
+      if (m0 && !m0.sid && !MISSIONS.groupSafe(m0)) {
+        MUI().missionMsg(T('sh.err.limits', { max: MISSIONS.MAX_REWARD }), 'bad', true);
+        sfx('err');
+        return Promise.resolve(false);
+      }
       const t = {
         id, text: T('sh.pick.text'), full: T('sh.pick.full'), allin: T('sh.pick.allin'),
         // (chi ha saltato questa missione non si può invitare di nuovo: nel suo elenco la missione è già finita, "saltata")
