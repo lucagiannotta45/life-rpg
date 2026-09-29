@@ -708,6 +708,12 @@
           v: 1, owner: me(), ownerName: myName(), members: [me()], g: {},
           ...f, ver: 1, k: {}, lk: '', created: now, updated: now,
         };
+        // il cambio in attesa (nx) ha ricompense, penalità e bonus nuovi: le regole li controllano un'altra volta, e da
+        // soli insieme al resto bastano a superare il tetto di espressioni. Non va nella prima scrittura: si manda dopo,
+        // come una modifica qualsiasi (push), quando il gruppo c'è già (nessuno ha ancora accettato, quindi la versione
+        // che sale a 2 non fa riaccettare niente a nessuno)
+        const pendingNx = !!base.nx;
+        if (pendingNx) delete base.nx;
         const inv = { members: FV().arrayUnion(...chosen.map(x => x.uid)) };
         chosen.forEach(x => { inv['g.' + x.uid] = guestEntry(x); });
         // la copia di qui ha già gli amici: è come sarà dopo la seconda scrittura
@@ -732,6 +738,11 @@
           if (r1.status !== 'rejected') { try { await ref(id).delete(); } catch (e2) { console.warn('sroutines cleanup', e2 && e2.code, e2); } }
           skipSyncing.delete(r.id); delete r.sr; delete r.sh; delete r.tz; delete docs[id];
           throw r1.status === 'rejected' ? r1.reason : r2.reason;
+        }
+        if (pendingNx) {
+          r.srd = 1;   // da mandare: se non riesce subito (rete), evaluate riprova
+          saveRoutinesLocal();
+          if (docs[id]) push(r, docs[id], false);
         }
         saveCache();
         (async () => { for (const ds of sendSkips) await writeSkip(r, ds, true); })()

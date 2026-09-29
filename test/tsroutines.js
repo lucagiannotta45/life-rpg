@@ -247,6 +247,25 @@ test('chi l\'ha creata: se gli inviti non vengono accettati dal server, il grupp
   assert.equal(r.sr, undefined, 'la routine torna normale');
 });
 
+test('chi l\'ha creata: con un cambio in attesa, il gruppo si crea senza e il cambio si manda subito dopo', async t => {
+  now(t, '2026-10-05');
+  const r = M.normalizeRoutines([{ id: 'r6', title: 'Corsa', rewards: { Vigore: 4 }, days: [1, 3], start: '2026-10-05' }])[0];
+  M.planChange(r, { freq: 'w', n: 2 }, '2026-10-12');
+  assert.ok(r.nx, 'la routine ha un cambio in attesa');
+  const SHfake = { pickFriends: o => o.send([{ uid: 'uF', name: 'Marco' }]), joinNames: l => l.join(', '), myName: () => 'Anna' };
+  const W = fakeWorldWithSH('uO', SHfake);
+  W.S.routines.push(r);
+  await W.SR.openInvite(r.id);
+  const [first, second, third] = W.writes;
+  assert.equal(W.writes.length, 3);
+  assert.equal('nx' in first.set, false, 'il documento arriva alle regole senza il cambio in attesa');
+  assert.deepEqual([first.set.members, first.set.g], [['uO'], {}]);
+  assert.deepEqual(Object.keys(second.data).sort(), ['g.uF', 'members', 'updated']);
+  assert.equal(third.id, first.id);
+  assert.deepEqual([third.data.nx.freq, third.data.nx.n, third.data.ver], ['w', 2, 2], 'poi il cambio, come una modifica: versione 2');
+  assert.equal(W.deleted.length, 0);
+});
+
 // come fakeWorld, ma con un SH scelto dal test (per gli inviti)
 function fakeWorldWithSH(uid, SH) {
   const w = fakeWorld(uid, baseDoc());

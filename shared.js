@@ -1042,7 +1042,12 @@
           v: 2, owner: me(), ownerName: myName(), members: [me()], g: {},
           ...fieldsOf(m), ver: 1, oDone: null, left: '', seenO: false, created: now, updated: now,
         };
-        if (!base.nx) delete base.nx;   // (i documenti senza cambio in attesa sono come prima)
+        // il cambio in attesa (nx) ha ricompense e penalità nuove: le regole le controllano un'altra volta, e da sole
+        // insieme al resto possono superare il tetto di espressioni. Non va nella prima scrittura: si manda dopo, come
+        // una modifica qualsiasi (push), quando il documento c'è già (nessuno ha ancora accettato, quindi la versione
+        // che sale a 2 non fa riaccettare niente a nessuno)
+        const pendingNx = !!base.nx;
+        delete base.nx;   // (i documenti senza cambio in attesa sono come prima)
         const inv = { members: FV().arrayUnion(...chosen.map(f => f.uid)) };
         chosen.forEach(f => { inv['g.' + f.uid] = guestEntry(f); });
         // la copia di qui ha già gli amici: è come sarà dopo la seconda scrittura
@@ -1064,6 +1069,11 @@
           if (r1.status !== 'rejected') { try { await ref(sid).delete(); } catch (e2) { console.warn('shared cleanup', e2 && e2.code, e2); } }
           delete m.sid; delete m.sh; delete docs[sid];
           throw r1.status === 'rejected' ? r1.reason : r2.reason;
+        }
+        if (pendingNx) {
+          m.shd = 1;   // da mandare: se non riesce subito (rete), evaluate riprova
+          const dd = docOf(m);
+          if (dd) push(m, dd, false);
         }
         saveCache();
         touchMonth(monthOf(m));

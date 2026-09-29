@@ -300,6 +300,22 @@ test('una missione nuova: se il server rifiuta gli inviti, il documento appena c
   assert.deepEqual([mine.sid, mine.sh], [undefined, undefined]);
 });
 
+test('una missione nuova con un cambio in attesa: il documento si crea senza e il cambio si manda subito dopo', async () => {
+  const mine = { id: 'mNx', title: 'Trasloco', desc: '', rewards: { Vigore: 10 }, penalty: { Vigore: 5 }, due: '2030-01-01', created: '2026-10-01', done: null, failed: null,
+    nx: { at: '2029-12-20', rewards: M.normalizeRewards({ Vigore: 20 }), penalty: M.normalizeRewards({ Vigore: 8 }), stars: null, due: '2030-01-01', dueTime: null, from: null, fromTime: null } };
+  const W = fakeWorld('uO', baseDoc({ uG: guest('Marco') }), [mine]);
+  await W.SH.sendMission(mine, [{ uid: 'uL', name: 'Lia' }]);
+  const [first, second, third] = W.writes;
+  assert.equal(W.writes.length, 3);
+  assert.equal('nx' in first.set, false, 'il documento arriva alle regole senza il cambio in attesa');
+  assert.deepEqual([first.set.members, first.set.g], [['uO'], {}]);
+  assert.deepEqual(Object.keys(second.data).sort(), ['g.uL', 'members', 'updated']);
+  assert.equal(third.id, first.id);
+  assert.deepEqual([third.data.nx.rewards.Vigore, third.data.nx.penalty.Vigore, third.data.ver], [20, 8, 2], 'poi il cambio, come una modifica: versione 2');
+  await flush();
+  assert.equal(mine.shd, undefined, 'confermato dal server');
+});
+
 /* ---------- la modifica di chi l'ha creata vale solo se arriva nel documento ---------- */
 test('chi l\'ha creata: la modifica resta "da mandare" finché il server non la conferma', async () => {
   const W = fakeWorld('uO', baseDoc({ uG: guest('Io') }), [myCopy('o')]);
