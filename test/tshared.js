@@ -273,6 +273,33 @@ test('invitare altri amici non fa riaccettare niente a chi è già dentro', asyn
   assert.equal(w['g.uL'].j, false);
 });
 
+test('una missione nuova con degli amici si scrive in due volte: prima senza amici, poi gli inviti', async () => {
+  const mine = { id: 'mNew', title: 'Trasloco', desc: '', rewards: { Vigore: 10 }, penalty: { Vigore: 5 }, due: '2030-01-01', created: '2026-10-01', done: null, failed: null };
+  const W = fakeWorld('uO', baseDoc({ uG: guest('Marco') }), [mine]);
+  await W.SH.sendMission(mine, [{ uid: 'uL', name: 'Lia' }, { uid: 'uM', name: 'Gino' }, { uid: 'uN', name: 'Eva' }]);
+  const sets = W.writes.filter(x => x.set), ups = W.writes.filter(x => x.data);
+  assert.equal(sets.length, 1);
+  assert.deepEqual([sets[0].set.members, sets[0].set.g], [['uO'], {}], 'il documento arriva alle regole senza amici');
+  assert.equal(sets[0].set.title, 'Trasloco');
+  assert.equal(ups.length, 1);
+  assert.equal(ups[0].id, sets[0].id);
+  assert.deepEqual(ups[0].data.members, { union: ['uL', 'uM', 'uN'] });
+  assert.deepEqual(['g.uL', 'g.uM', 'g.uN'].map(k => ups[0].data[k].j), [false, false, false]);
+  assert.deepEqual(Object.keys(ups[0].data).sort(), ['g.uL', 'g.uM', 'g.uN', 'members', 'updated'], 'solo quello che le regole ammettono per gli inviti');
+  assert.equal(mine.sid, sets[0].id);
+  assert.equal(W.deleted.length, 0);
+});
+
+test('una missione nuova: se il server rifiuta gli inviti, il documento appena creato si elimina e la missione torna com\'era', async () => {
+  const mine = { id: 'mNew', title: 'Trasloco', desc: '', rewards: { Vigore: 10 }, penalty: { Vigore: 5 }, due: '2030-01-01', created: '2026-10-01', done: null, failed: null };
+  const W = fakeWorld('uO', baseDoc({ uG: guest('Marco') }), [mine]);
+  W.ctl.fail = { code: 'permission-denied' };   // update(): gli inviti
+  await assert.rejects(() => W.SH.sendMission(mine, [{ uid: 'uL', name: 'Lia' }]), { code: 'permission-denied' });
+  const created = W.writes.find(x => x.set);
+  assert.deepEqual(W.deleted, [created.id], 'il documento senza amici non resta sul server');
+  assert.deepEqual([mine.sid, mine.sh], [undefined, undefined]);
+});
+
 /* ---------- la modifica di chi l'ha creata vale solo se arriva nel documento ---------- */
 test('chi l\'ha creata: la modifica resta "da mandare" finché il server non la conferma', async () => {
   const W = fakeWorld('uO', baseDoc({ uG: guest('Io') }), [myCopy('o')]);

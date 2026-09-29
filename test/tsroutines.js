@@ -26,7 +26,7 @@ function fakeWorld(uid, doc) {
     removeItem: k => { delete store[k]; },
   };
   store[LS] = JSON.stringify({ uid, docs: { [ID]: doc } });
-  const writes = [];
+  const writes = [], deleted = [];
   const ctl = { fail: null };   // ctl.fail = { code }: la prossima scrittura il server la rifiuta con quell'errore
   const ref = id => ({
     update: data => {
@@ -34,7 +34,7 @@ function fakeWorld(uid, doc) {
       writes.push({ id, data }); return Promise.resolve();
     },
     set: data => { writes.push({ id, set: data }); return Promise.resolve(); },
-    delete: () => Promise.resolve(),
+    delete: () => { deleted.push(id); return Promise.resolve(); },
     get: () => Promise.resolve({ exists: true, data: () => doc }),
   });
   global.window.firebase = { firestore: { FieldValue: {
@@ -57,7 +57,7 @@ function fakeWorld(uid, doc) {
   };
   const SR = window.LIFE_RPG_SHARED_ROUTINES.create(D, S);
   SR.start();
-  return { SR, S, writes, bonuses, saves, ctl };
+  return { SR, S, writes, bonuses, saves, ctl, deleted };
 }
 
 // una routine di gruppo da 3 volte a settimana, creata da Anna (uO) venerdì 25 settembre 2026; io sono uG
@@ -214,6 +214,39 @@ test('chi l\'ha creata: un gruppo nuovo di una routine di ogni giorno, una volta
   const c3 = W.writes.filter(x => x.set)[1].set;
   assert.deepEqual([c3.freq, c3.n, c3.days], ['m', 1, []]);
 });
+test('chi l\'ha creata: un gruppo nuovo si scrive in due volte, prima senza amici e poi con gli inviti', async t => {
+  now(t, '2026-10-05');
+  const r = M.normalizeRoutines([{ id: 'r4', title: 'Corsa', rewards: { Vigore: 4 }, days: [1, 3], start: '2026-10-05' }])[0];
+  const SHfake = { pickFriends: o => o.send([{ uid: 'uF', name: 'Marco' }, { uid: 'uG2', name: 'Lia' }]), joinNames: l => l.join(', '), myName: () => 'Anna' };
+  const W = fakeWorldWithSH('uO', SHfake);
+  W.S.routines.push(r);
+  await W.SR.openInvite(r.id);
+  const [first, second] = W.writes;
+  assert.equal(W.writes.length, 2);
+  // il documento arriva alle regole senza amici (così contenuto e ospiti non si sommano nello stesso tetto di espressioni)
+  assert.deepEqual([first.set.members, first.set.g], [['uO'], {}]);
+  assert.ok(first.set.title, 'con il contenuto');
+  // poi gli amici, con lo stesso aggiornamento delle routine già di gruppo
+  assert.equal(second.id, first.id);
+  assert.deepEqual(second.data.members, ['uF', 'uG2']);
+  assert.deepEqual([second.data['g.uF'].n, second.data['g.uF'].j, second.data['g.uG2'].n], ['Marco', false, 'Lia']);
+  assert.deepEqual(Object.keys(second.data).sort(), ['g.uF', 'g.uG2', 'members', 'updated'], 'solo quello che le regole ammettono per gli inviti');
+  assert.equal(r.sr, first.id, 'la routine è collegata al gruppo');
+  assert.equal(W.deleted.length, 0);
+});
+
+test('chi l\'ha creata: se gli inviti non vengono accettati dal server, il gruppo appena creato si elimina', async t => {
+  now(t, '2026-10-05');
+  const r = M.normalizeRoutines([{ id: 'r5', title: 'Corsa', rewards: { Vigore: 4 }, days: [1, 3], start: '2026-10-05' }])[0];
+  const SHfake = { pickFriends: o => o.send([{ uid: 'uF', name: 'Marco' }]), joinNames: l => l.join(', '), myName: () => 'Anna' };
+  const W = fakeWorldWithSH('uO', SHfake);
+  W.S.routines.push(r);
+  W.ctl.fail = { code: 'permission-denied' };   // la prima scrittura che usa update(): gli inviti
+  await assert.rejects(() => W.SR.openInvite(r.id).then(x => { if (x === false) throw new Error('rifiutato'); return x; }), () => true);
+  assert.deepEqual(W.deleted, [W.writes[0].id], 'il documento senza amici non resta sul server');
+  assert.equal(r.sr, undefined, 'la routine torna normale');
+});
+
 // come fakeWorld, ma con un SH scelto dal test (per gli inviti)
 function fakeWorldWithSH(uid, SH) {
   const w = fakeWorld(uid, baseDoc());
@@ -224,7 +257,7 @@ function fakeWorldWithSH(uid, SH) {
   };
   const SR = window.LIFE_RPG_SHARED_ROUTINES.create(D, w.S);
   SR.start();
-  return { SR, S: w.S, writes: w.writes };
+  return { SR, S: w.S, writes: w.writes, ctl: w.ctl, deleted: w.deleted };
 }
 
 /* ---------- "Salta" nelle routine di gruppo ---------- */
